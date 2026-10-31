@@ -11,12 +11,14 @@ describe('App Session Synchronization, Settings Modal, and Global Dictate', () =
         Promise.resolve({
           id: 'sess-new',
           mode,
+          disciplineId: 'osi-layer3',
           phase: 'goal_orientation',
           goal,
           goalClarificationOptions: ['Opção 1', 'Opção 2'],
           questionCount: 0,
           frontierClarity: 0,
           attempts: [],
+          socraticSteps: [],
           nodesState: {},
         } as ProbingSession)
       ),

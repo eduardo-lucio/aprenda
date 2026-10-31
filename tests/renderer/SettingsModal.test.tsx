@@ -1,9 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SettingsModal, DEFAULT_SETTINGS } from '../../src/renderer/components/SettingsModal';
+import { ModelOption } from '../../src/shared/types';
 
 describe('SettingsModal Functional Component', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
   it('does not render when isOpen is false', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
@@ -36,9 +47,18 @@ describe('SettingsModal Functional Component', () => {
     expect(screen.queryByText('Keyboard')).toBeNull();
   });
 
-  it('allows adding and entering API key for a provider in Providers tab', () => {
+  it('rejects invalid API key with error banner and DOES NOT save or activate provider', async () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
+
+    // Mock failure (401 Unauthorized)
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: { message: 'User not found.', code: 401 },
+      }),
+    } as any);
 
     render(
       <SettingsModal
@@ -50,40 +70,111 @@ describe('SettingsModal Functional Component', () => {
     );
 
     // Click + Add a provider
-    const addRow = screen.getByText('+ Add a provider');
-    fireEvent.click(addRow);
+    fireEvent.click(screen.getByText('+ Add a provider'));
 
     // Search input appears
     const searchInput = screen.getByPlaceholderText('Search providers...');
-    fireEvent.change(searchInput, { target: { value: 'DeepSeek' } });
+    fireEvent.change(searchInput, { target: { value: 'OpenRouter' } });
 
-    // Click DeepSeek
-    fireEvent.click(screen.getByText('DeepSeek'));
+    // Click OpenRouter
+    fireEvent.click(screen.getByText('OpenRouter'));
 
-    // Key input dialog appears
-    expect(screen.getByText(/configurar chave de api: deepseek/i)).toBeDefined();
+    // Type a fake/garbage API key
     const keyInput = screen.getByPlaceholderText(/insira sua chave/i);
-    fireEvent.change(keyInput, { target: { value: 'sk-deepseek-123456789' } });
+    fireEvent.change(keyInput, { target: { value: 'sk-or-invalid-garbage-123' } });
 
     // Click Salvar Chave de API
     const saveKeyBtn = screen.getByRole('button', { name: /salvar chave de api/i });
     fireEvent.click(saveKeyBtn);
 
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiKey: 'sk-deepseek-123456789',
-        activeProviderId: 'deepseek',
-        providers: expect.arrayContaining([
-          expect.objectContaining({
-            name: 'DeepSeek',
-            apiKey: 'sk-deepseek-123456789',
-          }),
-        ]),
-      })
-    );
+    // Wait for error banner to appear
+    await waitFor(() => {
+      expect(screen.getByText(/erro de validação/i)).toBeDefined();
+      expect(screen.getByText(/user not found/i)).toBeDefined();
+    });
+
+    // onSave should NOT be called!
+    expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('displays warning in Agent tab when no provider has an API key configured', () => {
+  it('validates key and dynamically saves provider with real models upon successful validation', async () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    // Mock successful OpenRouter key check + models response
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { label: 'Eduardo Key' } }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            {
+              id: 'anthropic/claude-3.7-sonnet',
+              name: 'Claude 3.7 Sonnet',
+              context_length: 200000,
+              pricing: { prompt: '0.000003', completion: '0.000015' },
+            },
+            {
+              id: 'deepseek/deepseek-r1',
+              name: 'DeepSeek R1',
+              context_length: 64000,
+              pricing: { prompt: '0.00000055', completion: '0.00000219' },
+            },
+          ],
+        }),
+      } as any);
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        onSave={onSave}
+        initialSettings={DEFAULT_SETTINGS}
+      />
+    );
+
+    // Click + Add a provider
+    fireEvent.click(screen.getByText('+ Add a provider'));
+
+    // Select OpenRouter
+    fireEvent.click(screen.getByText('OpenRouter'));
+
+    // Type real key
+    const keyInput = screen.getByPlaceholderText(/insira sua chave/i);
+    fireEvent.change(keyInput, { target: { value: 'sk-or-v1-valid-key-9876543210' } });
+
+    // Click Salvar Chave de API
+    const saveKeyBtn = screen.getByRole('button', { name: /salvar chave de api/i });
+    fireEvent.click(saveKeyBtn);
+
+    // Wait for successful save
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          activeProviderId: 'openrouter',
+          apiKey: 'sk-or-v1-valid-key-9876543210',
+          providers: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'openrouter',
+              isValidated: true,
+              models: expect.arrayContaining([
+                expect.objectContaining({ id: 'anthropic/claude-3.7-sonnet' }),
+                expect.objectContaining({ id: 'deepseek/deepseek-r1' }),
+              ]),
+            }),
+          ]),
+        })
+      );
+    });
+  });
+
+  it('displays warning in Agent tab when no provider is validated', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
@@ -94,7 +185,7 @@ describe('SettingsModal Functional Component', () => {
         onSave={onSave}
         initialSettings={{
           ...DEFAULT_SETTINGS,
-          apiKey: '',
+          activeProviderId: '',
           providers: [],
         }}
       />
@@ -108,9 +199,41 @@ describe('SettingsModal Functional Component', () => {
     expect(screen.getByRole('button', { name: /ir para a aba providers/i })).toBeDefined();
   });
 
-  it('allows searching and selecting models and choosing effort level in Agent tab', () => {
+  it('allows searching and selecting models from the live provider models and choosing effort level', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
+
+    const realModels: ModelOption[] = [
+      {
+        id: 'anthropic/claude-3.7-sonnet',
+        name: 'Anthropic: Claude 3.7 Sonnet',
+        provider: 'openrouter',
+        slug: '~anthropic/claude-3.7-sonnet',
+        price: '$3.00/$15.00',
+        context: '200k',
+        defaultEffort: 'high',
+        isReasoning: true,
+      },
+      {
+        id: 'deepseek/deepseek-r1',
+        name: 'DeepSeek: DeepSeek-R1',
+        provider: 'openrouter',
+        slug: '~deepseek/deepseek-r1',
+        price: '$0.55/$2.19',
+        context: '64k',
+        defaultEffort: 'high',
+        isReasoning: true,
+      },
+      {
+        id: 'google/gemini-2.0-flash',
+        name: 'Google: Gemini 2.0 Flash',
+        provider: 'openrouter',
+        slug: '~google/gemini-2.0-flash',
+        price: '$0.10/$0.40',
+        context: '1M',
+        defaultEffort: 'medium',
+      },
+    ];
 
     render(
       <SettingsModal
@@ -124,11 +247,15 @@ describe('SettingsModal Functional Component', () => {
             {
               id: 'openrouter',
               name: 'OpenRouter',
-              keyMasked: '...4591 • 73',
-              apiKey: 'sk-or-real-key-1234',
+              keyMasked: '...3210 • 30',
+              apiKey: 'sk-or-v1-validated-key',
               isActive: true,
+              isValidated: true,
+              models: realModels,
             },
           ],
+          strongModel: 'deepseek/deepseek-r1',
+          strongThinking: 'high',
         }}
       />
     );
@@ -136,18 +263,19 @@ describe('SettingsModal Functional Component', () => {
     // Navigate to Agent tab
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
 
-    // Should indicate OpenRouter is active
+    // Should indicate OpenRouter is active with real models count
     expect(screen.getByText('OpenRouter')).toBeDefined();
+    expect(screen.getByText(/3 modelos reais/i)).toBeDefined();
 
-    // Click the model selection button for Strong (initially 'free')
-    const strongModelBtn = screen.getByText('free');
+    // Click the model selection button for Strong (current: 'deepseek/deepseek-r1')
+    const strongModelBtn = screen.getByText('deepseek/deepseek-r1');
     fireEvent.click(strongModelBtn);
 
     // Search input appears in the popover
     const searchModelInput = screen.getByPlaceholderText('Search models...');
     fireEvent.change(searchModelInput, { target: { value: 'Claude 3.7' } });
 
-    // Select Claude 3.7 Sonnet
+    // Select Claude 3.7 Sonnet from the filtered real models
     const claudeOption = screen.getByText('Anthropic: Claude 3.7 Sonnet');
     fireEvent.click(claudeOption);
 

@@ -74,6 +74,45 @@ export interface JudgeEvaluationResult {
   identifiedMisconception?: string;
 }
 
+export interface ModelOption {
+  id: string;
+  name: string;
+  provider: string;
+  slug: string;
+  price: string;
+  context: string;
+  defaultEffort: 'off' | 'minimal' | 'low' | 'medium' | 'high';
+  isReasoning?: boolean;
+}
+
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  keyMasked: string;
+  apiKey: string;
+  baseUrl?: string;
+  isActive?: boolean;
+  isValidated?: boolean;
+  models?: ModelOption[];
+}
+
+export interface ProviderValidationResult {
+  isValid: boolean;
+  providerId: string;
+  providerName: string;
+  keyMasked: string;
+  models: ModelOption[];
+  error?: string;
+}
+
+export interface SettingsUpdatePayload {
+  providerId?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  effortLevel?: string;
+}
+
 export interface ElectronAPI {
   startSession: (mode: 'teaching' | 'practice', goal: string) => Promise<ProbingSession>;
   submitGoalClarification: (option: string) => Promise<QuestionData>;
@@ -84,10 +123,16 @@ export interface ElectronAPI {
     session: ProbingSession;
   }>;
   advanceToDiagnosis: () => Promise<ProbingSession>;
-  startSocraticStep: (nodeId?: string) => Promise<SocraticStep>;
+  startSocraticStep: (nodeId?: string) => Promise<{ node: ConceptNode; questionText: string; promptGoal: string }>;
   submitPrediction: (text: string) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData }>;
   submitCheckAnswer: (selectedIndex: number) => Promise<{ isPassed: boolean; repairExplanation?: string; session: ProbingSession }>;
   getGraphState: () => Promise<ConceptNode[]>;
   getSession: () => Promise<ProbingSession | null>;
   windowAction: (action: 'minimize' | 'maximize' | 'close') => void;
+  validateProvider: (params: {
+    providerId: string;
+    apiKey: string;
+    baseUrl?: string;
+  }) => Promise<ProviderValidationResult>;
+  updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
 }

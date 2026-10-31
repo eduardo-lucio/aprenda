@@ -1,37 +1,20 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
-  Search,
   ChevronDown,
   Check,
   AlertTriangle,
-  Key,
-  ShieldCheck,
-  Trash2,
-  Sparkles,
   Palette,
-  ExternalLink,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
-
-export interface ProviderConfig {
-  id: string;
-  name: string;
-  keyMasked: string;
-  apiKey: string;
-  baseUrl?: string;
-  isActive?: boolean;
-}
-
-export interface ModelOption {
-  id: string;
-  name: string;
-  provider: string;
-  slug: string;
-  price: string;
-  context: string;
-  defaultEffort: 'off' | 'minimal' | 'low' | 'medium' | 'high';
-  isReasoning?: boolean;
-}
+import {
+  ModelOption,
+  ProviderConfig,
+  ProviderValidationResult,
+} from '../../shared/types';
+import { validateAndFetchModels } from '../../main/services/providerValidationService';
 
 export interface AppSettings {
   // Legacy / backwards compatibility fields
@@ -59,289 +42,36 @@ export interface AppSettings {
   autoUpdates: boolean;
 }
 
-// Built-in catalog of 35 providers
+// Built-in catalog of providers supported for API validation
 export const AVAILABLE_PROVIDERS = [
   { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', defaultUrl: 'https://openrouter.ai/api/v1' },
-  { id: 'google', name: 'Google', envKey: 'GEMINI_API_KEY', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+  { id: 'google', name: 'Google Gemini', envKey: 'GEMINI_API_KEY', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' },
   { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', defaultUrl: 'https://api.openai.com/v1' },
   { id: 'deepseek', name: 'DeepSeek', envKey: 'DEEPSEEK_API_KEY', defaultUrl: 'https://api.deepseek.com/v1' },
   { id: 'anthropic', name: 'Anthropic', envKey: 'ANTHROPIC_API_KEY', defaultUrl: 'https://api.anthropic.com/v1' },
   { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY', defaultUrl: 'https://api.groq.com/openai/v1' },
-  { id: 'ollama', name: 'Ollama (Local)', envKey: 'OLLAMA_BASE_URL', defaultUrl: 'http://localhost:11434/v1' },
+  { id: 'ollama', name: 'Ollama (Local)', envKey: 'OLLAMA_BASE_URL', defaultUrl: 'http://localhost:11434' },
   { id: 'cerebras', name: 'Cerebras', envKey: 'CEREBRAS_API_KEY', defaultUrl: 'https://api.cerebras.ai/v1' },
-  { id: 'fireworks', name: 'Fireworks', envKey: 'FIREWORKS_API_KEY', defaultUrl: 'https://api.fireworks.ai/inference/v1' },
   { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY', defaultUrl: 'https://api.together.xyz/v1' },
   { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY', defaultUrl: 'https://api.mistral.ai/v1' },
-  { id: 'cohere', name: 'Cohere', envKey: 'COHERE_API_KEY', defaultUrl: 'https://api.cohere.com/v1' },
-  { id: 'huggingface', name: 'Hugging Face', envKey: 'HF_TOKEN', defaultUrl: 'https://api-inference.huggingface.co/v1' },
-  { id: 'kimi', name: 'Kimi For Coding', envKey: 'KIMI_API_KEY', defaultUrl: 'https://api.moonshot.cn/v1' },
-  { id: 'baseten', name: 'Baseten', envKey: 'BASETEN_API_KEY', defaultUrl: 'https://bridge.baseten.co/v1' },
-  { id: 'ant-ling', name: 'Ant Ling', envKey: 'ANT_LING_API_KEY', defaultUrl: 'https://api.antling.ai/v1' },
-  { id: 'xai', name: 'xAI (Grok)', envKey: 'XAI_API_KEY', defaultUrl: 'https://api.x.ai/v1' },
-  { id: 'perplexity', name: 'Perplexity', envKey: 'PERPLEXITY_API_KEY', defaultUrl: 'https://api.perplexity.ai' },
-  { id: 'voyage', name: 'Voyage AI', envKey: 'VOYAGE_API_KEY', defaultUrl: 'https://api.voyageai.com/v1' },
   { id: 'custom', name: 'Custom endpoint...', envKey: 'CUSTOM_OPENAI_API_KEY', defaultUrl: 'http://localhost:8000/v1' },
 ];
 
-// Rich model catalog mapped to provider IDs
-export const PROVIDER_MODELS_CATALOG: Record<string, ModelOption[]> = {
-  openrouter: [
-    {
-      id: 'anthropic/claude-3.7-sonnet',
-      name: 'Anthropic: Claude 3.7 Sonnet',
-      provider: 'openrouter',
-      slug: '~anthropic/claude-3.7-sonnet',
-      price: '$3.00/$15.00',
-      context: '200k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'anthropic/claude-3.5-haiku',
-      name: 'Anthropic: Claude 3.5 Haiku',
-      provider: 'openrouter',
-      slug: '~anthropic/claude-3.5-haiku',
-      price: '$0.80/$4.00',
-      context: '200k',
-      defaultEffort: 'low',
-    },
-    {
-      id: 'deepseek/deepseek-r1',
-      name: 'DeepSeek: DeepSeek-R1',
-      provider: 'openrouter',
-      slug: '~deepseek/deepseek-r1',
-      price: '$0.55/$2.19',
-      context: '64k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'deepseek/deepseek-chat',
-      name: 'DeepSeek: DeepSeek-V3',
-      provider: 'openrouter',
-      slug: '~deepseek/deepseek-chat',
-      price: '$0.14/$0.28',
-      context: '64k',
-      defaultEffort: 'low',
-    },
-    {
-      id: 'google/gemini-2.0-flash-001',
-      name: 'Google: Gemini 2.0 Flash',
-      provider: 'openrouter',
-      slug: '~google/gemini-2.0-flash',
-      price: '$0.10/$0.40',
-      context: '1M',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'openai/gpt-4o',
-      name: 'OpenAI: GPT-4o',
-      provider: 'openrouter',
-      slug: '~openai/gpt-4o',
-      price: '$2.50/$10.00',
-      context: '128k',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'openai/o3-mini',
-      name: 'OpenAI: o3-mini',
-      provider: 'openrouter',
-      slug: '~openai/o3-mini',
-      price: '$1.10/$4.40',
-      context: '200k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-  ],
-  google: [
-    {
-      id: 'gemini-2.0-flash',
-      name: 'Google: Gemini 2.0 Flash',
-      provider: 'google',
-      slug: 'gemini-2.0-flash',
-      price: 'Free Tier',
-      context: '1M',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'gemini-2.0-flash-thinking-exp',
-      name: 'Google: Gemini 2.0 Flash Thinking',
-      provider: 'google',
-      slug: 'gemini-2.0-flash-thinking',
-      price: 'Free Tier',
-      context: '1M',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'gemini-1.5-pro',
-      name: 'Google: Gemini 1.5 Pro',
-      provider: 'google',
-      slug: 'gemini-1.5-pro',
-      price: 'Standard',
-      context: '2M',
-      defaultEffort: 'high',
-    },
-  ],
-  openai: [
-    {
-      id: 'gpt-4o',
-      name: 'OpenAI: GPT-4o',
-      provider: 'openai',
-      slug: 'gpt-4o',
-      price: '$2.50/$10.00',
-      context: '128k',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'gpt-4o-mini',
-      name: 'OpenAI: GPT-4o-mini',
-      provider: 'openai',
-      slug: 'gpt-4o-mini',
-      price: '$0.15/$0.60',
-      context: '128k',
-      defaultEffort: 'low',
-    },
-    {
-      id: 'o3-mini',
-      name: 'OpenAI: o3-mini',
-      provider: 'openai',
-      slug: 'o3-mini',
-      price: '$1.10/$4.40',
-      context: '200k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'o1',
-      name: 'OpenAI: o1',
-      provider: 'openai',
-      slug: 'o1',
-      price: '$15.00/$60.00',
-      context: '200k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-  ],
-  deepseek: [
-    {
-      id: 'deepseek-reasoner',
-      name: 'DeepSeek: DeepSeek-R1 (Reasoner)',
-      provider: 'deepseek',
-      slug: 'deepseek-reasoner',
-      price: '$0.55/$2.19',
-      context: '64k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'deepseek-chat',
-      name: 'DeepSeek: DeepSeek-V3',
-      provider: 'deepseek',
-      slug: 'deepseek-chat',
-      price: '$0.14/$0.28',
-      context: '64k',
-      defaultEffort: 'low',
-    },
-  ],
-  groq: [
-    {
-      id: 'llama-3.3-70b-versatile',
-      name: 'Groq: Llama 3.3 70B Versatile',
-      provider: 'groq',
-      slug: 'llama-3.3-70b',
-      price: 'Ultra-Fast',
-      context: '128k',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'deepseek-r1-distill-llama-70b',
-      name: 'Groq: DeepSeek R1 Distill 70B',
-      provider: 'groq',
-      slug: 'deepseek-r1-70b',
-      price: 'Ultra-Fast',
-      context: '128k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-  ],
-  anthropic: [
-    {
-      id: 'claude-3-7-sonnet-20250219',
-      name: 'Anthropic: Claude 3.7 Sonnet',
-      provider: 'anthropic',
-      slug: 'claude-3-7-sonnet',
-      price: '$3.00/$15.00',
-      context: '200k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'claude-3-5-haiku-20241022',
-      name: 'Anthropic: Claude 3.5 Haiku',
-      provider: 'anthropic',
-      slug: 'claude-3-5-haiku',
-      price: '$0.80/$4.00',
-      context: '200k',
-      defaultEffort: 'low',
-    },
-  ],
-  ollama: [
-    {
-      id: 'deepseek-r1:14b',
-      name: 'Ollama: DeepSeek-R1 14B',
-      provider: 'ollama',
-      slug: 'deepseek-r1:14b',
-      price: 'Local GPU/CPU',
-      context: '64k',
-      defaultEffort: 'high',
-      isReasoning: true,
-    },
-    {
-      id: 'llama3.3:70b',
-      name: 'Ollama: Llama 3.3 70B',
-      provider: 'ollama',
-      slug: 'llama3.3:70b',
-      price: 'Local GPU/CPU',
-      context: '128k',
-      defaultEffort: 'medium',
-    },
-    {
-      id: 'qwen2.5-coder:14b',
-      name: 'Ollama: Qwen 2.5 Coder 14B',
-      provider: 'ollama',
-      slug: 'qwen2.5-coder:14b',
-      price: 'Local GPU/CPU',
-      context: '32k',
-      defaultEffort: 'medium',
-    },
-  ],
-};
-
 export const DEFAULT_SETTINGS: AppSettings = {
-  baseUrl: 'http://localhost:11434/v1',
+  baseUrl: 'https://openrouter.ai/api/v1',
   apiKey: '',
-  model: 'gemini-2.0-flash',
+  model: '',
   thinkingLevel: 'High',
   minQuestions: 8,
 
-  activeProviderId: 'openrouter',
-  providers: [
-    {
-      id: 'openrouter',
-      name: 'OpenRouter',
-      keyMasked: '...4591 • 73',
-      apiKey: '',
-      baseUrl: 'https://openrouter.ai/api/v1',
-      isActive: true,
-    },
-  ],
+  activeProviderId: '',
+  providers: [],
 
-  strongModel: 'free',
+  strongModel: '',
   strongThinking: 'high',
-  cheapModel: 'gemini-3.8-flash:batch',
+  cheapModel: '',
   cheapThinking: 'low',
-  visionModel: 'gemini-3.8-flash:batch',
+  visionModel: '',
   visionThinking: 'low',
 
   language: 'Portuguese (pt-BR)',
@@ -380,6 +110,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     isNew?: boolean;
   } | null>(null);
 
+  // Validation state
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
   // Model & Effort selector dropdown states in Agent tab
   const [openModelSelectorSlot, setOpenModelSelectorSlot] = useState<'strong' | 'cheap' | 'vision' | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
@@ -395,42 +129,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const next = { ...settings, ...updates };
     setSettings(next);
     onSave(next);
+
+    // Synchronize to Electron Main LLM client if available
+    if (window.api?.updateSettings) {
+      window.api.updateSettings({
+        providerId: next.activeProviderId,
+        apiKey: next.apiKey,
+        baseUrl: next.baseUrl,
+        model: next.strongModel || next.model,
+        effortLevel: next.strongThinking,
+      });
+    }
   };
 
   // Identify active provider
   const activeProvider = useMemo(() => {
-    const found = settings.providers?.find((p) => p.id === settings.activeProviderId && p.apiKey);
+    const found = settings.providers?.find((p) => p.id === settings.activeProviderId);
     if (found) return found;
-    // Fallback to any provider with key
-    return settings.providers?.find((p) => Boolean(p.apiKey)) || null;
+    return settings.providers?.find((p) => Boolean(p.apiKey && p.isValidated)) || null;
   }, [settings.providers, settings.activeProviderId]);
 
-  // Identify available models for active provider
+  // Identify available models dynamically fetched from the active validated provider
   const availableModelsForActiveProvider = useMemo(() => {
-    if (!activeProvider) return [];
-    const catalog = PROVIDER_MODELS_CATALOG[activeProvider.id];
-    if (catalog && catalog.length > 0) return catalog;
-    // Fallback standard OpenAI compatible models for custom/other providers
-    return [
-      {
-        id: 'gpt-4o',
-        name: `${activeProvider.name}: Default Strong`,
-        provider: activeProvider.id,
-        slug: 'default-strong',
-        price: 'Standard',
-        context: '128k',
-        defaultEffort: 'medium' as const,
-      },
-      {
-        id: 'gpt-4o-mini',
-        name: `${activeProvider.name}: Default Cheap`,
-        provider: activeProvider.id,
-        slug: 'default-cheap',
-        price: 'Fast',
-        context: '128k',
-        defaultEffort: 'low' as const,
-      },
-    ];
+    if (!activeProvider || !activeProvider.isValidated || !activeProvider.models) {
+      return [];
+    }
+    return activeProvider.models;
   }, [activeProvider]);
 
   const filteredModels = useMemo(() => {
@@ -454,34 +178,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Handle saving an API key for a provider
-  const handleSaveProviderKey = () => {
+  // Strict API Key Validation against live provider endpoint
+  const handleSaveProviderKey = async () => {
     if (!editingProvider) return;
     const key = editingProvider.apiKey.trim();
-    const masked =
-      key.length > 8 ? `...${key.slice(-4)} • ${key.length}` : key ? 'Configurado' : 'Sem chave';
 
-    const newConfig: ProviderConfig = {
-      id: editingProvider.id,
-      name: editingProvider.name,
-      keyMasked: masked,
-      apiKey: key,
-      baseUrl: editingProvider.baseUrl,
-      isActive: true,
-    };
+    if (!key && editingProvider.id !== 'ollama') {
+      setValidationError('Por favor, insira uma Chave de API válida.');
+      return;
+    }
 
-    const existing = (settings.providers || []).filter((p) => p.id !== editingProvider.id);
-    const updated = [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))];
+    setIsValidatingKey(true);
+    setValidationError(null);
 
-    updateSettings({
-      providers: updated,
-      activeProviderId: editingProvider.id,
-      apiKey: key,
-      baseUrl: editingProvider.baseUrl || settings.baseUrl,
-    });
+    try {
+      let result: ProviderValidationResult;
 
-    setEditingProvider(null);
-    setShowProviderDropdown(false);
+      // Prefer window.api IPC (Electron Main process) to bypass browser CORS
+      if (window.api?.validateProvider) {
+        result = await window.api.validateProvider({
+          providerId: editingProvider.id,
+          apiKey: key,
+          baseUrl: editingProvider.baseUrl,
+        });
+      } else {
+        // Fallback for tests or direct execution
+        result = await validateAndFetchModels({
+          providerId: editingProvider.id,
+          apiKey: key,
+          baseUrl: editingProvider.baseUrl,
+        });
+      }
+
+      if (!result.isValid) {
+        throw new Error(result.error || 'A chave de API informada foi rejeitada pelo provedor.');
+      }
+
+      const newConfig: ProviderConfig = {
+        id: result.providerId,
+        name: result.providerName,
+        keyMasked: result.keyMasked,
+        apiKey: key,
+        baseUrl: editingProvider.baseUrl,
+        isActive: true,
+        isValidated: true,
+        models: result.models,
+      };
+
+      const existing = (settings.providers || []).filter((p) => p.id !== editingProvider.id);
+      const updatedProviders = [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))];
+
+      // Auto-assign default models if empty or from previous provider
+      const defaultModel = result.models[0]?.id || '';
+      const defaultEffort = result.models[0]?.defaultEffort || 'high';
+
+      updateSettings({
+        providers: updatedProviders,
+        activeProviderId: editingProvider.id,
+        apiKey: key,
+        baseUrl: editingProvider.baseUrl || settings.baseUrl,
+        strongModel: settings.strongModel || defaultModel,
+        model: settings.model || defaultModel,
+        strongThinking: settings.strongThinking || defaultEffort,
+        cheapModel: settings.cheapModel || defaultModel,
+        visionModel: settings.visionModel || defaultModel,
+      });
+
+      setEditingProvider(null);
+      setShowProviderDropdown(false);
+      setValidationError(null);
+    } catch (err: any) {
+      setValidationError(
+        err.message || 'Falha na validação com o provedor. Verifique sua chave e tente novamente.'
+      );
+    } finally {
+      setIsValidatingKey(false);
+    }
   };
 
   const handleRemoveProvider = (id: string) => {
@@ -563,7 +335,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-[#2a2a2a] bg-[#141414] text-gray-200 shadow-2xl overflow-hidden font-sans"
         onClick={(e) => {
           e.stopPropagation();
-          // Close popups if clicking outside them
           if (openModelSelectorSlot) setOpenModelSelectorSlot(null);
           if (openEffortSelectorSlot) setOpenEffortSelectorSlot(null);
         }}
@@ -638,13 +409,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <div className="flex items-center space-x-2">
                               <span
                                 className={`h-2 w-2 rounded-full ${
-                                  p.apiKey ? 'bg-emerald-500' : 'bg-gray-600'
+                                  p.isValidated ? 'bg-emerald-500' : 'bg-amber-500'
                                 }`}
                               />
                               <span className="text-gray-200 font-medium">{p.name}</span>
                               {isCurrentActive && (
                                 <span className="rounded bg-[#282828] px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
                                   Ativo
+                                </span>
+                              )}
+                              {p.isValidated && p.models && (
+                                <span className="text-[10px] font-mono text-gray-400">
+                                  ({p.models.length} modelos)
                                 </span>
                               )}
                             </div>
@@ -654,15 +430,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
                                   setEditingProvider({
                                     id: p.id,
                                     name: p.name,
                                     apiKey: p.apiKey || '',
                                     baseUrl: p.baseUrl || '',
                                     isNew: false,
-                                  })
-                                }
+                                  });
+                                  setValidationError(null);
+                                }}
                                 className="text-[11px] text-gray-400 hover:text-white font-sans underline"
                               >
                                 Editar Chave
@@ -723,6 +500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   baseUrl: prov.defaultUrl,
                                   isNew: true,
                                 });
+                                setValidationError(null);
                                 setShowProviderDropdown(false);
                               }}
                               className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-[#282828] text-gray-200 hover:text-white transition-colors"
@@ -735,7 +513,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     )}
 
-                    {/* Modal / Inline form to insert API key */}
+                    {/* Modal / Inline form to insert API key with live validation */}
                     {editingProvider && (
                       <div className="mt-3 rounded-lg border border-[#333333] bg-[#1c1c1c] p-4 space-y-3 animate-in fade-in duration-100">
                         <div className="flex items-center justify-between">
@@ -744,25 +522,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </span>
                           <button
                             type="button"
-                            onClick={() => setEditingProvider(null)}
+                            onClick={() => {
+                              setEditingProvider(null);
+                              setValidationError(null);
+                            }}
                             className="text-gray-500 hover:text-gray-300"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
                         </div>
 
+                        {/* Error alert box if validation fails */}
+                        {validationError && (
+                          <div className="rounded border border-red-900/60 bg-red-950/40 p-3 text-xs text-red-200 flex items-start space-x-2 animate-in fade-in duration-100">
+                            <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5">
+                              <span className="font-semibold text-red-300">Erro de validação:</span>
+                              <p className="text-[11px] leading-relaxed text-red-200">
+                                {validationError}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="space-y-1">
-                          <label className="text-[11px] font-sans text-gray-400">Chave de API (API Key)</label>
+                          <label className="text-[11px] font-sans text-gray-400">
+                            Chave de API (API Key)
+                          </label>
                           <input
                             type="password"
                             value={editingProvider.apiKey}
-                            onChange={(e) =>
-                              setEditingProvider({ ...editingProvider, apiKey: e.target.value })
-                            }
-                            placeholder="Insira sua chave (ex: sk-... ou token)"
-                            className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400"
+                            onChange={(e) => {
+                              setEditingProvider({ ...editingProvider, apiKey: e.target.value });
+                              if (validationError) setValidationError(null);
+                            }}
+                            placeholder="Insira sua chave real (ex: sk-... ou token)"
+                            disabled={isValidatingKey}
+                            className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             autoFocus
-                            onKeyDown={(e) => e.key === 'Enter' && handleSaveProviderKey()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !isValidatingKey) {
+                                handleSaveProviderKey();
+                              }
+                            }}
                           />
                         </div>
 
@@ -775,27 +577,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onChange={(e) =>
                                 setEditingProvider({ ...editingProvider, baseUrl: e.target.value })
                               }
-                              placeholder="http://localhost:11434/v1"
-                              className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400"
+                              placeholder="http://localhost:11434"
+                              disabled={isValidatingKey}
+                              className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             />
                           </div>
                         )}
 
-                        <div className="flex justify-end space-x-2 pt-2 border-t border-[#2a2a2a]">
-                          <button
-                            type="button"
-                            onClick={() => setEditingProvider(null)}
-                            className="px-3 py-1 text-xs font-sans text-gray-400 hover:text-white"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleSaveProviderKey}
-                            className="rounded bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 text-xs font-sans text-white font-medium transition-colors shadow-sm"
-                          >
-                            Salvar Chave de API
-                          </button>
+                        <div className="flex items-center justify-between pt-2 border-t border-[#2a2a2a]">
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            A chave será validada online via API antes de ser ativada.
+                          </span>
+
+                          <div className="flex space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingProvider(null);
+                                setValidationError(null);
+                              }}
+                              disabled={isValidatingKey}
+                              className="px-3 py-1 text-xs font-sans text-gray-400 hover:text-white disabled:opacity-50"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveProviderKey}
+                              disabled={isValidatingKey}
+                              className="flex items-center space-x-1.5 rounded bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 text-xs font-sans text-white font-medium transition-colors shadow-sm disabled:opacity-60"
+                            >
+                              {isValidatingKey ? (
+                                <>
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  <span>Validando Chave...</span>
+                                </>
+                              ) : (
+                                <span>Salvar Chave de API</span>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -828,23 +649,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold">
                       AGENT
                     </h3>
-                    {activeProvider && activeProvider.apiKey && (
+                    {activeProvider && activeProvider.isValidated && (
                       <span className="text-xs font-sans text-gray-400 flex items-center space-x-1.5">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                        <span>Provedor Ativo: <strong className="text-white">{activeProvider.name}</strong></span>
+                        <span>
+                          Provedor Ativo: <strong className="text-white">{activeProvider.name}</strong>
+                          {activeProvider.models && ` (${activeProvider.models.length} modelos reais)`}
+                        </span>
                       </span>
                     )}
                   </div>
 
-                  {/* Warning banner if NO provider is configured */}
-                  {(!activeProvider || !activeProvider.apiKey) && (
+                  {/* Warning banner if NO provider is validated */}
+                  {(!activeProvider || !activeProvider.isValidated || !activeProvider.apiKey) && (
                     <div className="rounded-lg border border-amber-900/60 bg-amber-950/25 p-4 mb-5 text-xs space-y-2 animate-in fade-in duration-100">
                       <div className="flex items-center space-x-2 text-amber-300 font-semibold">
                         <AlertTriangle className="h-4 w-4" />
                         <span>Nenhum provedor configurado com Chave de API</span>
                       </div>
                       <p className="text-[11px] text-gray-300 leading-relaxed">
-                        Para identificar os agentes e modelos disponíveis, configure a chave de API do provedor desejado (ex: OpenRouter, Google, OpenAI, DeepSeek ou Ollama) na aba de Provedores.
+                        Para identificar os agentes e modelos reais disponíveis, configure e valide a chave de API do provedor desejado (ex: OpenRouter, Google, OpenAI, DeepSeek ou Ollama) na aba de Provedores.
                       </p>
                       <button
                         type="button"
@@ -866,21 +690,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       slot: 'strong' as const,
                       label: 'Strong',
                       sub: 'The main model for your sessions',
-                      currentModel: settings.strongModel,
+                      currentModel: settings.strongModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
                       currentEffort: settings.strongThinking,
                     },
                     {
                       slot: 'cheap' as const,
                       label: 'Cheap',
                       sub: 'The assistants that research, build demos, and grade your work',
-                      currentModel: settings.cheapModel,
+                      currentModel: settings.cheapModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
                       currentEffort: settings.cheapThinking,
                     },
                     {
                       slot: 'vision' as const,
                       label: 'Vision',
                       sub: 'The assistants that draw and read PDFs',
-                      currentModel: settings.visionModel,
+                      currentModel: settings.visionModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
                       currentEffort: settings.visionThinking,
                     },
                   ].map((row) => (
@@ -898,6 +722,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="relative">
                           <button
                             type="button"
+                            disabled={!activeProvider?.isValidated}
                             onClick={(e) => {
                               e.stopPropagation();
                               setOpenEffortSelectorSlot(null);
@@ -906,13 +731,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               );
                               setModelSearchQuery('');
                             }}
-                            className="flex items-center space-x-1.5 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
+                            className="flex items-center space-x-1.5 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <span className="max-w-[160px] truncate">{row.currentModel}</span>
                             <ChevronDown className="h-3 w-3 text-gray-400" />
                           </button>
 
-                          {/* Searchable Model Dropdown Popover (Image 3) */}
+                          {/* Searchable Model Dropdown Popover */}
                           {openModelSelectorSlot === row.slot && (
                             <div
                               className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-[#333333] bg-[#161616] p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
@@ -954,7 +779,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                           </span>
                                         </div>
                                         <div className="text-[10px] font-mono text-gray-500 truncate mt-0.5">
-                                          {m.provider} · {m.slug} {m.context}
+                                          {m.provider} · {m.slug} · {m.context}
                                           {m.isReasoning && ' · (Reasoning)'}
                                         </div>
                                       </div>
@@ -966,7 +791,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           )}
                         </div>
 
-                        {/* 2. Effort / Thinking Selection Pill Button (Image 4) */}
+                        {/* 2. Effort / Thinking Selection Pill Button */}
                         <div className="relative">
                           <button
                             type="button"
@@ -983,7 +808,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <ChevronDown className="h-3 w-3 text-gray-400" />
                           </button>
 
-                          {/* Effort Dropdown Popover (Image 4) */}
+                          {/* Effort Dropdown Popover */}
                           {openEffortSelectorSlot === row.slot && (
                             <div
                               className="absolute right-0 top-9 z-50 w-36 rounded-xl border border-[#333333] bg-[#161616] py-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"

@@ -149,11 +149,13 @@ describe('SessionView Integration', () => {
     const diagnosisSession: ProbingSession = {
       id: 'sess-diag',
       mode: 'teaching',
+      disciplineId: 'osi-layer3',
       phase: 'frontier_diagnosis',
       goal: 'Camada 3 e TTL',
       questionCount: 8,
       frontierClarity: 100,
       attempts: [],
+      socraticSteps: [],
       nodesState: { 'osi-l3-ttl': 'false_positive' },
     };
 

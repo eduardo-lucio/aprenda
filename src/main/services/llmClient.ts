@@ -12,6 +12,10 @@ export const defaultLLMConfig: LLMConfig = {
   timeoutMs: 6000,
 };
 
+export function updateDefaultLLMConfig(newConfig: Partial<LLMConfig>): void {
+  Object.assign(defaultLLMConfig, newConfig);
+}
+
 export async function callLLM(options: {
   prompt: string;
   systemPrompt?: string;

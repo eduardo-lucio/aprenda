@@ -34,6 +34,12 @@ const api: ElectronAPI = {
 
   windowAction: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send('window:action', action),
+
+  validateProvider: (params: { providerId: string; apiKey: string; baseUrl?: string }) =>
+    ipcRenderer.invoke('provider:validate-and-fetch', params),
+
+  updateSettings: (settings: any) =>
+    ipcRenderer.invoke('settings:update', settings),
 };
 
 contextBridge.exposeInMainWorld('api', api);

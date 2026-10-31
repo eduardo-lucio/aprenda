@@ -2,7 +2,9 @@ import { BrowserWindow, IpcMain } from 'electron';
 import { SessionStateMachine } from '../fsm/SessionStateMachine';
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { SocraticEngine } from '../socratic/SocraticEngine';
-import { CheckQuestionData, ConceptNode } from '../../shared/types';
+import { CheckQuestionData, ConceptNode, SettingsUpdatePayload } from '../../shared/types';
+import { validateAndFetchModels } from '../services/providerValidationService';
+import { updateDefaultLLMConfig } from '../services/llmClient';
 
 export interface IpcDependencies {
   fsm: SessionStateMachine;
@@ -131,6 +133,25 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     } catch (_err) {
       return null;
     }
+  });
+
+  ipcMain.handle(
+    'provider:validate-and-fetch',
+    async (
+      _event,
+      params: { providerId: string; apiKey: string; baseUrl?: string }
+    ) => {
+      return await validateAndFetchModels(params);
+    }
+  );
+
+  ipcMain.handle('settings:update', async (_event, payload: SettingsUpdatePayload) => {
+    const configUpdate: any = {};
+    if (payload.baseUrl) configUpdate.baseURL = payload.baseUrl;
+    if (payload.apiKey) configUpdate.apiKey = payload.apiKey;
+    if (payload.model) configUpdate.model = payload.model;
+    updateDefaultLLMConfig(configUpdate);
+    return { success: true };
   });
 
   ipcMain.on('window:action', (_event, action: 'minimize' | 'maximize' | 'close') => {
