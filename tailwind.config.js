@@ -23,9 +23,9 @@ module.exports = {
         }
       },
       fontFamily: {
-        serif: ['Georgia', 'Cambria', 'serif'],
+        serif: ['DejaVu Serif', 'Georgia', 'serif'],
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['Fira Code', 'monospace'],
+        mono: ['JetBrains Mono', 'DejaVu Sans Mono', 'monospace'],
       }
     },
   },

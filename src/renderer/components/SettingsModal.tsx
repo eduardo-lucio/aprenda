@@ -241,15 +241,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-[#262626] bg-[#141414] text-gray-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-[#2a2a2a] bg-[#141414] text-gray-200 shadow-2xl overflow-hidden font-sans"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex h-14 items-center justify-between border-b border-[#222222] px-6">
-          <h2 className="text-2xl font-serif text-[#f1f1f1] tracking-tight">Settings</h2>
+        <div className="flex h-14 items-center justify-between border-b border-[#262626] px-6">
+          <h2 className="text-2xl font-serif text-white tracking-tight font-medium">Settings</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-[#666666] hover:bg-[#222222] hover:text-[#cccccc] transition-colors"
+            className="rounded p-1 text-gray-400 hover:bg-[#262626] hover:text-white transition-colors"
             aria-label="Fechar"
           >
             <X className="h-4 w-4" />
@@ -259,7 +259,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Main 2-Column Content */}
         <div className="flex flex-1 overflow-hidden">
           {/* Left Navigation Sidebar */}
-          <div className="w-44 border-r border-[#222222] p-3 space-y-1 bg-[#141414]">
+          <div className="w-44 border-r border-[#262626] p-3 space-y-1 bg-[#141414]">
             {navTabs.map((tab) => {
               const isActive = activeTab === tab;
               return (
@@ -267,10 +267,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   key={tab}
                   type="button"
                   onClick={() => setActiveTab(tab)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-xs font-mono transition-colors ${
+                  className={`w-full text-left px-3 py-2 rounded-md text-xs font-sans transition-colors ${
                     isActive
-                      ? 'bg-[#242424] text-white font-medium shadow-sm'
-                      : 'text-[#888888] hover:text-[#cccccc] hover:bg-[#1a1a1a]'
+                      ? 'bg-[#282828] text-white font-semibold shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-[#1c1c1c]'
                   }`}
                 >
                   {tab}
@@ -285,11 +285,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === 'Providers' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                     PROVIDERS
                   </h3>
 
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-2">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-2">
                     MODEL API KEYS
                   </div>
 
@@ -299,15 +299,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       settings.providers.map((p) => (
                         <div
                           key={p.id}
-                          className="group flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#1a1a1a] transition-colors text-xs font-mono"
+                          className="group flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#1c1c1c] transition-colors text-xs font-sans"
                         >
-                          <span className="text-[#d4d4d4] font-mono">{p.name}</span>
+                          <span className="text-gray-200 font-medium">{p.name}</span>
                           <div className="flex items-center space-x-2">
-                            <span className="text-[#777777] font-mono">{p.keyMasked}</span>
+                            <span className="text-gray-400 font-mono text-[11px]">{p.keyMasked}</span>
                             <button
                               type="button"
                               onClick={() => handleRemoveProvider(p.id)}
-                              className="hidden group-hover:block text-[10px] text-red-500 hover:text-red-400 font-mono"
+                              className="hidden group-hover:block text-[11px] text-red-400 hover:text-red-300 font-sans"
                               title="Remover"
                             >
                               remover
@@ -316,7 +316,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       ))
                     ) : (
-                      <div className="text-xs text-[#555555] italic py-1 px-2 font-mono">
+                      <div className="text-xs text-gray-500 italic py-1 px-2 font-sans">
                         Nenhum provedor configurado.
                       </div>
                     )}
@@ -326,15 +326,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="relative">
                     <div
                       onClick={() => setShowProviderDropdown(!showProviderDropdown)}
-                      className="flex items-center justify-between rounded p-2 text-xs font-mono text-[#888888] hover:text-[#cccccc] hover:bg-[#1c1c1c] cursor-pointer transition-colors border border-transparent hover:border-[#2a2a2a]"
+                      className="flex items-center justify-between rounded p-2 text-xs font-sans text-gray-300 hover:text-white hover:bg-[#1c1c1c] cursor-pointer transition-colors border border-transparent hover:border-[#2e2e2e]"
                     >
-                      <span>+ Add a provider</span>
-                      <span className="text-[#555555] font-mono">35</span>
+                      <span className="font-medium">+ Add a provider</span>
+                      <span className="text-gray-500 font-mono text-xs">35</span>
                     </div>
 
                     {/* Searchable Dropdown Popover */}
                     {showProviderDropdown && (
-                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-[#2a2a2a] bg-[#161616] p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-[#333333] bg-[#1a1a1a] p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
                         <div className="relative mb-2">
                           <input
                             type="text"
@@ -342,7 +342,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             value={providerSearch}
                             onChange={(e) => setProviderSearch(e.target.value)}
                             autoFocus
-                            className="w-full rounded-lg border border-[#333333] bg-[#0f0f0f] px-3 py-1.5 text-xs font-mono text-[#e5e5e5] placeholder:text-[#555555] outline-none focus:border-[#666666]"
+                            className="w-full rounded-lg border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
                           />
                         </div>
 
@@ -354,10 +354,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 setAddingProvider(prov);
                                 setInputKey('');
                               }}
-                              className="flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs font-mono hover:bg-[#242424] transition-colors"
+                              className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-[#282828] text-gray-200 hover:text-white transition-colors"
                             >
-                              <span className="text-[#d4d4d4]">{prov.name}</span>
-                              <span className="text-[10px] text-[#666666]">{prov.envKey}</span>
+                              <span>{prov.name}</span>
+                              <span className="text-[10px] font-mono text-gray-400">{prov.envKey}</span>
                             </div>
                           ))}
                         </div>
@@ -366,16 +366,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* Mini modal to enter key when provider clicked */}
                     {addingProvider && (
-                      <div className="mt-3 rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-3 space-y-2">
-                        <div className="text-xs font-mono text-[#d4d4d4]">
-                          Insira a chave para <strong>{addingProvider.name}</strong>:
+                      <div className="mt-3 rounded-lg border border-[#333333] bg-[#1c1c1c] p-3 space-y-2">
+                        <div className="text-xs font-sans text-gray-200">
+                          Insira a chave para <strong className="text-white">{addingProvider.name}</strong>:
                         </div>
                         <input
                           type="password"
                           value={inputKey}
                           onChange={(e) => setInputKey(e.target.value)}
                           placeholder="sk-... ou endpoint URL"
-                          className="w-full rounded border border-[#333333] bg-[#111111] px-2.5 py-1.5 text-xs font-mono text-white outline-none focus:border-[#555555]"
+                          className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-2.5 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400"
                           autoFocus
                           onKeyDown={(e) => e.key === 'Enter' && handleAddProviderSubmit()}
                         />
@@ -383,14 +383,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setAddingProvider(null)}
-                            className="px-2.5 py-1 text-xs font-mono text-[#888888] hover:text-white"
+                            className="px-2.5 py-1 text-xs font-sans text-gray-400 hover:text-white"
                           >
                             Cancelar
                           </button>
                           <button
                             type="button"
                             onClick={handleAddProviderSubmit}
-                            className="rounded bg-[#2a2a2a] hover:bg-[#383838] px-3 py-1 text-xs font-mono text-white transition-colors"
+                            className="rounded bg-[#333333] hover:bg-[#444444] px-3 py-1 text-xs font-sans text-white transition-colors"
                           >
                             Salvar
                           </button>
@@ -400,11 +400,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#222222]" />
+                <hr className="border-[#262626]" />
 
                 {/* Subscriptions */}
                 <div>
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
                     SUBSCRIPTIONS
                   </div>
                   <div className="space-y-2">
@@ -415,15 +415,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ].map((sub) => {
                       const isConn = (settings as any)[sub.key];
                       return (
-                        <div key={sub.key} className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-[#d4d4d4]">{sub.label}</span>
+                        <div key={sub.key} className="flex items-center justify-between text-xs font-sans">
+                          <span className="text-gray-200 font-medium">{sub.label}</span>
                           <button
                             type="button"
                             onClick={() => updateSettings({ [sub.key]: !isConn } as any)}
-                            className={`rounded-md border px-2.5 py-1 text-xs font-mono transition-colors ${
+                            className={`rounded-md border px-3 py-1 text-xs font-sans transition-colors ${
                               isConn
-                                ? 'border-emerald-600/60 bg-emerald-950/40 text-emerald-400'
-                                : 'border-[#333333] bg-[#1c1c1c] text-[#cccccc] hover:border-[#555555] hover:text-white'
+                                ? 'border-emerald-600/60 bg-emerald-950/40 text-emerald-300 font-medium'
+                                : 'border-[#333333] bg-[#1c1c1c] text-gray-300 hover:border-gray-500 hover:text-white'
                             }`}
                           >
                             {isConn ? 'Connected' : 'Connect'}
@@ -434,22 +434,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#222222]" />
+                <hr className="border-[#262626]" />
 
                 {/* External CLI */}
                 <div>
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
                     EXTERNAL CLI
                   </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-[#d4d4d4]">Claude Code</span>
+                  <div className="flex items-center justify-between text-xs font-sans">
+                    <span className="text-gray-200 font-medium">Claude Code</span>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={settings.claudeCode}
                       onClick={() => updateSettings({ claudeCode: !settings.claudeCode })}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                        settings.claudeCode ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                        settings.claudeCode ? 'bg-white' : 'bg-[#2a2a2a]'
                       }`}
                     >
                       <span
@@ -461,24 +461,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#222222]" />
+                <hr className="border-[#262626]" />
 
                 {/* Dictation */}
                 <div>
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
                     DICTATION
                   </div>
-                  <div className="flex items-center justify-between text-xs font-mono mb-4">
-                    <span className="text-[#d4d4d4]">Deepgram</span>
-                    <span className="text-[#777777] font-mono">{settings.deepgramKey}</span>
+                  <div className="flex items-center justify-between text-xs font-sans mb-4">
+                    <span className="text-gray-200 font-medium">Deepgram</span>
+                    <span className="text-gray-400 font-mono text-[11px]">{settings.deepgramKey}</span>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs font-mono pt-1">
-                    <span className="text-[#d4d4d4]">Language</span>
+                  <div className="flex items-center justify-between text-xs font-sans pt-1">
+                    <span className="text-gray-200 font-medium">Language</span>
                     <select
                       value={settings.language}
                       onChange={(e) => updateSettings({ language: e.target.value })}
-                      className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#555555]"
+                      className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                     >
                       <option value="Portuguese (pt-BR)">Portuguese (pt-BR)</option>
                       <option value="English (US)">English (US)</option>
@@ -493,19 +493,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === 'Agent' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                     AGENT
                   </h3>
 
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
                     MODELS
                   </div>
 
                   {/* Strong Model */}
-                  <div className="flex items-start justify-between py-2 border-b border-[#1c1c1c]">
+                  <div className="flex items-start justify-between py-2.5 border-b border-[#222222]">
                     <div>
-                      <div className="text-xs font-mono text-[#d4d4d4] font-medium">Strong</div>
-                      <div className="text-[11px] font-mono text-[#666666]">
+                      <div className="text-xs font-sans text-gray-200 font-semibold">Strong</div>
+                      <div className="text-[11px] font-sans text-gray-400">
                         The main model for your sessions
                       </div>
                     </div>
@@ -518,7 +518,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             model: e.target.value,
                           })
                         }
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="free">free</option>
                         <option value="gemini-2.0-flash">gemini-2.0-flash</option>
@@ -536,7 +536,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               e.target.value.slice(1)) as any,
                           })
                         }
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="high">high</option>
                         <option value="medium">medium</option>
@@ -547,10 +547,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Cheap Model */}
-                  <div className="flex items-start justify-between py-2 border-b border-[#1c1c1c]">
+                  <div className="flex items-start justify-between py-2.5 border-b border-[#222222]">
                     <div>
-                      <div className="text-xs font-mono text-[#d4d4d4] font-medium">Cheap</div>
-                      <div className="text-[11px] font-mono text-[#666666]">
+                      <div className="text-xs font-sans text-gray-200 font-semibold">Cheap</div>
+                      <div className="text-[11px] font-sans text-gray-400">
                         The assistants that research, build demos, and grade your work
                       </div>
                     </div>
@@ -558,7 +558,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <select
                         value={settings.cheapModel}
                         onChange={(e) => updateSettings({ cheapModel: e.target.value })}
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="gemini-3.8-flash:batch">gemini-3.8-flash:batch</option>
                         <option value="gemini-2.0-flash">gemini-2.0-flash</option>
@@ -568,7 +568,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <select
                         value={settings.cheapThinking}
                         onChange={(e) => updateSettings({ cheapThinking: e.target.value as any })}
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="high">high</option>
                         <option value="medium">medium</option>
@@ -579,10 +579,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Vision Model */}
-                  <div className="flex items-start justify-between py-2">
+                  <div className="flex items-start justify-between py-2.5">
                     <div>
-                      <div className="text-xs font-mono text-[#d4d4d4] font-medium">Vision</div>
-                      <div className="text-[11px] font-mono text-[#666666]">
+                      <div className="text-xs font-sans text-gray-200 font-semibold">Vision</div>
+                      <div className="text-[11px] font-sans text-gray-400">
                         The assistants that draw and read PDFs
                       </div>
                     </div>
@@ -590,7 +590,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <select
                         value={settings.visionModel}
                         onChange={(e) => updateSettings({ visionModel: e.target.value })}
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="gemini-3.8-flash:batch">gemini-3.8-flash:batch</option>
                         <option value="gemini-2.0-flash">gemini-2.0-flash</option>
@@ -600,7 +600,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <select
                         value={settings.visionThinking}
                         onChange={(e) => updateSettings({ visionThinking: e.target.value as any })}
-                        className="rounded border border-[#2e2e2e] bg-[#181818] px-2.5 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         <option value="high">high</option>
                         <option value="medium">medium</option>
@@ -611,11 +611,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#222222]" />
+                <hr className="border-[#262626]" />
 
                 {/* Tools */}
                 <div>
-                  <div className="text-[10px] font-mono tracking-widest text-[#555555] uppercase mb-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
                     TOOLS
                   </div>
 
@@ -623,8 +623,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {/* Graph Tools */}
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="text-xs font-mono text-[#d4d4d4]">Graph tools</div>
-                        <div className="text-[11px] font-mono text-[#666666]">
+                        <div className="text-xs font-sans text-gray-200 font-semibold">Graph tools</div>
+                        <div className="text-[11px] font-sans text-gray-400">
                           Lets the tutor consult your knowledge map between sessions
                         </div>
                       </div>
@@ -634,7 +634,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         aria-checked={settings.graphTools}
                         onClick={() => updateSettings({ graphTools: !settings.graphTools })}
                         className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                          settings.graphTools ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                          settings.graphTools ? 'bg-white' : 'bg-[#2a2a2a]'
                         }`}
                       >
                         <span
@@ -648,19 +648,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {/* Quizzing Segmented Control */}
                     <div className="flex items-start justify-between py-1">
                       <div>
-                        <div className="text-xs font-mono text-[#d4d4d4]">Quizzing</div>
-                        <div className="text-[11px] font-mono text-[#666666]">
+                        <div className="text-xs font-sans text-gray-200 font-semibold">Quizzing</div>
+                        <div className="text-[11px] font-sans text-gray-400">
                           How both tutors check your understanding
                         </div>
                       </div>
-                      <div className="flex rounded-md border border-[#2a2a2a] bg-[#101010] p-0.5">
+                      <div className="flex rounded-md border border-[#333333] bg-[#101010] p-0.5">
                         <button
                           type="button"
                           onClick={() => updateSettings({ quizzing: 'multiple_choice' })}
-                          className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+                          className={`px-3 py-1 rounded text-xs font-sans transition-colors ${
                             settings.quizzing === 'multiple_choice'
-                              ? 'bg-[#242424] text-white font-medium'
-                              : 'text-[#666666] hover:text-[#cccccc]'
+                              ? 'bg-[#282828] text-white font-semibold'
+                              : 'text-gray-400 hover:text-white'
                           }`}
                         >
                           Multiple choice
@@ -668,10 +668,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => updateSettings({ quizzing: 'free_recall' })}
-                          className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+                          className={`px-3 py-1 rounded text-xs font-sans transition-colors ${
                             settings.quizzing === 'free_recall'
-                              ? 'bg-[#242424] text-white font-medium'
-                              : 'text-[#666666] hover:text-[#cccccc]'
+                              ? 'bg-[#282828] text-white font-semibold'
+                              : 'text-gray-400 hover:text-white'
                           }`}
                         >
                           Free recall
@@ -688,15 +688,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ].map((t) => {
                       const isChecked = (settings as any)[t.key];
                       return (
-                        <div key={t.key} className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-[#d4d4d4]">{t.label}</span>
+                        <div key={t.key} className="flex items-center justify-between text-xs font-sans">
+                          <span className="text-gray-200 font-medium">{t.label}</span>
                           <button
                             type="button"
                             role="switch"
                             aria-checked={isChecked}
                             onClick={() => updateSettings({ [t.key]: !isChecked } as any)}
                             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                              isChecked ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                              isChecked ? 'bg-white' : 'bg-[#2a2a2a]'
                             }`}
                           >
                             <span
@@ -716,20 +716,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 3. APPEARANCE TAB */}
             {activeTab === 'Appearance' && (
               <div className="space-y-4">
-                <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                   APPEARANCE
                 </h3>
 
                 {/* Mode */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Mode</div>
-                    <div className="text-[11px] font-mono text-[#666666]">Coming soon</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Mode</div>
+                    <div className="text-[11px] font-sans text-gray-400">Coming soon</div>
                   </div>
                   <select
                     value={settings.mode}
                     onChange={(e) => updateSettings({ mode: e.target.value })}
-                    className="rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                    className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                   >
                     <option value="Dark">Dark</option>
                     <option value="Light">Light</option>
@@ -737,29 +737,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Background */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Background</div>
-                    <div className="text-[11px] font-mono text-[#666666]">Empty = #141414</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Background</div>
+                    <div className="text-[11px] font-sans text-gray-400">Empty = #141414</div>
                   </div>
                   <input
                     type="text"
                     value={settings.background}
                     onChange={(e) => updateSettings({ background: e.target.value })}
-                    className="w-44 rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none focus:border-[#555555]"
+                    className="w-44 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 outline-none focus:border-gray-500"
                   />
                 </div>
 
                 {/* Reading font */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Reading font</div>
-                    <div className="text-[11px] font-mono text-[#666666]">Empty = Source Sans 3</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Reading font</div>
+                    <div className="text-[11px] font-sans text-gray-400">Empty = Source Sans 3</div>
                   </div>
                   <select
                     value={settings.readingFont}
                     onChange={(e) => updateSettings({ readingFont: e.target.value })}
-                    className="rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                    className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                   >
                     <option value="Source Sans 3">Source Sans 3</option>
                     <option value="Inter">Inter</option>
@@ -768,23 +768,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Reading font size */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Reading font size</div>
-                    <div className="text-[11px] font-mono text-[#666666]">16px</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Reading font size</div>
+                    <div className="text-[11px] font-sans text-gray-400">16px</div>
                   </div>
                   <input
                     type="number"
                     value={settings.readingFontSize}
                     onChange={(e) => updateSettings({ readingFontSize: Number(e.target.value) })}
-                    className="w-44 rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none focus:border-[#555555]"
+                    className="w-44 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 outline-none focus:border-gray-500"
                   />
                 </div>
 
                 {/* Session names in serif */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Session names in serif</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Session names in serif</div>
                   </div>
                   <button
                     type="button"
@@ -792,7 +792,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={settings.sessionNamesSerif}
                     onClick={() => updateSettings({ sessionNamesSerif: !settings.sessionNamesSerif })}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                      settings.sessionNamesSerif ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                      settings.sessionNamesSerif ? 'bg-white' : 'bg-[#2a2a2a]'
                     }`}
                   >
                     <span
@@ -804,44 +804,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Heading weight */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Heading weight</div>
-                    <div className="text-[11px] font-mono text-[#666666]">900</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Heading weight</div>
+                    <div className="text-[11px] font-sans text-gray-400">900</div>
                   </div>
                   <input
                     type="text"
                     value={settings.headingWeight}
                     onChange={(e) => updateSettings({ headingWeight: Number(e.target.value) })}
-                    className="w-44 rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none focus:border-[#555555]"
+                    className="w-44 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 outline-none focus:border-gray-500"
                   />
                 </div>
 
                 {/* Bold color */}
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Bold color</div>
-                    <div className="text-[11px] font-mono text-[#666666]">Empty = same as text</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Bold color</div>
+                    <div className="text-[11px] font-sans text-gray-400">Empty = same as text</div>
                   </div>
                   <input
                     type="text"
                     value={settings.boldColor}
                     onChange={(e) => updateSettings({ boldColor: e.target.value })}
-                    className="w-44 rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none focus:border-[#555555]"
+                    className="w-44 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 outline-none focus:border-gray-500"
                   />
                 </div>
 
                 {/* Italic color */}
-                <div className="flex items-center justify-between py-1">
+                <div className="flex items-center justify-between py-1.5">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Italic color</div>
-                    <div className="text-[11px] font-mono text-[#666666]">Empty = same as text</div>
+                    <div className="text-xs font-sans text-gray-200 font-medium">Italic color</div>
+                    <div className="text-[11px] font-sans text-gray-400">Empty = same as text</div>
                   </div>
                   <input
                     type="text"
                     value={settings.italicColor}
                     onChange={(e) => updateSettings({ italicColor: e.target.value })}
-                    className="w-44 rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none focus:border-[#555555]"
+                    className="w-44 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 outline-none focus:border-gray-500"
                   />
                 </div>
               </div>
@@ -850,31 +850,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 4. GRAPH TAB */}
             {activeTab === 'Graph' && (
               <div className="space-y-4">
-                <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                   GRAPH
                 </h3>
 
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Edge style</div>
-                    <div className="text-[11px] font-mono text-[#666666]">
+                    <div className="text-xs font-sans text-gray-200 font-medium">Edge style</div>
+                    <div className="text-[11px] font-sans text-gray-400">
                       Curved Bézier or orthogonal straight paths
                     </div>
                   </div>
                   <select
                     value={settings.edgeStyle}
                     onChange={(e) => updateSettings({ edgeStyle: e.target.value as any })}
-                    className="rounded border border-[#2e2e2e] bg-[#181818] px-3 py-1 text-xs font-mono text-[#d4d4d4] outline-none hover:border-[#444444]"
+                    className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                   >
                     <option value="curved">Curved Bézier</option>
                     <option value="straight">Straight</option>
                   </select>
                 </div>
 
-                <div className="flex items-center justify-between py-1 border-b border-[#1c1c1c]">
+                <div className="flex items-center justify-between py-1.5 border-b border-[#222222]">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Arrowhead markers</div>
-                    <div className="text-[11px] font-mono text-[#666666]">
+                    <div className="text-xs font-sans text-gray-200 font-medium">Arrowhead markers</div>
+                    <div className="text-[11px] font-sans text-gray-400">
                       Show direction from prerequisite to dependent nodes
                     </div>
                   </div>
@@ -884,7 +884,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={settings.showArrowheads}
                     onClick={() => updateSettings({ showArrowheads: !settings.showArrowheads })}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                      settings.showArrowheads ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                      settings.showArrowheads ? 'bg-white' : 'bg-[#2a2a2a]'
                     }`}
                   >
                     <span
@@ -895,10 +895,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between py-1">
+                <div className="flex items-center justify-between py-1.5">
                   <div>
-                    <div className="text-xs font-mono text-[#d4d4d4]">Auto-focus active node</div>
-                    <div className="text-[11px] font-mono text-[#666666]">
+                    <div className="text-xs font-sans text-gray-200 font-medium">Auto-focus active node</div>
+                    <div className="text-[11px] font-sans text-gray-400">
                       Center DAG canvas on current evaluation concept
                     </div>
                   </div>
@@ -908,7 +908,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={settings.autoFocusFrontier}
                     onClick={() => updateSettings({ autoFocusFrontier: !settings.autoFocusFrontier })}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                      settings.autoFocusFrontier ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                      settings.autoFocusFrontier ? 'bg-white' : 'bg-[#2a2a2a]'
                     }`}
                   >
                     <span
@@ -924,7 +924,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 5. KEYBOARD TAB */}
             {activeTab === 'Keyboard' && (
               <div className="space-y-4">
-                <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                   KEYBOARD SHORTCUTS
                 </h3>
 
@@ -935,9 +935,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   { label: 'Switch between Chat and DAG', key: 'Ctrl + G' },
                   { label: 'Open Settings Modal', key: 'Ctrl + ,' },
                 ].map((sc) => (
-                  <div key={sc.label} className="flex items-center justify-between py-1.5 border-b border-[#1c1c1c] text-xs font-mono">
-                    <span className="text-[#d4d4d4]">{sc.label}</span>
-                    <kbd className="rounded border border-[#2e2e2e] bg-[#1c1c1c] px-2.5 py-1 text-[11px] font-mono text-[#e5e5e5] shadow-sm">
+                  <div key={sc.label} className="flex items-center justify-between py-2 border-b border-[#222222] text-xs font-sans">
+                    <span className="text-gray-200 font-medium">{sc.label}</span>
+                    <kbd className="rounded border border-[#333333] bg-[#1c1c1c] px-2.5 py-1 text-[11px] font-mono text-gray-300 shadow-sm">
                       {sc.key}
                     </kbd>
                   </div>
@@ -949,16 +949,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === 'General' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-[#737373] uppercase mb-4">
+                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
                     GENERAL
                   </h3>
 
-                  <div className="flex items-start justify-between py-2 border-b border-[#1c1c1c]">
+                  <div className="flex items-start justify-between py-2.5 border-b border-[#222222]">
                     <div className="space-y-1">
-                      <div className="text-xs font-mono text-[#d4d4d4] font-medium">
+                      <div className="text-xs font-sans text-gray-200 font-semibold">
                         Version {settings.appVersion}
                       </div>
-                      <div className="text-[11px] font-mono text-[#666666] leading-relaxed max-w-sm">
+                      <div className="text-[11px] font-sans text-gray-400 leading-relaxed max-w-sm">
                         {updateCheckStatus === 'checking' ? (
                           <span className="text-blue-400">Checking for updates...</span>
                         ) : updateCheckStatus === 'up-to-date' ? (
@@ -969,7 +969,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <br />
                             Checking downloads available updates. Downloaded updates install when you quit the app.
                             <br />
-                            <span className="text-[#888888] underline cursor-pointer hover:text-white">
+                            <span className="text-gray-300 underline cursor-pointer hover:text-white">
                               Release notes
                             </span>
                           </>
@@ -980,7 +980,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={handleCheckUpdates}
-                      className="rounded-md border border-[#333333] bg-[#1c1c1c] px-3 py-1.5 text-xs font-mono text-[#cccccc] hover:border-[#555555] hover:text-white transition-colors"
+                      className="rounded-md border border-[#333333] bg-[#1c1c1c] px-3.5 py-1.5 text-xs font-sans text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
                     >
                       Check for updates
                     </button>
@@ -988,10 +988,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <div className="flex items-start justify-between py-3">
                     <div className="space-y-1 max-w-sm">
-                      <div className="text-xs font-mono text-[#d4d4d4] font-medium">
+                      <div className="text-xs font-sans text-gray-200 font-semibold">
                         Automatic updates
                       </div>
-                      <div className="text-[11px] font-mono text-[#666666] leading-relaxed">
+                      <div className="text-[11px] font-sans text-gray-400 leading-relaxed">
                         Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.
                       </div>
                     </div>
@@ -1002,7 +1002,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       aria-checked={settings.autoUpdates}
                       onClick={() => updateSettings({ autoUpdates: !settings.autoUpdates })}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                        settings.autoUpdates ? 'bg-[#d4d4d4]' : 'bg-[#2a2a2a]'
+                        settings.autoUpdates ? 'bg-white' : 'bg-[#2a2a2a]'
                       }`}
                     >
                       <span
