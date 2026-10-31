@@ -1,14 +1,14 @@
 # Documento de Design: EduCognitive Agent Harness (MVP)
 
 **Data**: 31/10/2026  
-**Status**: Proposta para Aprovação  
+**Status**: Aprovado para Planejamento  
 **Tópico**: Harness de Aprendizagem Cognitiva Desktop com FSM Local, Diagnóstico de Falsos Positivos e Ensino Socrático Adaptativo para Feira Acadêmica
 
 ---
 
 ## 1. Visão Geral e Intenção (O "Porquê")
 
-O **EduCognitive Agent Harness** é um aplicativo desktop para Linux e Windows (desenvolvido em **Electron + React/Vite + TypeScript**) projetado para transformar a maneira como estudantes universitários absorvem e retêm conteúdos complexos de disciplinas de computação e engenharia (com foco de demonstração em **Redes de Computadores: Camada 3 - Modelo OSI**).
+O **EduCognitive Agent Harness** é um aplicativo desktop multiplataforma para Linux e Windows (desenvolvido em **Electron + React/Vite + TypeScript**) projetado para transformar a maneira como estudantes universitários absorvem e retêm conteúdos complexos de disciplinas de computação e engenharia (com foco de demonstração em **Redes de Computadores: Camada 3 - Modelo OSI**).
 
 Diferente de sistemas convencionais estilo "NotebookLM" ou chats passivos que apenas resumem documentos ou corrigem simulados de forma binária (certo/errado), o EduCognitive atua como um **harness de diagnóstico cognitivo profundo**. Inspirado no *LearnHarness*, o sistema combate ativamente a "ilusão de competência":
 - Prioriza a autoexplicação do aluno (*"Thinking out loud"* via voz ou texto) antes de qualquer alternativa de múltipla escolha.
@@ -24,28 +24,30 @@ Diferente de sistemas convencionais estilo "NotebookLM" ou chats passivos que ap
 
 ### Metas (Goals)
 1. **Interface Fiel ao LearnHarness**:
-   - Janela frameless dark mode com controles de topo personalizados.
-   - Barra lateral retrátil com sessões anteriores, botões `+ TEACHING` e `+ PRACTICE`, e abas de filtro.
+   - Janela frameless dark mode (`#0a0a0a` / `#111111`) com controles de janela personalizados (minimizar, maximizar, fechar).
+   - Barra lateral retrátil com histórico de sessões, botões `+ TEACHING` e `+ PRACTICE`, abas de filtro e rodapé com atalhos de configurações.
    - Área central de chat socrático com blocos recolhíveis de raciocínio da IA (*"Agent's Thinking"*).
    - Card de questão unificado contendo: pergunta com alternativas de múltipla escolha ou opção "Outro / Escreva a sua", campo *"Your Thinking"* (com suporte a microfone/Web Speech API e digitação) e Slider de Confiança (0% a 100%).
    - Barra inferior persistente com botão de voz (*Dictate*), seletor de modelo (`gemini-2.0-flash`, `gpt-4o-mini`, etc.), nível de raciocínio (*Thinking: High/Low*) e contador de tokens contextuais.
 2. **Definição Guiada de Objetivo (Goal Orientation)**:
-   - Coleta socrática da intenção específica do aluno (ex: *"Quero aprender a Camada 3 do Modelo OSI para uma prova"*).
-   - Regressão imediata na árvore de pré-requisitos para identificar os nós basilares (bits, enlace, quadros, roteamento).
+   - Coleta em 1 turno interativo da intenção específica do aluno (ex: *"Quero aprender a Camada 3 do Modelo OSI para uma prova"*).
+   - A IA apresenta opções de escopo concreto para afunilamento e faz a regressão imediata na árvore de dependências para identificar os nós basilares (bits, enlace, quadros, endereçamento IP).
 3. **Fase 1 - Sondagem Adaptativa com Bracketing (Piso de 8 Questões)**:
-   - Aplicação de questões investigativas calibradas por um algoritmo de busca em largura inicial e afunilamento (*Zoom-In*).
-   - Juiz Cognitivo avalia primeiro o raciocínio do aluno antes de verificar a alternativa marcada.
+   - Aplicação de questões investigativas calibradas por busca em largura inicial e afunilamento (*Zoom-In*).
+   - **Regra de Término**: 8 questões é o piso estrito (mínimo obrigatório). A sondagem continua além de 8 questões até que a taxa de nitidez da fronteira atinja 100% (todos os nós da trilha ativa classificados) ou até que o usuário decida avançar manualmente para o diagnóstico.
+   - O Juiz Cognitivo avalia primeiro o raciocínio livre do aluno antes de verificar a alternativa marcada.
 4. **Fase 2 - Mapeamento Visual da Fronteira (DAG)**:
-   - Renderização gráfica do Grafo de Conhecimento com código de cores padronizado:
+   - Renderização gráfica do Grafo de Conhecimento com código de cores pedagógico:
      - 🟢 **Verde (Domínio Sólido)**: Acerto sustentado por raciocínio correto e confiança consistente.
      - 🟡 **Amarelo (Falso Positivo)**: Acerto da alternativa, porém com fundamentação incorreta ou viciada.
      - 🔴 **Vermelho (Ponto Cego)**: Erro cometido com alta confiança (equívoco mental arraigado).
      - 🔵 **Azul (Fronteira Limpa)**: O limite exato onde o conhecimento comprovado do estudante termina.
 5. **Fase 3 - Loop de Ensino Socrático (Predict $\rightarrow$ Teach $\rightarrow$ Check)**:
    - Ensino cirúrgico de exatamente **1 degrau por vez**, focando nos nós amarelos (falsos positivos) e azuis (fronteira).
-   - **Predict**: Pergunta indutiva formulada antes da explicação para motivar a descoberta.
+   - **Predict**: Pergunta indutiva formulada antes da explicação para motivar a descoberta pelo aluno.
    - **Teach**: Explanação concisa do degrau fundamentada nas verdades incondicionais.
-   - **Check**: Questão de verificação recolhida atrás do botão *"Check your understanding"*, que só é revelada após a leitura.
+   - **Check**: Questão de verificação recolhida atrás do botão *"Check your understanding"*, revelada após a leitura.
+   - **Tratamento de Falhas no Check**: Se o aluno errar, o sistema gera uma explicação corretiva focada na falha de raciocínio e avança, evitando loops infinitos na apresentação.
 6. **Conexão Local Flexível e Offline-First**:
    - Backend local no Electron Main conectando-se a qualquer endpoint compatível com a API OpenAI (OpenAI, Gemini via proxy/endpoint OpenAI, Ollama local, Omniroute ou 9router).
    - Matéria de demonstração (Redes de Computadores) totalmente pré-estruturada em arquivos locais Markdown/JSON para execução rápida e determinística na feira acadêmica.
@@ -67,7 +69,7 @@ Diferente de sistemas convencionais estilo "NotebookLM" ou chats passivos que ap
 ### Abordagens Avaliadas
 
 1. **Abordagem 1 (Escolhida): Máquina de Estados Finita (FSM) no Main Process com Agentes Especializados**
-   - *Como funciona*: O fluxo pedagógico (Meta $\rightarrow$ Sondagem 1..8 $\rightarrow$ Diagnóstico DAG $\rightarrow$ Loop Socrático) é controlado por uma FSM determinística escrita em TypeScript no Node.js (Main Process). O LLM é acionado com papéis isolados e tipados via schemas JSON:
+   - *Como funciona*: O fluxo pedagógico (Meta $\rightarrow$ Sondagem 8+ $\rightarrow$ Diagnóstico DAG $\rightarrow$ Loop Socrático) é controlado por uma FSM determinística escrita em TypeScript no Node.js (Main Process). O LLM é acionado com papéis isolados e tipados via schemas JSON:
      - `CognitiveJudge`: Avalia `thinking` + `confidence` + `selectedOption` e emite veredito do nó.
      - `SurgicalGenerator`: Gera a questão seguinte ou o degrau (*Predict/Teach/Check*) ancorado na fonte.
    - *Trade-offs*: Exige codificar a máquina de estados e o gerenciamento de sessões no código local, mas garante que o fluxo nunca falhe, alucine de fase ou pule etapas na apresentação da feira.
@@ -84,14 +86,14 @@ Diferente de sistemas convencionais estilo "NotebookLM" ou chats passivos que ap
 
 ### 4.1 Separação de Processos no Electron
 - **Main Process (Node.js + TypeScript)**:
-  - `StateManager / FSM`: Orquestra as fases da sessão, contagem de questões e estados dos nós do DAG.
+  - `StateManager / FSM`: Orquestra as fases da sessão, contagem de questões (mínimo de 8) e estados dos nós do DAG.
   - `LLMClient`: Comunicação HTTP padronizada (OpenAI-compatible) com retry e tratamento de erro de rede.
-  - `KnowledgeStore`: Leitura dos nós pré-estruturados da matéria (Redes de Computadores / Camada 3) e persistência local das sessões em JSON/SQLite em `userData`.
+  - `KnowledgeStore`: Leitura dos nós pré-estruturados da matéria (Redes de Computadores / Camada 3) e persistência local das sessões em JSON em `userData`.
   - `IPC Handlers`: Canais seguros tipados (`session:start`, `session:submit-answer`, `graph:get`, etc.) via `preload.ts` (`contextBridge`).
 - **Renderer Process (React + Vite + Tailwind CSS + TypeScript)**:
   - UI Dark minimalista inspirada no LearnHarness.
   - Reconhecimento de fala via Web Speech API integrado ao campo *"Your thinking"*.
-  - Renderização do Grafo de Conhecimento (SVG/Mermaid ou componente interativo Canvas/HTML) com nós coloridos por status cognitivo.
+  - Renderização do Grafo de Conhecimento (DAG) interativo com nós coloridos por status cognitivo.
   - Renderização de Markdown e fórmulas matemáticas (KaTeX / LaTeX) para termos técnicos de redes.
 
 ### 4.2 Entidades Principais
@@ -119,14 +121,31 @@ interface ProbeAttempt {
   judgeReasoning: string;   // Diagnóstico do Juiz Cognitivo sobre a mente do aluno
 }
 
+interface SocraticStep {
+  nodeId: string;
+  predictQuestion: string;
+  predictStudentAnswer?: string;
+  teachContent: string;     // Explanação concisa de 1 degrau
+  checkQuestion: {
+    questionText: string;
+    options: string[];
+    correctOptionIndex: number;
+    explanation: string;
+  };
+  checkStudentAnswer?: number;
+  isCheckPassed?: boolean;
+}
+
 interface ProbingSession {
   id: string;
+  mode: 'teaching' | 'practice'; // + TEACHING (completo) vs + PRACTICE (fixação rápida)
   disciplineId: string;
   goal: string;
   phase: 'goal_orientation' | 'probing' | 'frontier_diagnosis' | 'socratic_teach' | 'completed';
   questionCount: number;    // Piso de 8 questões na fase de sondagem
   frontierClarity: number;  // 0% a 100% de nitidez da fronteira
   attempts: ProbeAttempt[];
+  socraticSteps: SocraticStep[];
   nodesState: Record<string, ConceptNode['status']>;
 }
 ```
@@ -153,5 +172,5 @@ interface ProbingSession {
 ## 6. O que Fica sob Responsabilidade do Construtor (Builder's Scope)
 - Nomes exatos dos eventos e canais IPC no `preload.ts`.
 - Detalhes de estilização fina em CSS/Tailwind (paleta `#0a0a0a`, `#1e293b`, fontes serifadas no título da sessão conforme screenshots).
-- Implementação específica da renderização dos nós do grafo (seja via visualização customizada React/SVG ou Mermaid interativo).
+- Implementação específica da renderização dos nós do grafo (visualização customizada React/SVG/Canvas).
 - Mapeamento detalhado dos 10 a 14 nós pré-indexados para a matéria "Redes de Computadores / Camada 3".
