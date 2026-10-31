@@ -1,14 +1,67 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { TitleBar } from './components/TitleBar';
+import { Sidebar, SessionItem } from './components/Sidebar';
+import { StatusBar } from './components/StatusBar';
+import { SessionView } from './views/SessionView';
+import { ProbingSession } from '../shared/types';
 
 export default function App() {
+  const [sessions, setSessions] = useState<SessionItem[]>([
+    {
+      id: 'sess-default',
+      title: 'Camada 3 Modelo OSI (Redes)',
+      mode: 'teaching',
+      date: 'Hoje',
+    },
+  ]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('sess-default');
+  const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+
+  const handleNewSession = async (mode: 'teaching' | 'practice') => {
+    const newId = `sess-${Date.now()}`;
+    const newTitle = mode === 'teaching' ? 'Nova Trilha Socrática' : 'Prática Rápida de Fixação';
+    setSessions((prev) => [
+      { id: newId, title: newTitle, mode, date: 'Agora' },
+      ...prev,
+    ]);
+    setActiveSessionId(newId);
+    if (window.api?.startSession) {
+      const s = await window.api.startSession(mode, newTitle);
+      setCurrentSession(s);
+    }
+  };
+
   return (
-    <div className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-gray-100">
-      <header className="p-4 border-b border-[#1e293b]">
-        <h1 className="text-xl font-bold font-serif text-white">APRENDA</h1>
-      </header>
-      <main className="flex-1 p-6">
-        <p>EduCognitive Agent Harness Initialized</p>
-      </main>
+    <div className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-gray-100 overflow-hidden font-sans select-none">
+      {/* Frameless Custom Title Bar */}
+      <TitleBar title={currentSession?.goal || 'Camada 3 Modelo OSI — Diagnóstico Cognitivo'} />
+
+      {/* Main Container */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Retractable / Fixed Sidebar */}
+        <Sidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={(id) => setActiveSessionId(id)}
+          onNewSession={handleNewSession}
+        />
+
+        {/* Central Session / Socratic Canvas */}
+        <main className="flex-1 overflow-hidden">
+          <SessionView
+            onSessionUpdate={(updated) => setCurrentSession(updated)}
+          />
+        </main>
+      </div>
+
+      {/* Bottom Status Bar */}
+      <StatusBar
+        questionCount={currentSession?.questionCount || 0}
+        frontierClarity={currentSession?.frontierClarity || 0}
+        isRecording={isRecording}
+        onToggleDictate={() => setIsRecording(!isRecording)}
+      />
     </div>
   );
 }
