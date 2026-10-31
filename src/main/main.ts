@@ -1,7 +1,15 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
+import { KnowledgeStore } from './knowledge/KnowledgeStore';
+import { SessionStateMachine } from './fsm/SessionStateMachine';
+import { SocraticEngine } from './socratic/SocraticEngine';
+import { registerIpcHandlers } from './ipc/registerIpcHandlers';
 
 let mainWindow: BrowserWindow | null = null;
+
+const store = new KnowledgeStore();
+const fsm = new SessionStateMachine(store);
+const socratic = new SocraticEngine();
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -15,6 +23,13 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  });
+
+  registerIpcHandlers(ipcMain, {
+    fsm,
+    store,
+    socratic,
+    getMainWindow: () => mainWindow,
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -42,13 +57,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-ipcMain.on('window:action', (_event, action: 'minimize' | 'maximize' | 'close') => {
-  if (!mainWindow) return;
-  if (action === 'minimize') mainWindow.minimize();
-  else if (action === 'maximize') {
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    else mainWindow.maximize();
-  } else if (action === 'close') mainWindow.close();
 });
