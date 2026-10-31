@@ -66,4 +66,39 @@ describe('Sidebar Component', () => {
     fireEvent.click(sessionItem);
     expect(onSelectSession).toHaveBeenCalledWith('2');
   });
+
+  it('triggers onOpenSettings when clicking the settings button', () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <Sidebar
+        sessions={sessions}
+        activeSessionId="1"
+        onSelectSession={vi.fn()}
+        onNewSession={vi.fn()}
+        onOpenSettings={onOpenSettings}
+      />
+    );
+
+    const settingsBtn = screen.getByRole('button', { name: /configurações do agente/i });
+    fireEvent.click(settingsBtn);
+    expect(onOpenSettings).toHaveBeenCalled();
+  });
+
+  it('triggers onDeleteSession when clicking delete button on a session item', () => {
+    const onDeleteSession = vi.fn();
+    render(
+      <Sidebar
+        sessions={sessions}
+        activeSessionId="1"
+        onSelectSession={vi.fn()}
+        onNewSession={vi.fn()}
+        onDeleteSession={onDeleteSession}
+      />
+    );
+
+    const deleteButtons = screen.getAllByTitle('Excluir sessão');
+    expect(deleteButtons.length).toBeGreaterThan(0);
+    fireEvent.click(deleteButtons[0]);
+    expect(onDeleteSession).toHaveBeenCalledWith('1');
+  });
 });

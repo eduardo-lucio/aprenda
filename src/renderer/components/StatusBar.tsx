@@ -5,6 +5,7 @@ interface StatusBarProps {
   questionCount?: number;
   frontierClarity?: number;
   modelName?: string;
+  thinkingLevel?: string;
   isRecording?: boolean;
   onToggleDictate?: () => void;
   tokenCount?: number;
@@ -14,6 +15,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   questionCount = 0,
   frontierClarity = 0,
   modelName = 'gemini-2.0-flash',
+  thinkingLevel = 'High',
   isRecording = false,
   onToggleDictate,
   tokenCount = 1420,
@@ -47,7 +49,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-1 text-gray-400">
           <Sparkles className="h-3 w-3 text-purple-400" />
-          <span>Thinking: <strong className="text-gray-300">High</strong></span>
+          <span>Thinking: <strong className="text-gray-300">{thinkingLevel}</strong></span>
         </div>
 
         <span className="text-gray-700">|</span>

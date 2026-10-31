@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../../src/renderer/App';
 import { ProbingSession } from '../../src/shared/types';
 
-describe('App Session Synchronization and Global Dictate', () => {
+describe('App Session Synchronization, Settings Modal, and Global Dictate', () => {
   beforeEach(() => {
     (window as any).api = {
       startSession: vi.fn().mockImplementation((mode, goal) =>
@@ -26,15 +26,50 @@ describe('App Session Synchronization and Global Dictate', () => {
     };
   });
 
-  it('resets SessionView when + TEACHING is clicked in the Sidebar', async () => {
+  it('prompts user for goal on + TEACHING click and starts session upon input submission', async () => {
     render(<App />);
 
+    // Click + TEACHING
     const newTeachingBtn = screen.getByText('+ TEACHING');
     fireEvent.click(newTeachingBtn);
 
+    // Should NOT have called startSession automatically!
+    expect((window as any).api.startSession).not.toHaveBeenCalled();
+
+    // The goal input is displayed
+    const input = screen.getByPlaceholderText(/ex: quero aprender a camada 3/i);
+    fireEvent.change(input, { target: { value: 'Dominar TTL e Rotas' } });
+
+    const startBtn = screen.getByRole('button', { name: /iniciar diagnóstico/i });
+    fireEvent.click(startBtn);
+
     await waitFor(() => {
-      expect((window as any).api.startSession).toHaveBeenCalledWith('teaching', 'Nova Trilha Socrática');
+      expect((window as any).api.startSession).toHaveBeenCalledWith('teaching', 'Dominar TTL e Rotas');
       expect(screen.getByText('Opção 1')).toBeDefined();
+    });
+  });
+
+  it('opens and saves the Settings Modal when settings button is clicked', async () => {
+    render(<App />);
+
+    const settingsBtn = screen.getByRole('button', { name: /configurações do agente/i });
+    fireEvent.click(settingsBtn);
+
+    expect(screen.getByText('Configurações do Agente & LLM')).toBeDefined();
+    expect(screen.getByText(/base url/i)).toBeDefined();
+
+    // Select a preset model
+    const deepseekBtn = screen.getByRole('button', { name: 'deepseek-r1' });
+    fireEvent.click(deepseekBtn);
+
+    // Save
+    const saveBtn = screen.getByRole('button', { name: /salvar configurações/i });
+    fireEvent.click(saveBtn);
+
+    // Modal should close and status bar should reflect new model
+    await waitFor(() => {
+      expect(screen.queryByText('Configurações do Agente & LLM')).toBeNull();
+      expect(screen.getByText('deepseek-r1')).toBeDefined();
     });
   });
 

@@ -144,4 +144,40 @@ describe('SessionView Integration', () => {
       expect(screen.getByText('O que acontece quando o TTL atinge 0?')).toBeDefined();
     });
   });
+
+  it('renders comprehensive frontier diagnosis metrics when phase is frontier_diagnosis', () => {
+    const diagnosisSession: ProbingSession = {
+      id: 'sess-diag',
+      mode: 'teaching',
+      phase: 'frontier_diagnosis',
+      goal: 'Camada 3 e TTL',
+      questionCount: 8,
+      frontierClarity: 100,
+      attempts: [],
+      nodesState: { 'osi-l3-ttl': 'false_positive' },
+    };
+
+    render(
+      <SessionView
+        initialNodes={[
+          {
+            id: 'osi-l3-ttl',
+            title: 'Time To Live (TTL)',
+            summary: 'Decremento a cada salto.',
+            level: 3,
+            prerequisites: [],
+            unconditionalTruth: 'Ao atingir 0 o pacote é descartado.',
+            status: 'false_positive',
+          },
+        ]}
+        currentSession={diagnosisSession}
+      />
+    );
+
+    // Header and metrics should be rendered in the Chat tab
+    expect(screen.getByText(/diagnóstico da fronteira cognitiva concluído/i)).toBeDefined();
+    expect(screen.getAllByText(/falsos positivos/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /explorar no grafo dag/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /iniciar ensino socrático cirúrgico/i })).toBeDefined();
+  });
 });

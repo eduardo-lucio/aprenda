@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ConceptNode } from '../../shared/types';
 import { NodeDetailModal } from './NodeDetailModal';
+import { ZoomIn, ZoomOut, RotateCcw, Hand } from 'lucide-react';
 
 interface KnowledgeGraphProps {
   nodes: ConceptNode[];
@@ -16,6 +17,10 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   onStartSocratic,
 }) => {
   const [selectedNode, setSelectedNode] = useState<ConceptNode | null>(null);
+  const [scale, setScale] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Group nodes by levels 1 to 4
   const levels = [1, 2, 3, 4];
@@ -24,7 +29,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     2: [],
     3: [],
     4: [],
-  };
+    };
 
   for (const n of nodes) {
     const lvl = n.level || 2;
@@ -33,10 +38,11 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   }
 
   // Calculate coordinates for SVG layout
-  const colWidth = 225;
-  const colStartX = 100;
-  const rowHeight = 90;
-  const rowStartY = 50;
+  // Column width 260px, card width 200px (x: -100 to +100), height 56px (y: -28 to +28)
+  const colWidth = 260;
+  const colStartX = 140;
+  const rowHeight = 95;
+  const rowStartY = 70;
 
   const nodeCoords: Record<string, { x: number; y: number }> = {};
 
@@ -57,7 +63,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           stroke: '#22c55e',
           fill: '#052e16',
           text: 'text-emerald-400',
-          dot: 'bg-emerald-500',
+          dot: '#22c55e',
           pulse: false,
         };
       case 'false_positive':
@@ -65,7 +71,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           stroke: '#facc15',
           fill: '#451a03',
           text: 'text-amber-300',
-          dot: 'bg-amber-400',
+          dot: '#facc15',
           pulse: true,
         };
       case 'blind_spot':
@@ -73,7 +79,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           stroke: '#ef4444',
           fill: '#450a0a',
           text: 'text-red-400',
-          dot: 'bg-red-500',
+          dot: '#ef4444',
           pulse: false,
         };
       case 'frontier':
@@ -81,7 +87,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           stroke: '#3b82f6',
           fill: '#172554',
           text: 'text-blue-400',
-          dot: 'bg-blue-500',
+          dot: '#3b82f6',
           pulse: false,
         };
       default:
@@ -89,7 +95,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           stroke: '#334155',
           fill: '#0f172a',
           text: 'text-gray-400',
-          dot: 'bg-gray-600',
+          dot: '#64748b',
           pulse: false,
         };
     }
@@ -102,14 +108,41 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     }
   };
 
+  // Pan handlers
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (e.button === 0) {
+      setIsDragging(true);
+      dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (isDragging) {
+      setPan({
+        x: e.clientX - dragStartRef.current.x,
+        y: e.clientY - dragStartRef.current.y,
+      });
+    }
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleZoomIn = () => setScale((prev) => Math.min(1.8, +(prev + 0.15).toFixed(2)));
+  const handleZoomOut = () => setScale((prev) => Math.max(0.6, +(prev - 0.15).toFixed(2)));
+  const handleResetZoom = () => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  };
+
   return (
-    <div className="flex h-full w-full flex-col bg-[#0a0a0a] text-gray-200">
-      {/* Legend Header */}
-      <div className="flex flex-wrap items-center justify-between border-b border-[#1e293b] px-4 py-2.5 text-xs bg-[#111111]/80">
+    <div className="flex h-full w-full flex-col bg-[#0a0a0a] text-gray-200 select-none relative overflow-hidden">
+      {/* Legend & Controls Header */}
+      <div className="flex flex-wrap items-center justify-between border-b border-[#1e293b] px-4 py-2 text-xs bg-[#111111]/90 z-10 backdrop-blur-sm">
         <span className="font-semibold uppercase tracking-wider text-[11px] text-gray-300">
           Grafo de Dependências (DAG Camada 3 OSI)
         </span>
 
+        {/* Legend Badges */}
         <div className="flex flex-wrap items-center gap-3 text-[11px]">
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm" />
@@ -134,113 +167,229 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
         </div>
       </div>
 
-      {/* Interactive SVG Canvas */}
-      <div className="relative flex-1 overflow-auto p-4">
-        <svg
-          className="h-[540px] w-[980px] select-none"
-          viewBox="0 0 980 540"
+      {/* Floating Zoom & Pan Controls */}
+      <div className="absolute right-4 top-14 z-20 flex items-center space-x-1 rounded-lg border border-[#1e293b] bg-[#111111]/90 p-1 shadow-lg backdrop-blur-sm">
+        <button
+          onClick={handleZoomIn}
+          title="Aumentar Zoom"
+          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
         >
-          {/* Level Column Headers */}
-          <text x={colStartX} y={22} fill="#64748b" fontSize="11" fontWeight="600" textAnchor="middle">
-            Nível 1: Enlace & Física
-          </text>
-          <text x={colStartX + colWidth} y={22} fill="#64748b" fontSize="11" fontWeight="600" textAnchor="middle">
-            Nível 2: Pacotes & Redes
-          </text>
-          <text x={colStartX + colWidth * 2} y={22} fill="#64748b" fontSize="11" fontWeight="600" textAnchor="middle">
-            Nível 3: TTL, CIDR & Tabelas
-          </text>
-          <text x={colStartX + colWidth * 3} y={22} fill="#64748b" fontSize="11" fontWeight="600" textAnchor="middle">
-            Nível 4: Roteamento Avançado
-          </text>
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <button
+          onClick={handleZoomOut}
+          title="Diminuir Zoom"
+          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <span className="px-1.5 font-mono text-[10px] text-gray-400">
+          {Math.round(scale * 100)}%
+        </span>
+        <button
+          onClick={handleResetZoom}
+          title="Resetar Zoom (100%)"
+          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
-          {/* Dependency Edges (Bézier Curves) */}
-          <g className="edges opacity-40">
+      {/* Interactive SVG Canvas */}
+      <div className="relative flex-1 cursor-grab active:cursor-grabbing overflow-hidden">
+        <svg
+          className="h-full w-full select-none"
+          viewBox="0 0 1150 560"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          <defs>
+            {/* Background Grid Pattern */}
+            <pattern id="dag-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+              <circle cx="2" cy="2" r="1" fill="#334155" opacity="0.3" />
+            </pattern>
+
+            {/* Directional Arrow Marker */}
+            <marker
+              id="dag-arrow"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="3.5"
+              orient="auto"
+            >
+              <polygon points="0 0.5, 7 3.5, 0 6.5" fill="#64748b" />
+            </marker>
+
+            {/* Active/Frontier Arrow Marker */}
+            <marker
+              id="dag-arrow-active"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="3.5"
+              orient="auto"
+            >
+              <polygon points="0 0.5, 7 3.5, 0 6.5" fill="#3b82f6" />
+            </marker>
+          </defs>
+
+          {/* Grid Background */}
+          <rect width="100%" height="100%" fill="url(#dag-grid)" />
+
+          {/* Main Zoomed & Panned Group */}
+          <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+            {/* Level Column Headers */}
+            <text x={colStartX} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
+              NÍVEL 1: FÍSICA & ENLACE
+            </text>
+            <text x={colStartX + colWidth} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
+              NÍVEL 2: PACOTES & REDES
+            </text>
+            <text x={colStartX + colWidth * 2} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
+              NÍVEL 3: TTL, CIDR & TABELAS
+            </text>
+            <text x={colStartX + colWidth * 3} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
+              NÍVEL 4: ROTEAMENTO AVANÇADO
+            </text>
+
+            {/* Dependency Edges (Intra & Inter-level routing) */}
+            <g className="edges">
+              {nodes.map((node) => {
+                const target = nodeCoords[node.id];
+                if (!target) return null;
+
+                return node.prerequisites.map((prereqId) => {
+                  const source = nodeCoords[prereqId];
+                  if (!source) return null;
+
+                  let pathData = '';
+                  const cardHalfW = 100;
+                  const cardHalfH = 28;
+
+                  if (Math.abs(source.x - target.x) < 10) {
+                    // Intra-level edge (same column): Vertical routing
+                    if (source.y < target.y) {
+                      // Downward
+                      const startX = source.x;
+                      const startY = source.y + cardHalfH;
+                      const endX = target.x;
+                      const endY = target.y - cardHalfH;
+                      const dy = endY - startY;
+                      pathData = `M ${startX} ${startY} C ${startX} ${startY + dy * 0.4}, ${endX} ${endY - dy * 0.4}, ${endX} ${endY}`;
+                    } else {
+                      // Upward
+                      const startX = source.x;
+                      const startY = source.y - cardHalfH;
+                      const endX = target.x;
+                      const endY = target.y + cardHalfH;
+                      const dy = startY - endY;
+                      pathData = `M ${startX} ${startY} C ${startX} ${startY - dy * 0.4}, ${endX} ${endY + dy * 0.4}, ${endX} ${endY}`;
+                    }
+                  } else if (source.x < target.x) {
+                    // Inter-level edge: Left to right
+                    const startX = source.x + cardHalfW;
+                    const startY = source.y;
+                    const endX = target.x - cardHalfW;
+                    const endY = target.y;
+                    const dx = endX - startX;
+                    pathData = `M ${startX} ${startY} C ${startX + dx * 0.45} ${startY}, ${endX - dx * 0.45} ${endY}, ${endX} ${endY}`;
+                  } else {
+                    // Right to left (fallback)
+                    const startX = source.x - cardHalfW;
+                    const startY = source.y;
+                    const endX = target.x + cardHalfW;
+                    const endY = target.y;
+                    const dx = startX - endX;
+                    pathData = `M ${startX} ${startY} C ${startX - dx * 0.45} ${startY}, ${endX + dx * 0.45} ${endY}, ${endX} ${endY}`;
+                  }
+
+                  const isEdgeActive = node.status === 'frontier' || node.status === 'false_positive';
+
+                  return (
+                    <path
+                      key={`${prereqId}->${node.id}`}
+                      d={pathData}
+                      fill="none"
+                      stroke={isEdgeActive ? '#3b82f6' : '#475569'}
+                      strokeWidth={isEdgeActive ? '2' : '1.5'}
+                      strokeDasharray={isEdgeActive ? 'none' : '4 2'}
+                      strokeOpacity={isEdgeActive ? '0.85' : '0.5'}
+                      markerEnd={isEdgeActive ? 'url(#dag-arrow-active)' : 'url(#dag-arrow)'}
+                    />
+                  );
+                });
+              })}
+            </g>
+
+            {/* Nodes */}
             {nodes.map((node) => {
-              const target = nodeCoords[node.id];
-              if (!target) return null;
+              const coord = nodeCoords[node.id];
+              if (!coord) return null;
 
-              return node.prerequisites.map((prereqId) => {
-                const source = nodeCoords[prereqId];
-                if (!source) return null;
+              const color = getNodeColor(node.status);
+              const isActive = node.id === activeNodeId;
 
-                const c1x = source.x + 50;
-                const c1y = source.y;
-                const c2x = target.x - 50;
-                const c2y = target.y;
+              return (
+                <g
+                  key={node.id}
+                  onClick={() => handleNodeClick(node)}
+                  className="cursor-pointer transition-transform hover:opacity-95"
+                  transform={`translate(${coord.x}, ${coord.y})`}
+                  data-testid={`node-${node.id}`}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <title>{node.title} ({node.status})</title>
 
-                return (
-                  <path
-                    key={`${prereqId}->${node.id}`}
-                    d={`M ${source.x + 85} ${source.y} C ${c1x + 30} ${c1y}, ${c2x - 30} ${c2y}, ${target.x - 85} ${target.y}`}
-                    fill="none"
-                    stroke="#475569"
-                    strokeWidth="1.8"
-                    strokeDasharray="4 2"
+                  {/* Node Box (Width 200px, Height 56px) */}
+                  <rect
+                    x="-100"
+                    y="-28"
+                    width="200"
+                    height="56"
+                    rx="8"
+                    fill={color.fill}
+                    stroke={color.stroke}
+                    strokeWidth={isActive ? '2.5' : '1.5'}
+                    className={color.pulse ? 'animate-pulse' : ''}
                   />
-                );
-              });
+
+                  {/* Status Indicator Dot */}
+                  <circle cx="-88" cy="0" r="4.5" fill={color.dot} />
+
+                  {/* Title text formatted with native SVG textLength constraint */}
+                  <text
+                    x="-76"
+                    y="2"
+                    fill="#f8fafc"
+                    fontSize={node.title.length > 26 ? '8.5' : '9.5'}
+                    fontWeight="600"
+                    fontFamily="Inter, system-ui, sans-serif"
+                    {...(node.title.length > 26
+                      ? { textLength: 165, lengthAdjust: 'spacingAndGlyphs' }
+                      : {})}
+                  >
+                    {node.title}
+                  </text>
+
+                  {/* Status Label */}
+                  <text
+                    x="-76"
+                    y="21"
+                    fill={color.stroke}
+                    fontSize="8"
+                    fontWeight="600"
+                    fontFamily="monospace"
+                  >
+                    {node.status.toUpperCase()}
+                  </text>
+                </g>
+              );
             })}
           </g>
-
-          {/* Nodes */}
-          {nodes.map((node) => {
-            const coord = nodeCoords[node.id];
-            if (!coord) return null;
-
-            const color = getNodeColor(node.status);
-            const isActive = node.id === activeNodeId;
-
-            return (
-              <g
-                key={node.id}
-                onClick={() => handleNodeClick(node)}
-                className="cursor-pointer transition-transform hover:scale-105"
-                transform={`translate(${coord.x}, ${coord.y})`}
-                data-testid={`node-${node.id}`}
-              >
-                {/* Node Box */}
-                <rect
-                  x="-85"
-                  y="-26"
-                  width="170"
-                  height="52"
-                  rx="6"
-                  fill={color.fill}
-                  stroke={color.stroke}
-                  strokeWidth={isActive ? '2.5' : '1.5'}
-                  className={color.pulse ? 'animate-pulse' : ''}
-                />
-
-                {/* Status Dot */}
-                <circle cx="-72" cy="0" r="4.5" fill={color.stroke} />
-
-                {/* Title */}
-                <text
-                  x="-60"
-                  y="-4"
-                  fill="#f1f5f9"
-                  fontSize="9.5"
-                  fontWeight="600"
-                  fontFamily="Inter, sans-serif"
-                >
-                  {node.title}
-                </text>
-
-                {/* Status Label */}
-                <text
-                  x="-60"
-                  y="12"
-                  fill={color.stroke}
-                  fontSize="8.5"
-                  fontWeight="500"
-                  fontFamily="monospace"
-                >
-                  {node.status.toUpperCase()}
-                </text>
-              </g>
-            );
-          })}
         </svg>
       </div>
 
