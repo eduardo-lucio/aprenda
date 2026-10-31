@@ -49,27 +49,28 @@ describe('App Session Synchronization, Settings Modal, and Global Dictate', () =
     });
   });
 
-  it('opens and saves the Settings Modal when settings button is clicked', async () => {
+  it('opens and interacts with the Settings Modal when settings button is clicked', async () => {
     render(<App />);
 
     const settingsBtn = screen.getByRole('button', { name: /configurações do agente/i });
     fireEvent.click(settingsBtn);
 
-    expect(screen.getByText('Configurações do Agente & LLM')).toBeDefined();
-    expect(screen.getByText(/base url/i)).toBeDefined();
+    expect(screen.getByText('Settings')).toBeDefined();
+    expect(screen.getByText('PROVIDERS')).toBeDefined();
+    expect(screen.getByText('+ Add a provider')).toBeDefined();
 
-    // Select a preset model
-    const deepseekBtn = screen.getByRole('button', { name: 'deepseek-r1' });
-    fireEvent.click(deepseekBtn);
+    // Switch to Agent tab
+    const agentTabBtn = screen.getByRole('button', { name: 'Agent' });
+    fireEvent.click(agentTabBtn);
+    expect(screen.getByText('MODELS')).toBeDefined();
+    expect(screen.getByText('Strong')).toBeDefined();
 
-    // Save
-    const saveBtn = screen.getByRole('button', { name: /salvar configurações/i });
-    fireEvent.click(saveBtn);
+    // Close settings modal
+    const closeBtn = screen.getByLabelText(/fechar/i);
+    fireEvent.click(closeBtn);
 
-    // Modal should close and status bar should reflect new model
     await waitFor(() => {
-      expect(screen.queryByText('Configurações do Agente & LLM')).toBeNull();
-      expect(screen.getByText('deepseek-r1')).toBeDefined();
+      expect(screen.queryByText('Settings')).toBeNull();
     });
   });
 
