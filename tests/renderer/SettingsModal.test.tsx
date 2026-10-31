@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SettingsModal, DEFAULT_SETTINGS } from '../../src/renderer/components/SettingsModal';
 
-describe('SettingsModal Component', () => {
+describe('SettingsModal Functional Component', () => {
   it('does not render when isOpen is false', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
@@ -12,7 +12,7 @@ describe('SettingsModal Component', () => {
     expect(screen.queryByText('Settings')).toBeNull();
   });
 
-  it('renders all 6 navigation tabs and allows navigating between them', () => {
+  it('renders exactly the 4 navigation tabs and removed Graph and Keyboard', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
@@ -29,45 +29,14 @@ describe('SettingsModal Component', () => {
     expect(screen.getByText('Providers')).toBeDefined();
     expect(screen.getByText('Agent')).toBeDefined();
     expect(screen.getByText('Appearance')).toBeDefined();
-    expect(screen.getByText('Graph')).toBeDefined();
-    expect(screen.getByText('Keyboard')).toBeDefined();
     expect(screen.getByText('General')).toBeDefined();
 
-    // Default active tab is Providers
-    expect(screen.getByText('PROVIDERS')).toBeDefined();
-    expect(screen.getByText('MODEL API KEYS')).toBeDefined();
-    expect(screen.getByText('+ Add a provider')).toBeDefined();
-
-    // Switch to Agent tab
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
-    expect(screen.getByText('MODELS')).toBeDefined();
-    expect(screen.getByText('Strong')).toBeDefined();
-    expect(screen.getByText('The main model for your sessions')).toBeDefined();
-    expect(screen.getByText('Quizzing')).toBeDefined();
-
-    // Switch to Appearance tab
-    fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
-    expect(screen.getByText('APPEARANCE')).toBeDefined();
-    expect(screen.getByText('Reading font')).toBeDefined();
-
-    // Switch to Graph tab
-    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
-    expect(screen.getByText('GRAPH')).toBeDefined();
-    expect(screen.getByText('Arrowhead markers')).toBeDefined();
-
-    // Switch to Keyboard tab
-    fireEvent.click(screen.getByRole('button', { name: 'Keyboard' }));
-    expect(screen.getByText('KEYBOARD SHORTCUTS')).toBeDefined();
-    expect(screen.getByText('Toggle Voice Dictation')).toBeDefined();
-
-    // Switch to General tab
-    fireEvent.click(screen.getByRole('button', { name: 'General' }));
-    expect(screen.getByText('GENERAL')).toBeDefined();
-    expect(screen.getByText(/version 0.4.0/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /check for updates/i })).toBeDefined();
+    // Graph and Keyboard should NOT be present
+    expect(screen.queryByText('Graph')).toBeNull();
+    expect(screen.queryByText('Keyboard')).toBeNull();
   });
 
-  it('allows selecting provider from searchable dropdown in Providers tab', () => {
+  it('allows adding and entering API key for a provider in Providers tab', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
@@ -86,35 +55,35 @@ describe('SettingsModal Component', () => {
 
     // Search input appears
     const searchInput = screen.getByPlaceholderText('Search providers...');
-    expect(searchInput).toBeDefined();
+    fireEvent.change(searchInput, { target: { value: 'DeepSeek' } });
 
-    // Type to filter
-    fireEvent.change(searchInput, { target: { value: 'Google' } });
-    expect(screen.getByText('GEMINI_API_KEY')).toBeDefined();
+    // Click DeepSeek
+    fireEvent.click(screen.getByText('DeepSeek'));
 
-    // Click Google
-    fireEvent.click(screen.getByText('Google'));
+    // Key input dialog appears
+    expect(screen.getByText(/configurar chave de api: deepseek/i)).toBeDefined();
+    const keyInput = screen.getByPlaceholderText(/insira sua chave/i);
+    fireEvent.change(keyInput, { target: { value: 'sk-deepseek-123456789' } });
 
-    // Input key appears
-    const keyInput = screen.getByPlaceholderText(/sk-... ou endpoint/i);
-    fireEvent.change(keyInput, { target: { value: 'AIzaSyDemoKey123' } });
-
-    // Save provider
-    const saveBtn = screen.getByRole('button', { name: 'Salvar' });
-    fireEvent.click(saveBtn);
+    // Click Salvar Chave de API
+    const saveKeyBtn = screen.getByRole('button', { name: /salvar chave de api/i });
+    fireEvent.click(saveKeyBtn);
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
+        apiKey: 'sk-deepseek-123456789',
+        activeProviderId: 'deepseek',
         providers: expect.arrayContaining([
           expect.objectContaining({
-            name: 'Google',
+            name: 'DeepSeek',
+            apiKey: 'sk-deepseek-123456789',
           }),
         ]),
       })
     );
   });
 
-  it('updates Strong model in Agent tab and calls onSave', () => {
+  it('displays warning in Agent tab when no provider has an API key configured', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
@@ -123,22 +92,100 @@ describe('SettingsModal Component', () => {
         isOpen={true}
         onClose={onClose}
         onSave={onSave}
-        initialSettings={DEFAULT_SETTINGS}
+        initialSettings={{
+          ...DEFAULT_SETTINGS,
+          apiKey: '',
+          providers: [],
+        }}
       />
     );
 
     // Navigate to Agent tab
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
 
-    // Find strong model select
-    const selects = screen.getAllByRole('combobox');
-    fireEvent.change(selects[0], { target: { value: 'deepseek-r1' } });
+    // Warning should be displayed
+    expect(screen.getByText(/nenhum provedor configurado com chave de api/i)).toBeDefined();
+    expect(screen.getByRole('button', { name: /ir para a aba providers/i })).toBeDefined();
+  });
+
+  it('allows searching and selecting models and choosing effort level in Agent tab', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        onSave={onSave}
+        initialSettings={{
+          ...DEFAULT_SETTINGS,
+          activeProviderId: 'openrouter',
+          providers: [
+            {
+              id: 'openrouter',
+              name: 'OpenRouter',
+              keyMasked: '...4591 • 73',
+              apiKey: 'sk-or-real-key-1234',
+              isActive: true,
+            },
+          ],
+        }}
+      />
+    );
+
+    // Navigate to Agent tab
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+
+    // Should indicate OpenRouter is active
+    expect(screen.getByText('OpenRouter')).toBeDefined();
+
+    // Click the model selection button for Strong (initially 'free')
+    const strongModelBtn = screen.getByText('free');
+    fireEvent.click(strongModelBtn);
+
+    // Search input appears in the popover
+    const searchModelInput = screen.getByPlaceholderText('Search models...');
+    fireEvent.change(searchModelInput, { target: { value: 'Claude 3.7' } });
+
+    // Select Claude 3.7 Sonnet
+    const claudeOption = screen.getByText('Anthropic: Claude 3.7 Sonnet');
+    fireEvent.click(claudeOption);
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        strongModel: 'deepseek-r1',
-        model: 'deepseek-r1',
+        strongModel: 'anthropic/claude-3.7-sonnet',
+        model: 'anthropic/claude-3.7-sonnet',
+        strongThinking: 'high',
       })
     );
+
+    // Click effort level button for Strong
+    const effortBtn = screen.getAllByRole('button', { name: /high/i })[0];
+    fireEvent.click(effortBtn);
+
+    // Effort popover opens with options (off, minimal, low, medium, high)
+    const mediumOption = screen.getByText('medium');
+    fireEvent.click(mediumOption);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        strongThinking: 'medium',
+        thinkingLevel: 'Medium',
+      })
+    );
+  });
+
+  it('shows "Em Breve" in Appearance tab', () => {
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        initialSettings={DEFAULT_SETTINGS}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    expect(screen.getByText(/personalização de aparência \(em breve\)/i)).toBeDefined();
   });
 });
