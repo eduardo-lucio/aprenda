@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
@@ -32,6 +32,11 @@ export default function App() {
     }
   };
 
+  const handleToggleDictate = () => {
+    setIsRecording((prev) => !prev);
+    window.dispatchEvent(new CustomEvent('toggle-dictate'));
+  };
+
   return (
     <div className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-gray-100 overflow-hidden font-sans select-none">
       {/* Frameless Custom Title Bar */}
@@ -50,6 +55,7 @@ export default function App() {
         {/* Central Session / Socratic Canvas */}
         <main className="flex-1 overflow-hidden">
           <SessionView
+            currentSession={currentSession}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
           />
         </main>
@@ -60,7 +66,7 @@ export default function App() {
         questionCount={currentSession?.questionCount || 0}
         frontierClarity={currentSession?.frontierClarity || 0}
         isRecording={isRecording}
-        onToggleDictate={() => setIsRecording(!isRecording)}
+        onToggleDictate={handleToggleDictate}
       />
     </div>
   );

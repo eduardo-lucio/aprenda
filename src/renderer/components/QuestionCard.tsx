@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QuestionData } from '../../shared/types';
 import { ConfidenceSlider } from './ConfidenceSlider';
 import { ThinkingField } from './ThinkingField';
@@ -32,9 +32,23 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     setValidationError(null);
   });
 
+  // Connect global dictate toggle (e.g. from Status Bar)
+  useEffect(() => {
+    const handleGlobalDictate = () => {
+      toggleListening();
+    };
+    window.addEventListener('toggle-dictate', handleGlobalDictate);
+    return () => window.removeEventListener('toggle-dictate', handleGlobalDictate);
+  }, [toggleListening]);
+
   const handleSubmit = () => {
     if (selectedOptionIndex === null && !isCustomOption) {
       setValidationError('Selecione uma alternativa ou escolha "Outro".');
+      return;
+    }
+
+    if (isCustomOption && !customAnswer.trim()) {
+      setValidationError('Digite sua resposta personalizada antes de enviar.');
       return;
     }
 

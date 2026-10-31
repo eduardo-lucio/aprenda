@@ -8,15 +8,17 @@ import { BookOpen, Sparkles, ArrowRight, BarChart3, RotateCcw, CheckCircle } fro
 
 interface SessionViewProps {
   initialNodes?: ConceptNode[];
+  currentSession?: ProbingSession | null;
   onSessionUpdate?: (session: ProbingSession) => void;
 }
 
 export const SessionView: React.FC<SessionViewProps> = ({
   initialNodes = [],
+  currentSession,
   onSessionUpdate,
 }) => {
   const [nodes, setNodes] = useState<ConceptNode[]>(initialNodes);
-  const [session, setSession] = useState<ProbingSession | null>(null);
+  const [session, setSession] = useState<ProbingSession | null>(currentSession || null);
   const [goalInput, setGoalInput] = useState('');
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
   const [activeTab, setActiveTab] = useState<'session' | 'dag'>('session');
@@ -35,6 +37,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
       window.api.getGraphState().then((g) => setNodes(g));
     }
   }, [initialNodes.length]);
+
+  useEffect(() => {
+    if (currentSession !== undefined) {
+      setSession(currentSession);
+      if (currentSession) {
+        setCurrentQuestion(currentSession.currentQuestion || null);
+        if (currentSession.phase === 'goal_orientation') {
+          setSocraticNode(null);
+          setSocraticPredictData(null);
+          setActiveTab('session');
+        }
+      }
+    }
+  }, [currentSession]);
 
   const refreshGraph = async () => {
     if (window.api?.getGraphState) {

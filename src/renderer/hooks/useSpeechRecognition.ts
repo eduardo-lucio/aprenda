@@ -16,6 +16,12 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const onResultRef = useRef(onResult);
+
+  // Keep latest onResult callback without restarting recognition
+  useEffect(() => {
+    onResultRef.current = onResult;
+  }, [onResult]);
 
   const isSupported =
     typeof window !== 'undefined' &&
@@ -36,18 +42,26 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       recognition.lang = 'pt-BR';
 
       recognition.onresult = (event: any) => {
-        let currentText = '';
+        let finalChunk = '';
+        let fullTranscript = '';
+
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          currentText += event.results[i][0].transcript;
+          const res = event.results[i];
+          const text = res[0].transcript;
+          fullTranscript += text;
+          if (res.isFinal) {
+            finalChunk += text;
+          }
         }
-        setTranscript(currentText);
-        if (onResult && currentText.trim()) {
-          onResult(currentText);
+
+        setTranscript(fullTranscript);
+
+        if (finalChunk.trim() && onResultRef.current) {
+          onResultRef.current(finalChunk.trim());
         }
       };
 
       recognition.onerror = (event: any) => {
-        // Silently handle recognition error and fall back to typing
         setError(event.error || 'Erro no reconhecimento de voz');
         setIsListening(false);
       };
@@ -68,11 +82,10 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
         } catch (_e) {}
       }
     };
-  }, [isSupported, onResult]);
+  }, [isSupported]);
 
   const startListening = useCallback(() => {
     if (!isSupported || !recognitionRef.current) {
-      setIsListening((prev) => !prev); // Mock toggle if unsupported
       return;
     }
     setError(null);
