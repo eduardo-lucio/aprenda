@@ -25,7 +25,8 @@ export class CognitiveJudgeService {
         prompt,
         temperature: 0.1,
         jsonMode: true,
-        timeoutMs: 45000,
+        maxTokens: 350,
+        timeoutMs: 25000,
       });
 
       const parsed = parseLLMJson<any>(rawResponse);

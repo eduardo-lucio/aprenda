@@ -18,6 +18,8 @@ export class SessionStateMachine {
   private strandNodes: ConceptNode[] = [];
   private candidateQueue: string[] = [];
   private askedQuestions: string[] = [];
+  private questionCache: Map<string, QuestionData> = new Map();
+  private isPrefetching = false;
 
   constructor(store?: KnowledgeStore, judge?: CognitiveJudgeService, generator?: CurriculumGenerator) {
     this.store = store || new KnowledgeStore();
@@ -46,6 +48,8 @@ export class SessionStateMachine {
     this.strandNodes = [];
     this.candidateQueue = [];
     this.askedQuestions = [];
+    this.questionCache.clear();
+    this.isPrefetching = false;
 
     const existingNodes = this.store.getNodes();
     const initialNodesState: Record<string, ConceptNode['status']> = {};
@@ -81,7 +85,7 @@ export class SessionStateMachine {
   async submitGoalClarification(selectedOption: string): Promise<QuestionData> {
     const session = this.requireSession();
 
-    // Generate the concept DAG dynamically for the student's chosen goal
+    // 1 single combined call generates the DAG and the first probe question together
     const graph = await this.generator.generateGraph(selectedOption);
     this.store.setNodes(graph.nodes);
     this.strandNodes = this.store.getStrand();
@@ -91,10 +95,22 @@ export class SessionStateMachine {
       nodesState[n.id] = 'untested';
     }
 
-    // Start from the highest-level target concepts and bracket downwards
+    // Sort by level descending (bracket from top)
     this.candidateQueue = [...this.strandNodes].sort((a, b) => b.level - a.level).map((n) => n.id);
-    const firstNodeId = this.candidateQueue.shift()!;
-    const firstQuestion = await this.generateQuestionFor(firstNodeId, selectedOption);
+
+    let firstQuestion = graph.firstQuestion;
+    let firstNodeId: string;
+
+    if (firstQuestion && this.store.getNodeById(firstQuestion.nodeId)) {
+      firstNodeId = firstQuestion.nodeId;
+      this.candidateQueue = this.candidateQueue.filter((id) => id !== firstNodeId);
+      this.questionCache.set(firstQuestion.nodeId, firstQuestion);
+    } else {
+      firstNodeId = this.candidateQueue.shift()!;
+      firstQuestion = await this.getOrGenerateQuestionFor(firstNodeId, selectedOption);
+    }
+
+    this.askedQuestions.push(firstQuestion.questionText);
 
     session.goal = selectedOption;
     session.disciplineId = graph.discipline;
@@ -102,6 +118,10 @@ export class SessionStateMachine {
     session.phase = 'probing';
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
+
+    // Immediately kick off background prefetch for subsequent candidate nodes
+    // Runs while student is reading and answering question 1!
+    void this.triggerBackgroundPrefetch(selectedOption);
 
     return firstQuestion;
   }
@@ -130,15 +150,26 @@ export class SessionStateMachine {
       throw new Error('Conceito da questão atual não encontrado no grafo.');
     }
 
-    const evaluation = await this.judge.evaluate({
-      node: currentNode,
-      questionText: currentQ.questionText,
-      options: currentQ.options,
-      selectedOptionIndex: data.selectedOptionIndex,
-      correctOptionIndex: currentQ.correctOptionIndex,
-      confidence: data.confidence,
-      thinkingText: data.thinkingText,
-    });
+    // Concurrently anticipate the next candidate node so question fetch overlaps with judge evaluation
+    const probableNextId = this.candidateQueue[0] || this.strandNodes[0]?.id;
+    const prefetchPromise =
+      probableNextId && !this.questionCache.has(probableNextId)
+        ? this.getOrGenerateQuestionFor(probableNextId, session.goal).catch(() => undefined)
+        : Promise.resolve(undefined);
+
+    // Parallel execution: Judge evaluation + next question preparation
+    const [evaluation] = await Promise.all([
+      this.judge.evaluate({
+        node: currentNode,
+        questionText: currentQ.questionText,
+        options: currentQ.options,
+        selectedOptionIndex: data.selectedOptionIndex,
+        correctOptionIndex: currentQ.correctOptionIndex,
+        confidence: data.confidence,
+        thinkingText: data.thinkingText,
+      }),
+      prefetchPromise,
+    ]);
 
     const attempt: ProbeAttempt = {
       questionId: currentQ.id,
@@ -165,6 +196,7 @@ export class SessionStateMachine {
         }
       }
     } else {
+      // Zoom-in: untested prerequisites take priority
       const untested = prereqs
         .filter((p) => session.nodesState[p.id] === 'untested')
         .map((p) => p.id)
@@ -181,9 +213,14 @@ export class SessionStateMachine {
     }
 
     const nextNodeId = this.pickNextNode();
-    const nextQuestion = await this.generateQuestionFor(nextNodeId, session.goal);
+    const nextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
+    this.askedQuestions.push(nextQuestion.questionText);
+
     session.questionCount += 1;
     session.currentQuestion = nextQuestion;
+
+    // Continue background prefetching remaining nodes while user solves the next question
+    void this.triggerBackgroundPrefetch(session.goal);
 
     return { attempt, nextAction: 'next_question', nextQuestion };
   }
@@ -215,12 +252,64 @@ export class SessionStateMachine {
     return this.session;
   }
 
-  private async generateQuestionFor(nodeId: string, goal: string): Promise<QuestionData> {
+  /**
+   * Returns pre-cached question if available, otherwise generates and caches it.
+   */
+  private async getOrGenerateQuestionFor(nodeId: string, goal: string): Promise<QuestionData> {
+    const cached = this.questionCache.get(nodeId);
+    if (cached) {
+      return cached;
+    }
+
     const node = this.store.getNodeById(nodeId);
     if (!node) throw new Error(`Conceito "${nodeId}" não encontrado.`);
+
     const question = await this.generator.generateQuestion(node, goal, this.askedQuestions);
-    this.askedQuestions.push(question.questionText);
+    this.questionCache.set(nodeId, question);
     return question;
+  }
+
+  /**
+   * Pre-generates questions in the background for upcoming candidate nodes
+   * so they are already waiting in cache when the user submits their answer.
+   */
+  private async triggerBackgroundPrefetch(goal: string): Promise<void> {
+    if (this.isPrefetching) return;
+    this.isPrefetching = true;
+
+    try {
+      // Prioritize prerequisites of current question (in case of zoom-in),
+      // then remaining candidate queue, then strand nodes
+      const currentPrereqs = this.session?.currentQuestion
+        ? this.store.getPrerequisites(this.session.currentQuestion.nodeId).map((p) => p.id)
+        : [];
+
+      const rawTargets = [
+        ...currentPrereqs,
+        ...this.candidateQueue,
+        ...this.strandNodes.map((n) => n.id),
+      ];
+      const targets = Array.from(new Set(rawTargets));
+
+      for (const nodeId of targets) {
+        if (!this.session || this.session.phase !== 'probing') break;
+        if (!this.questionCache.has(nodeId)) {
+          const node = this.store.getNodeById(nodeId);
+          if (node) {
+            try {
+              const q = await this.generator.generateQuestion(node, goal, this.askedQuestions);
+              this.questionCache.set(nodeId, q);
+            } catch {
+              // Ignore background errors
+            }
+          }
+          // Brief pause between background LLM calls
+          await new Promise((r) => setTimeout(r, 40));
+        }
+      }
+    } finally {
+      this.isPrefetching = false;
+    }
   }
 
   private pickNextNode(): string {

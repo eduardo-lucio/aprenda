@@ -23,13 +23,13 @@ REGRA PRIMÁRIA INVIOLÁVEL:
    - Alternativa Incorreta + Alta Confiança (>=60) => "blind_spot"
    - Alternativa Incorreta + Baixa Confiança (<60 ou dúvida honesta) => "frontier"
 
-Escreva o diagnóstico em português do Brasil. Responda SEMPRE em JSON no seguinte formato:
+Escreva o diagnóstico em português do Brasil de forma extremamente CONCISA (máximo 2 a 3 frases no diagnóstico). Responda SEMPRE em JSON no seguinte formato:
 {
   "verdict": "mastered" | "false_positive" | "blind_spot" | "frontier",
   "isCorrectOption": boolean,
   "confidenceLevel": number,
-  "reasoningDiagnosis": "Explicação clínica curta do diagnóstico cognitivo do aluno",
-  "identifiedMisconception": "Descrição do equívoco ou vazio conceitual identificado, se houver"
+  "reasoningDiagnosis": "Explicação clínica curta e direta do diagnóstico cognitivo do aluno (máximo 2 frases)",
+  "identifiedMisconception": "Descrição resumida do equívoco ou vazio conceitual identificado, se houver"
 }`;
 
   const prompt = `CONCEITO ALVO:

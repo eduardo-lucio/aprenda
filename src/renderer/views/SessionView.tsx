@@ -14,6 +14,7 @@ import {
   Award,
   RefreshCw,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 
 interface SessionViewProps {
@@ -45,6 +46,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     promptGoal?: string;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingLabel, setSubmittingLabel] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,6 +95,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     const goalToUse = (customGoal || goalInput).trim();
     if (!goalToUse) return;
 
+    setSubmittingLabel('Definindo objetivo e preparando opções de escopo...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -113,6 +116,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleSelectGoalOption = async (option: string) => {
+    setSubmittingLabel('Construindo o Grafo de Dependências e preparando a 1ª questão...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -152,6 +156,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     confidence: number;
     thinkingText: string;
   }) => {
+    setSubmittingLabel('O Juiz Cognitivo está analisando seu raciocínio livre...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -190,6 +195,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleForceAdvanceDiagnosis = async () => {
+    setSubmittingLabel('Finalizando diagnóstico da fronteira...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -209,6 +215,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleStartSocraticCycle = async (nodeId?: string) => {
+    setSubmittingLabel('Preparando etapa socrática (Predição)...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -326,6 +333,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3.5 text-xs text-red-200 flex items-start space-x-2">
                 <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
                 <span>{actionError}</span>
+              </div>
+            )}
+
+            {isSubmitting && (
+              <div className="flex items-center space-x-2.5 rounded-lg border border-emerald-900/50 bg-emerald-950/25 px-4 py-3 text-xs text-emerald-300 shadow-md animate-pulse">
+                <Loader2 className="h-4 w-4 animate-spin text-emerald-400 shrink-0" />
+                <span className="font-medium">{submittingLabel || 'Processando com IA...'}</span>
               </div>
             )}
 

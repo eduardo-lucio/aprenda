@@ -94,107 +94,110 @@ export function sanitizeGraph(rawNodes: any[]): ConceptNode[] {
   });
 }
 
-/**
- * Builds a domain-agnostic 10-node DAG from the user's goal string when the LLM
- * is unreachable/offline so the session never hangs.
- */
-export function buildFallbackGraphForGoal(goal: string): { discipline: string; nodes: ConceptNode[] } {
+export function buildFallbackGraphForGoal(goal: string): {
+  discipline: string;
+  nodes: ConceptNode[];
+  firstQuestion: QuestionData;
+} {
   const topic = goal.trim() || 'Tema de Estudo';
   const prefix = slugify(topic).slice(0, 20) || 'topico';
   const nodes: ConceptNode[] = [
     {
       id: `${prefix}-l1-definicoes`,
-      title: `Definições Elementares de ${topic}`,
-      summary: `Vocabulário essencial e grandezas básicas de ${topic}.`,
+      title: `Definições Essenciais de ${topic}`,
+      summary: `Vocabulário fundamental e premissas de base de ${topic}.`,
       level: 1,
       prerequisites: [],
-      unconditionalTruth: `Compreender ${topic} exige domínio inequívoco de seus termos e definições de base.`,
+      unconditionalTruth: `O domínio de ${topic} requer clareza inequívoca em suas definições primitivas.`,
       status: 'untested',
     },
     {
       id: `${prefix}-l1-premissas`,
-      title: `Premissas e Condições de Contorno`,
-      summary: `Hipóteses fundamentais em que ${topic} opera.`,
+      title: `Premissas e Condições de Validade`,
+      summary: `Condições de contorno nas quais ${topic} opera.`,
       level: 1,
       prerequisites: [],
-      unconditionalTruth: `Toda regra de ${topic} só é válida dentro de suas condições de contorno explícitas.`,
+      unconditionalTruth: `Regras teóricas só se sustentam dentro de suas premissas explícitas.`,
       status: 'untested',
     },
     {
       id: `${prefix}-l2-estrutura`,
-      title: `Estrutura Interna e Componentes`,
-      summary: `Como as partes de ${topic} se organizam e interagem.`,
-      level: 2,
-      prerequisites: [`${prefix}-l1-definicoes`, `${prefix}-l1-premissas`],
-      unconditionalTruth: `A estrutura de ${topic} conecta diretamente as definições de base ao mecanismo causal.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l2-mecanismo`,
-      title: `Mecanismo Causal Principal`,
-      summary: `Relações de causa e efeito em ${topic}.`,
+      title: `Estrutura e Relações Causais`,
+      summary: `Mecanismo de funcionamento interno de ${topic}.`,
       level: 2,
       prerequisites: [`${prefix}-l1-definicoes`],
-      unconditionalTruth: `O mecanismo central determina de forma previsível a transição entre estados em ${topic}.`,
+      unconditionalTruth: `Relações causais previsíveis ligam as entradas às saídas em ${topic}.`,
       status: 'untested',
     },
     {
-      id: `${prefix}-l2-representacao`,
+      id: `${prefix}-l2-modelagem`,
       title: `Modelagem e Representação Formal`,
-      summary: `Representação formal e simbólica aplicada a ${topic}.`,
+      summary: `Expressão analítica e representação formal de ${topic}.`,
       level: 2,
       prerequisites: [`${prefix}-l1-premissas`],
-      unconditionalTruth: `A representação formal elimina ambiguidades na análise de ${topic}.`,
+      unconditionalTruth: `A modelagem precisa elimina intuições vagas e inconsistências.`,
       status: 'untested',
     },
     {
       id: `${prefix}-l3-aplicacao`,
-      title: `Aplicação Direta de ${topic}`,
-      summary: `Resolução de casos concretos utilizando ${topic}.`,
+      title: `Aplicação Prática em ${topic}`,
+      summary: `Resolução de casos práticos e resolução de problemas.`,
       level: 3,
-      prerequisites: [`${prefix}-l2-estrutura`, `${prefix}-l2-mecanismo`],
-      unconditionalTruth: `A aplicação correta de ${topic} preserva invariantes mesmo quando os parâmetros mudam.`,
+      prerequisites: [`${prefix}-l2-estrutura`],
+      unconditionalTruth: `A aplicação correta preserva os invariantes do sistema sob variação de parâmetros.`,
       status: 'untested',
     },
     {
       id: `${prefix}-l3-casos-limite`,
-      title: `Casos Limite e Exceções`,
-      summary: `Comportamento de ${topic} sob condições extremas.`,
+      title: `Casos Limite e Análise Crítica`,
+      summary: `Comportamento sob condições extremas e armadilhas comuns.`,
       level: 3,
-      prerequisites: [`${prefix}-l2-mecanismo`, `${prefix}-l2-representacao`],
-      unconditionalTruth: `Casos limite expõem falhas de intuição superficial e exigem verificação dos pré-requisitos.`,
+      prerequisites: [`${prefix}-l2-modelagem`],
+      unconditionalTruth: `Casos extremos desmascaram premissas falsas e atalhos heurísticos errôneos.`,
       status: 'untested',
     },
     {
-      id: `${prefix}-l3-diagnostico`,
-      title: `Diagnóstico de Erros Comuns`,
-      summary: `Identificação de falsos positivos e confusões conceituais em ${topic}.`,
-      level: 3,
-      prerequisites: [`${prefix}-l2-estrutura`],
-      unconditionalTruth: `Distinguir correlação aparente de causa real evita conclusões falsas em ${topic}.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l4-integracao`,
-      title: `Integração Sistêmica em ${topic}`,
-      summary: `Combinação de múltiplos subconceitos de ${topic} em cenários reais.`,
+      id: `${prefix}-l4-sintese`,
+      title: `Síntese e Domínio Integrado de ${topic}`,
+      summary: `Tomada de decisão avançada e articulação de múltiplos conceitos.`,
       level: 4,
       prerequisites: [`${prefix}-l3-aplicacao`, `${prefix}-l3-casos-limite`],
-      unconditionalTruth: `O domínio completo de ${topic} integra fundamentos, mecanismos e casos limite de forma coerente.`,
+      unconditionalTruth: `O domínio pleno unifica fundamentos, mecanismos e limites em síntese coerente.`,
       status: 'untested',
     },
     {
       id: `${prefix}-l4-avaliacao`,
-      title: `Análise Crítica e Otimização`,
-      summary: `Tomada de decisão avançada e trade-offs em ${topic}.`,
+      title: `Avaliação Crítica e Resolução Inovadora`,
+      summary: `Julgamento e generalização conceitual sob incerteza em ${topic}.`,
       level: 4,
-      prerequisites: [`${prefix}-l3-aplicacao`, `${prefix}-l3-diagnostico`],
-      unconditionalTruth: `Toda escolha avançada em ${topic} envolve avaliar compromissos sob restrições reais.`,
+      prerequisites: [`${prefix}-l4-sintese`],
+      unconditionalTruth: `A maestria se manifesta na capacidade de diagnosticar falhas sutis e formular soluções robustas.`,
       status: 'untested',
     },
   ];
 
-  return { discipline: topic, nodes };
+  const firstQuestion: QuestionData = {
+    id: `q-${prefix}-l4-1`,
+    nodeId: `${prefix}-l4-sintese`,
+    questionText: `No estudo avançado de "${topic}", qual é o critério determinante para validar a solução de um problema complexo?`,
+    options: [
+      `Garantir que os princípios fundamentais e condições de contorno sejam respeitados de ponta a ponta.`,
+      `Ignorar restrições de contorno se a resposta parecer plausível na superfície.`,
+      `Considerar apenas a intuição inicial sem testar casos extremos.`,
+      `Aplicar fórmulas prontas sem verificar a aplicabilidade ao contexto.`,
+    ],
+    correctOptionIndex: 0,
+    anchorConcept: `${topic}: Síntese Avançada`,
+    difficulty: 4,
+  };
+
+  return { discipline: topic, nodes, firstQuestion };
+}
+
+export interface GeneratedGraphResult {
+  discipline: string;
+  nodes: ConceptNode[];
+  firstQuestion?: QuestionData;
 }
 
 export class CurriculumGenerator {
@@ -212,43 +215,98 @@ export class CurriculumGenerator {
   async generateGoalOptions(goal: string): Promise<string[]> {
     try {
       const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
-      const raw = await this.llm({ systemPrompt, prompt, temperature: 0.5, jsonMode: true, timeoutMs: 30000 });
+      const raw = await this.llm({
+        systemPrompt,
+        prompt,
+        temperature: 0.3,
+        jsonMode: true,
+        maxTokens: 250,
+        timeoutMs: 15000,
+      });
       const parsed = parseLLMJson<{ options?: unknown }>(raw);
       const options = Array.isArray(parsed.options)
         ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 3)
         : [];
       if (options.length > 0) return options;
     } catch {
-      // fall through to neutral options derived only from the student's own goal
+      // Fallback directly derived from the user's input
     }
     return this.defaultGoalOptions(goal);
   }
 
-  async generateGraph(goal: string): Promise<{ discipline: string; nodes: ConceptNode[] }> {
+  async generateGraph(goal: string): Promise<GeneratedGraphResult> {
     try {
       const { systemPrompt, prompt } = buildGraphPrompt(goal);
-      const raw = await this.llm({ systemPrompt, prompt, temperature: 0.3, jsonMode: true, timeoutMs: 90000 });
+      const raw = await this.llm({
+        systemPrompt,
+        prompt,
+        temperature: 0.2,
+        jsonMode: true,
+        maxTokens: 1400,
+        timeoutMs: 40000,
+      });
       const parsed = parseLLMJson<any>(raw);
       const rawNodes = Array.isArray(parsed) ? parsed : parsed?.nodes;
       const nodes = sanitizeGraph(rawNodes);
+
       if (nodes.length >= 3) {
+        let firstQuestion: QuestionData | undefined;
+        const rawQ = parsed?.firstQuestion;
+        if (
+          rawQ &&
+          rawQ.questionText &&
+          Array.isArray(rawQ.options) &&
+          rawQ.options.length === 4 &&
+          Number(rawQ.correctOptionIndex) >= 0 &&
+          Number(rawQ.correctOptionIndex) < 4
+        ) {
+          // Identify matching node or default to highest level node
+          const targetNode =
+            nodes.find((n) => n.id === rawQ.nodeId) ||
+            [...nodes].sort((a, b) => b.level - a.level)[0];
+          firstQuestion = {
+            id: `q-${targetNode.id}-${Date.now()}`,
+            nodeId: targetNode.id,
+            questionText: String(rawQ.questionText),
+            options: rawQ.options.map((o: unknown) => String(o)),
+            correctOptionIndex: Number(rawQ.correctOptionIndex),
+            anchorConcept: String(rawQ.anchorConcept || targetNode.title),
+            difficulty: Number(rawQ.difficulty) || targetNode.level,
+          };
+        }
+
         return {
-          discipline: typeof parsed?.discipline === 'string' && parsed.discipline.trim() ? parsed.discipline.trim() : goal,
+          discipline:
+            typeof parsed?.discipline === 'string' && parsed.discipline.trim()
+              ? parsed.discipline.trim()
+              : goal,
           nodes,
+          firstQuestion,
         };
       }
     } catch {
-      // Offline / unconfigured fallback derived from the student's goal
+      // Fallback
     }
     return buildFallbackGraphForGoal(goal);
   }
 
-  async generateQuestion(node: ConceptNode, goal: string, previousQuestions: string[]): Promise<QuestionData> {
+  async generateQuestion(
+    node: ConceptNode,
+    goal: string,
+    previousQuestions: string[]
+  ): Promise<QuestionData> {
     const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await this.llm({ systemPrompt, prompt, temperature: 0.6, jsonMode: true, timeoutMs: 60000 });
+        const raw = await this.llm({
+          systemPrompt,
+          prompt,
+          temperature: 0.4,
+          jsonMode: true,
+          maxTokens: 450,
+          timeoutMs: 25000,
+        });
         const parsed = parseLLMJson<any>(raw);
         const options: string[] = Array.isArray(parsed.options)
           ? parsed.options.map((o: unknown) => String(o)).filter((o: string) => o.trim())
@@ -266,7 +324,7 @@ export class CurriculumGenerator {
           };
         }
       } catch {
-        // retry or fall back
+        // Retry once or fall through to high-quality fallback
       }
     }
 
@@ -289,7 +347,14 @@ export class CurriculumGenerator {
   async generatePredict(node: ConceptNode, goal: string): Promise<{ questionText: string; promptGoal: string }> {
     try {
       const { systemPrompt, prompt } = buildPredictPrompt(node, goal);
-      const raw = await this.llm({ systemPrompt, prompt, temperature: 0.6, jsonMode: true, timeoutMs: 45000 });
+      const raw = await this.llm({
+        systemPrompt,
+        prompt,
+        temperature: 0.5,
+        jsonMode: true,
+        maxTokens: 300,
+        timeoutMs: 20000,
+      });
       const parsed = parseLLMJson<any>(raw);
       if (parsed.questionText) {
         return {
@@ -298,7 +363,7 @@ export class CurriculumGenerator {
         };
       }
     } catch {
-      // generic fallback below
+      // Fallback
     }
     return {
       questionText: `Antes de estudarmos formalmente "${node.title}": ${node.summary} Com base na sua intuição, o que você espera que aconteça e por quê?`,

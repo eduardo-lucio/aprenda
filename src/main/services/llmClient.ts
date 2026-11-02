@@ -2,6 +2,7 @@ export interface LLMConfig {
   baseURL: string;
   apiKey: string;
   model: string;
+  effortLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
   timeoutMs: number;
 }
 
@@ -9,6 +10,7 @@ export const defaultLLMConfig: LLMConfig = {
   baseURL: process.env.OPENAI_BASE_URL || '',
   apiKey: process.env.OPENAI_API_KEY || '',
   model: process.env.OPENAI_MODEL || '',
+  effortLevel: 'medium',
   timeoutMs: 45000,
 };
 
@@ -78,6 +80,8 @@ export interface CallLLMOptions {
   systemPrompt?: string;
   temperature?: number;
   jsonMode?: boolean;
+  maxTokens?: number;
+  effortLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
   timeoutMs?: number;
   config?: Partial<LLMConfig>;
 }
@@ -94,6 +98,34 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
   }
   messages.push({ role: 'user', content: options.prompt });
 
+  const isReasoningModel = /\b(o1|o3|o4)\b/i.test(config.model);
+  const bodyPayload: any = {
+    model: config.model,
+    messages,
+    ...(isReasoningModel ? {} : { temperature: options.temperature ?? 0.2 }),
+    ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
+  };
+
+  if (options.maxTokens) {
+    bodyPayload.max_tokens = options.maxTokens;
+    if (isReasoningModel) {
+      bodyPayload.max_completion_tokens = options.maxTokens;
+    }
+  }
+
+  // Calibrate reasoning/thinking effort so thinking models don't stall for 30s
+  const effort = options.effortLevel ?? config.effortLevel;
+  if (effort) {
+    if (effort === 'off') {
+      bodyPayload.reasoning = { effort: 'none' };
+      bodyPayload.reasoning_effort = 'low';
+    } else {
+      const mapped = effort === 'minimal' ? 'low' : effort;
+      bodyPayload.reasoning = { effort: mapped };
+      bodyPayload.reasoning_effort = mapped;
+    }
+  }
+
   try {
     return await fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -103,12 +135,7 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
         'HTTP-Referer': 'https://aprenda.app',
         'X-Title': 'APRENDA',
       },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        temperature: options.temperature ?? 0.2,
-        ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
-      }),
+      body: JSON.stringify(bodyPayload),
       signal: controller.signal,
     });
   } catch (err: any) {

@@ -125,6 +125,9 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (payload.model !== undefined) {
       updateDefaultLLMConfig({ model: payload.model });
     }
+    if (payload.effortLevel !== undefined) {
+      updateDefaultLLMConfig({ effortLevel: payload.effortLevel as any });
+    }
     if (payload.deepgramApiKey !== undefined) speechConfig.deepgramApiKey = payload.deepgramApiKey;
     if (payload.voiceLanguage) speechConfig.voiceLanguage = payload.voiceLanguage;
     return { success: true };
