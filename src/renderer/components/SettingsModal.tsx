@@ -15,6 +15,7 @@ import {
   ProviderValidationResult,
 } from '../../shared/types';
 import { validateAndFetchModels } from '../../main/services/providerValidationService';
+import { validateDeepgramKey, VOICE_LANGUAGES } from '../../main/services/speechService';
 
 export interface AppSettings {
   // Legacy / backwards compatibility fields
@@ -27,6 +28,12 @@ export interface AppSettings {
   // Multi-provider configuration
   activeProviderId: string;
   providers: ProviderConfig[];
+
+  // Voice Recognition (Deepgram) & Voice Language
+  deepgramApiKey: string;
+  deepgramKeyMasked: string;
+  deepgramValidated: boolean;
+  voiceLanguage: string;
 
   // Agent Models
   strongModel: string;
@@ -66,6 +73,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   activeProviderId: '',
   providers: [],
+
+  deepgramApiKey: '',
+  deepgramKeyMasked: '',
+  deepgramValidated: false,
+  voiceLanguage: 'pt-BR',
 
   strongModel: '',
   strongThinking: 'high',
@@ -114,6 +126,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Deepgram Voice Recognition state
+  const [deepgramDraftKey, setDeepgramDraftKey] = useState('');
+  const [isEditingDeepgram, setIsEditingDeepgram] = useState(false);
+  const [isValidatingDeepgram, setIsValidatingDeepgram] = useState(false);
+  const [deepgramError, setDeepgramError] = useState<string | null>(null);
+
   // Model & Effort selector dropdown states in Agent tab
   const [openModelSelectorSlot, setOpenModelSelectorSlot] = useState<'strong' | 'cheap' | 'vision' | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
@@ -138,6 +156,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         baseUrl: next.baseUrl,
         model: next.strongModel || next.model,
         effortLevel: next.strongThinking,
+        deepgramApiKey: next.deepgramApiKey,
+        voiceLanguage: next.voiceLanguage,
       });
     }
   };
@@ -264,6 +284,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       activeProviderId: nextActive,
       apiKey: updated[0]?.apiKey || '',
     });
+  };
+
+  const handleSaveDeepgramKey = async () => {
+    const key = deepgramDraftKey.trim();
+    if (!key) {
+      setDeepgramError('Por favor, insira sua Chave de API do Deepgram.');
+      return;
+    }
+
+    setIsValidatingDeepgram(true);
+    setDeepgramError(null);
+    try {
+      let res: { isValid: boolean; keyMasked: string };
+      if (window.api?.validateDeepgramKey) {
+        res = await window.api.validateDeepgramKey(key);
+      } else {
+        res = await validateDeepgramKey(key);
+      }
+      updateSettings({
+        deepgramApiKey: key,
+        deepgramKeyMasked: res.keyMasked,
+        deepgramValidated: true,
+      });
+      setIsEditingDeepgram(false);
+      setDeepgramDraftKey('');
+    } catch (err: any) {
+      const cleanMsg = String(err?.message || err || 'Chave Deepgram inválida.').replace(
+        /^Error invoking remote method '[^']+': (Error: )?/,
+        ''
+      );
+      setDeepgramError(cleanMsg);
+    } finally {
+      setIsValidatingDeepgram(false);
+    }
+  };
+
+  const handleRemoveDeepgramKey = () => {
+    updateSettings({
+      deepgramApiKey: '',
+      deepgramKeyMasked: '',
+      deepgramValidated: false,
+    });
+    setIsEditingDeepgram(false);
+    setDeepgramDraftKey('');
+    setDeepgramError(null);
   };
 
   const handleSelectModel = (slot: 'strong' | 'cheap' | 'vision', modelOption: ModelOption) => {
@@ -620,6 +685,163 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+                </div>
+
+                <hr className="border-[#262626]" />
+
+                {/* VOICE RECOGNITION (DEEPGRAM) & VOICE LANGUAGE */}
+                <div className="space-y-3">
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold">
+                    RECONHECIMENTO DE VOZ (DEEPGRAM API KEY)
+                  </div>
+
+                  {settings.deepgramValidated && settings.deepgramApiKey && !isEditingDeepgram ? (
+                    <div className="flex items-center justify-between py-2 px-2.5 rounded bg-[#1e1e1e] border border-[#333333] text-xs font-sans">
+                      <div className="flex items-center space-x-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="text-gray-200 font-medium">Deepgram (Nova-2)</span>
+                        <span className="rounded bg-[#282828] px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
+                          Ativo
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-3">
+                        <span className="text-gray-400 font-mono text-[11px]">
+                          {settings.deepgramKeyMasked || 'Configurada'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeepgramDraftKey(settings.deepgramApiKey);
+                            setIsEditingDeepgram(true);
+                            setDeepgramError(null);
+                          }}
+                          className="text-[11px] text-gray-400 hover:text-white font-sans underline"
+                        >
+                          Editar Chave
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRemoveDeepgramKey}
+                          className="text-[11px] text-red-400 hover:text-red-300 font-sans"
+                        >
+                          remover
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[#333333] bg-[#1c1c1c] p-3.5 space-y-2.5">
+                      {deepgramError && (
+                        <div className="rounded border border-red-900/60 bg-red-950/40 p-2.5 text-xs text-red-200 flex items-start space-x-2">
+                          <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                          <span className="text-[11px] leading-relaxed">{deepgramError}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="password"
+                          value={deepgramDraftKey}
+                          onChange={(e) => {
+                            setDeepgramDraftKey(e.target.value);
+                            if (deepgramError) setDeepgramError(null);
+                          }}
+                          placeholder="Token Deepgram (DEEPGRAM_API_KEY)"
+                          disabled={isValidatingDeepgram}
+                          aria-label="Chave de API do Deepgram"
+                          className="flex-1 rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isValidatingDeepgram) {
+                              handleSaveDeepgramKey();
+                            }
+                          }}
+                        />
+
+                        {isEditingDeepgram && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditingDeepgram(false);
+                              setDeepgramError(null);
+                            }}
+                            disabled={isValidatingDeepgram}
+                            className="px-2.5 py-1.5 text-xs font-sans text-gray-400 hover:text-white"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={handleSaveDeepgramKey}
+                          disabled={isValidatingDeepgram}
+                          className="flex items-center space-x-1.5 rounded bg-emerald-600 hover:bg-emerald-500 px-3.5 py-1.5 text-xs font-sans text-white font-medium transition-colors shadow-sm disabled:opacity-60"
+                        >
+                          {isValidatingDeepgram ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <span>Validando...</span>
+                            </>
+                          ) : (
+                            <span>Salvar Deepgram</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Voice Language Selector (Checkbox / Pill Selection + Select Box) */}
+                  <div className="rounded-lg border border-[#2a2a2a] bg-[#181818] p-3 space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-sans">
+                      <div>
+                        <span className="text-gray-200 font-medium block">Idioma da Voz (Reconhecimento de Fala)</span>
+                        <span className="text-[11px] text-gray-400">
+                          Marque ou selecione o idioma falado ao gravar suas explicações
+                        </span>
+                      </div>
+
+                      <select
+                        aria-label="Idioma da Voz"
+                        value={settings.voiceLanguage || 'pt-BR'}
+                        onChange={(e) => updateSettings({ voiceLanguage: e.target.value })}
+                        className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
+                      >
+                        {VOICE_LANGUAGES.map((lang) => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.label} ({lang.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {[
+                        { code: 'pt-BR', label: 'Português (Brasil)' },
+                        { code: 'en-US', label: 'English (US)' },
+                        { code: 'es', label: 'Español' },
+                      ].map((opt) => {
+                        const checked = (settings.voiceLanguage || 'pt-BR') === opt.code;
+                        return (
+                          <label
+                            key={opt.code}
+                            className={`flex cursor-pointer items-center space-x-1.5 rounded border px-2.5 py-1 text-[11px] font-sans transition-colors ${
+                              checked
+                                ? 'border-emerald-500/80 bg-emerald-950/30 text-emerald-300 font-medium'
+                                : 'border-[#333333] bg-[#141414] text-gray-400 hover:text-gray-200'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => updateSettings({ voiceLanguage: opt.code })}
+                              className="h-3 w-3 accent-emerald-500 rounded"
+                            />
+                            <span>{opt.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 

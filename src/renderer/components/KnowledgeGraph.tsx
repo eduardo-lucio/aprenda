@@ -139,7 +139,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       {/* Legend & Controls Header */}
       <div className="flex flex-wrap items-center justify-between border-b border-[#1e293b] px-4 py-2 text-xs bg-[#111111]/90 z-10 backdrop-blur-sm">
         <span className="font-semibold uppercase tracking-wider text-[11px] text-gray-300">
-          Grafo de Dependências (DAG Camada 3 OSI)
+          Grafo de Dependências Conceituais (DAG)
         </span>
 
         {/* Legend Badges */}
@@ -243,16 +243,16 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
             {/* Level Column Headers */}
             <text x={colStartX} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 1: FÍSICA & ENLACE
+              NÍVEL 1: FUNDAMENTOS
             </text>
             <text x={colStartX + colWidth} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 2: PACOTES & REDES
+              NÍVEL 2: CONCEITOS BASE
             </text>
             <text x={colStartX + colWidth * 2} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 3: TTL, CIDR & TABELAS
+              NÍVEL 3: INTEGRAÇÃO
             </text>
             <text x={colStartX + colWidth * 3} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 4: ROTEAMENTO AVANÇADO
+              NÍVEL 4: SÍNTESE AVANÇADA
             </text>
 
             {/* Dependency Edges (Intra & Inter-level routing) */}

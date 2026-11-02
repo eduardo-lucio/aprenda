@@ -27,7 +27,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   const [thinkingText, setThinkingText] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const { isListening, toggleListening } = useSpeechRecognition((voiceText) => {
+  const { isListening, isTranscribing, error: speechError, toggleListening } = useSpeechRecognition((voiceText) => {
     setThinkingText((prev) => (prev ? `${prev} ${voiceText}` : voiceText));
     setValidationError(null);
   });
@@ -167,9 +167,10 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
           if (validationError) setValidationError(null);
         }}
         isRecording={isListening}
+        isTranscribing={isTranscribing}
         onToggleRecording={toggleListening}
         onSubmitHotkey={handleSubmit}
-        errorMessage={validationError}
+        errorMessage={validationError || speechError}
       />
 
       {/* Submit Button */}

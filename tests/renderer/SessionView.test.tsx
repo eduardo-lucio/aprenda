@@ -112,7 +112,7 @@ describe('SessionView Integration', () => {
 
     expect(screen.getByText(/o que você quer dominar hoje\?/i)).toBeDefined();
 
-    const input = screen.getByPlaceholderText(/ex: quero aprender a camada 3/i);
+    const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });
 
     const startBtn = screen.getByRole('button', { name: /iniciar diagnóstico/i });
@@ -128,7 +128,7 @@ describe('SessionView Integration', () => {
     render(<SessionView initialNodes={initialNodes} />);
 
     // Start
-    const input = screen.getByPlaceholderText(/ex: quero aprender a camada 3/i);
+    const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });
     fireEvent.click(screen.getByRole('button', { name: /iniciar diagnóstico/i }));
 

@@ -51,12 +51,16 @@ describe('IPC Handlers', () => {
     expect(firstQuestion.options.length).toBe(4);
   });
 
-  it('returns graph state updated with current session statuses', async () => {
+  it('returns empty graph before goal submission and populated graph after goal submission', async () => {
     registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
-    await handlers['session:start']({}, 'teaching', 'TTL');
+    await handlers['session:start']({}, 'teaching', 'Álgebra Linear');
 
+    const emptyNodes = await handlers['graph:get']({});
+    expect(emptyNodes.length).toBe(0);
+
+    await handlers['session:submit-goal']({}, 'Autovalores e Autovetores');
     const nodes = await handlers['graph:get']({});
-    expect(nodes.length).toBeGreaterThanOrEqual(10);
+    expect(nodes.length).toBeGreaterThanOrEqual(8);
     expect(nodes[0].status).toBe('untested');
   });
 });

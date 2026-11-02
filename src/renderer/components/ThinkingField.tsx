@@ -1,10 +1,11 @@
 import React, { KeyboardEvent } from 'react';
-import { Mic, MicOff, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, MessageSquare, Loader2 } from 'lucide-react';
 
 interface ThinkingFieldProps {
   value: string;
   onChange: (val: string) => void;
   isRecording?: boolean;
+  isTranscribing?: boolean;
   onToggleRecording?: () => void;
   onSubmitHotkey?: () => void;
   placeholder?: string;
@@ -15,6 +16,7 @@ export const ThinkingField: React.FC<ThinkingFieldProps> = ({
   value,
   onChange,
   isRecording = false,
+  isTranscribing = false,
   onToggleRecording,
   onSubmitHotkey,
   placeholder = 'Escreva ou dite seu raciocínio livre aqui antes de enviar a resposta...',
@@ -43,15 +45,32 @@ export const ThinkingField: React.FC<ThinkingFieldProps> = ({
         <button
           type="button"
           onClick={onToggleRecording}
+          disabled={isTranscribing}
           title="Ditar raciocínio por voz"
           className={`flex items-center space-x-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
-            isRecording
+            isTranscribing
+              ? 'bg-purple-950/60 text-purple-300 border-purple-700 cursor-wait'
+              : isRecording
               ? 'bg-red-950 text-red-400 border-red-700 animate-pulse'
               : 'bg-[#1e293b]/60 text-gray-300 border-[#334155] hover:bg-[#1e293b]'
           }`}
         >
-          {isRecording ? <Mic className="h-3 w-3 text-red-400" /> : <MicOff className="h-3 w-3 text-gray-400" />}
-          <span>{isRecording ? 'Gravando áudio...' : 'Gravar Voz'}</span>
+          {isTranscribing ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin text-purple-300" />
+              <span>Transcrevendo voz...</span>
+            </>
+          ) : isRecording ? (
+            <>
+              <Mic className="h-3 w-3 text-red-400" />
+              <span>Gravando áudio... (Parar)</span>
+            </>
+          ) : (
+            <>
+              <MicOff className="h-3 w-3 text-gray-400" />
+              <span>Gravar Voz</span>
+            </>
+          )}
         </button>
       </div>
 

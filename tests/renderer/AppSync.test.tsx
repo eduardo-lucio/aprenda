@@ -39,14 +39,14 @@ describe('App Session Synchronization, Settings Modal, and Global Dictate', () =
     expect((window as any).api.startSession).not.toHaveBeenCalled();
 
     // The goal input is displayed
-    const input = screen.getByPlaceholderText(/ex: quero aprender a camada 3/i);
-    fireEvent.change(input, { target: { value: 'Dominar TTL e Rotas' } });
+    const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
+    fireEvent.change(input, { target: { value: 'Cálculo Diferencial' } });
 
     const startBtn = screen.getByRole('button', { name: /iniciar diagnóstico/i });
     fireEvent.click(startBtn);
 
     await waitFor(() => {
-      expect((window as any).api.startSession).toHaveBeenCalledWith('teaching', 'Dominar TTL e Rotas');
+      expect((window as any).api.startSession).toHaveBeenCalledWith('teaching', 'Cálculo Diferencial');
       expect(screen.getByText('Opção 1')).toBeDefined();
     });
   });

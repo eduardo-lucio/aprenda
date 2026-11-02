@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ConceptNode, CheckQuestionData } from '../../shared/types';
-import { Sparkles, HelpCircle, ArrowRight, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Sparkles, HelpCircle, ArrowRight, CheckCircle2, AlertTriangle, ShieldCheck, Mic, MicOff, Loader2 } from 'lucide-react';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 interface SocraticCardProps {
   node: ConceptNode;
@@ -33,6 +34,10 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   const [selectedCheckIndex, setSelectedCheckIndex] = useState<number | null>(null);
   const [checkResult, setCheckResult] = useState<{ isPassed: boolean; repairExplanation?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const { isListening, isTranscribing, error: speechError, toggleListening } = useSpeechRecognition((voiceText) => {
+    setPredictionText((prev) => (prev ? `${prev} ${voiceText}` : voiceText));
+  });
 
   const handlePredictSubmit = async () => {
     if (!predictionText.trim()) return;
@@ -87,6 +92,42 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
           <div className="text-xs text-purple-300 italic">{promptGoal}</div>
           <p className="text-sm font-serif leading-relaxed text-gray-100">{predictQuestion}</p>
 
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-300">
+              Sua Previsão (Texto ou Voz)
+            </span>
+            <button
+              type="button"
+              onClick={toggleListening}
+              disabled={isTranscribing}
+              title="Ditar previsão por voz"
+              className={`flex items-center space-x-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
+                isTranscribing
+                  ? 'bg-purple-950/60 text-purple-300 border-purple-700 cursor-wait'
+                  : isListening
+                  ? 'bg-red-950 text-red-400 border-red-700 animate-pulse'
+                  : 'bg-[#1e293b]/60 text-gray-300 border-[#334155] hover:bg-[#1e293b]'
+              }`}
+            >
+              {isTranscribing ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-purple-300" />
+                  <span>Transcrevendo voz...</span>
+                </>
+              ) : isListening ? (
+                <>
+                  <Mic className="h-3 w-3 text-red-400" />
+                  <span>Gravando áudio... (Parar)</span>
+                </>
+              ) : (
+                <>
+                  <MicOff className="h-3 w-3 text-gray-400" />
+                  <span>Gravar Voz</span>
+                </>
+              )}
+            </button>
+          </div>
+
           <textarea
             value={predictionText}
             onChange={(e) => setPredictionText(e.target.value)}
@@ -94,6 +135,12 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
             rows={3}
             className="w-full rounded border border-[#1e293b] bg-[#0a0a0a] p-3 text-xs text-gray-200 placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
           />
+
+          {speechError && (
+            <div className="rounded bg-amber-950/40 p-2 text-[11px] text-amber-400 border border-amber-800/50">
+              {speechError}
+            </div>
+          )}
 
           <div className="flex justify-end">
             <button

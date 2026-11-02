@@ -111,6 +111,8 @@ export interface SettingsUpdatePayload {
   baseUrl?: string;
   model?: string;
   effortLevel?: string;
+  deepgramApiKey?: string;
+  voiceLanguage?: string;
 }
 
 export interface ElectronAPI {
@@ -135,4 +137,6 @@ export interface ElectronAPI {
     baseUrl?: string;
   }) => Promise<ProviderValidationResult>;
   updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
+  validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
+  transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
 }

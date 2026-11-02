@@ -1,18 +1,30 @@
 import { ConceptNode } from '../../shared/types';
-import { NETWORK_LAYER_3_NODES } from './networkLayer3Nodes';
 
+/**
+ * In-memory store for the concept dependency graph of the current session.
+ * Starts empty: the graph is generated dynamically by the AI from the student's goal.
+ */
 export class KnowledgeStore {
   private nodes: Map<string, ConceptNode>;
 
-  constructor(initialNodes: ConceptNode[] = NETWORK_LAYER_3_NODES) {
+  constructor(initialNodes: ConceptNode[] = []) {
     this.nodes = new Map();
-    for (const node of initialNodes) {
-      this.nodes.set(node.id, { ...node });
+    this.setNodes(initialNodes);
+  }
+
+  setNodes(nodes: ConceptNode[]): void {
+    this.nodes = new Map();
+    for (const node of nodes) {
+      this.nodes.set(node.id, { ...node, prerequisites: [...node.prerequisites] });
     }
   }
 
+  clear(): void {
+    this.nodes = new Map();
+  }
+
   getNodes(): ConceptNode[] {
-    return Array.from(this.nodes.values());
+    return Array.from(this.nodes.values()).map((n) => ({ ...n }));
   }
 
   getNodeById(id: string): ConceptNode | undefined {
@@ -20,6 +32,7 @@ export class KnowledgeStore {
     return node ? { ...node } : undefined;
   }
 
+  /** Recursive prerequisites (deepest roots first). */
   getPrerequisites(id: string): ConceptNode[] {
     const visited = new Set<string>();
     const result: ConceptNode[] = [];
@@ -44,40 +57,8 @@ export class KnowledgeStore {
     return result;
   }
 
-  getStrandForGoal(goalText: string): ConceptNode[] {
-    const lower = (goalText || '').toLowerCase();
-    const all = this.getNodes();
-
-    // Check if goal names specific topics
-    const matched = all.filter((n) =>
-      lower.includes(n.id.toLowerCase()) ||
-      lower.includes(n.title.toLowerCase()) ||
-      lower.split(/\s+/).some((w) => w.length > 2 && (n.title.toLowerCase().includes(w) || n.summary.toLowerCase().includes(w)))
-    );
-
-    if (matched.length === 0) {
-      // Default topological order by level
-      return [...all].sort((a, b) => a.level - b.level);
-    }
-
-    // Build strand with targets and all their prerequisites
-    const strandSet = new Set<string>();
-    const strandNodes: ConceptNode[] = [];
-
-    for (const target of matched) {
-      const prereqs = this.getPrerequisites(target.id);
-      for (const p of prereqs) {
-        if (!strandSet.has(p.id)) {
-          strandSet.add(p.id);
-          strandNodes.push(p);
-        }
-      }
-      if (!strandSet.has(target.id)) {
-        strandSet.add(target.id);
-        strandNodes.push(target);
-      }
-    }
-
-    return strandNodes.sort((a, b) => a.level - b.level);
+  /** All nodes of the current (goal-specific) graph in topological/level order. */
+  getStrand(): ConceptNode[] {
+    return this.getNodes().sort((a, b) => a.level - b.level);
   }
 }

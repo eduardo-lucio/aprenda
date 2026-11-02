@@ -1,8 +1,12 @@
 import { ConceptNode, JudgeEvaluationResult } from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM } from './llmClient';
+import { callLLM, LLMCaller, parseLLMJson } from './llmClient';
+
+const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
 
 export class CognitiveJudgeService {
+  constructor(private llm: LLMCaller = callLLM) {}
+
   async evaluate(attempt: {
     node: ConceptNode;
     questionText: string;
@@ -16,26 +20,23 @@ export class CognitiveJudgeService {
 
     try {
       const { systemPrompt, prompt } = buildCognitiveJudgePrompt(attempt);
-      const rawResponse = await callLLM({
+      const rawResponse = await this.llm({
         systemPrompt,
         prompt,
         temperature: 0.1,
         jsonMode: true,
+        timeoutMs: 45000,
       });
 
-      // Parse JSON from LLM
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.verdict && ['mastered', 'false_positive', 'blind_spot', 'frontier'].includes(parsed.verdict)) {
-          return {
-            verdict: parsed.verdict,
-            isCorrectOption,
-            confidenceLevel: attempt.confidence,
-            reasoningDiagnosis: parsed.reasoningDiagnosis || 'Avaliação cognitiva gerada pelo modelo.',
-            identifiedMisconception: parsed.identifiedMisconception,
-          };
-        }
+      const parsed = parseLLMJson<any>(rawResponse);
+      if (parsed.verdict && (VERDICTS as readonly string[]).includes(parsed.verdict)) {
+        return {
+          verdict: parsed.verdict,
+          isCorrectOption,
+          confidenceLevel: attempt.confidence,
+          reasoningDiagnosis: parsed.reasoningDiagnosis || 'Avaliação cognitiva gerada pelo modelo.',
+          identifiedMisconception: parsed.identifiedMisconception || undefined,
+        };
       }
     } catch (_err) {
       // Heuristic fallback for offline / network timeout / demo resiliency
@@ -44,16 +45,9 @@ export class CognitiveJudgeService {
     return this.evaluateHeuristic(attempt, isCorrectOption);
   }
 
+  /** Domain-agnostic fallback based on correctness, confidence and reasoning depth. */
   private evaluateHeuristic(
-    attempt: {
-      node: ConceptNode;
-      questionText: string;
-      options: string[];
-      selectedOptionIndex: number;
-      correctOptionIndex: number;
-      confidence: number;
-      thinkingText: string;
-    },
+    attempt: { confidence: number; thinkingText: string },
     isCorrectOption: boolean
   ): JudgeEvaluationResult {
     const text = (attempt.thinkingText || '').toLowerCase().trim();
@@ -62,35 +56,30 @@ export class CognitiveJudgeService {
       text.includes('eliminação') ||
       text.includes('não sei') ||
       text.includes('acho que') ||
-      text.length < 15;
+      text.includes('talvez') ||
+      text.split(/\s+/).filter(Boolean).length < 4;
 
-    // Detect conceptual mismatch or flawed reasoning
-    const flawedKeywords = ['camada física', 'volta pro remetente', 'lixo', 'resetado', 'devolve'];
-    const hasFlawedReasoning = flawedKeywords.some((w) => text.includes(w));
-
-    let verdict: 'mastered' | 'false_positive' | 'blind_spot' | 'frontier';
-    let reasoningDiagnosis = '';
+    let verdict: JudgeEvaluationResult['verdict'];
+    let reasoningDiagnosis: string;
 
     if (isCorrectOption) {
-      if (hasFlawedReasoning || isGuess || attempt.confidence < 50) {
+      if (isGuess || attempt.confidence < 50) {
         verdict = 'false_positive';
         reasoningDiagnosis =
-          'Falso Positivo detectado: O estudante acertou a alternativa correta, mas seu raciocínio livre revelou suposição por eliminação ou fundamentação conceitual incorreta.';
+          'Falso Positivo (avaliação heurística offline): alternativa correta, mas o raciocínio foi superficial, por eliminação ou com baixa confiança.';
       } else {
         verdict = 'mastered';
         reasoningDiagnosis =
-          'Domínio comprovado: Resposta correta sustentada por raciocínio conceitual alinhado às regras do protocolo.';
+          'Domínio (avaliação heurística offline): resposta correta sustentada por justificativa e confiança consistentes.';
       }
+    } else if (attempt.confidence >= 60) {
+      verdict = 'blind_spot';
+      reasoningDiagnosis =
+        'Ponto Cego (avaliação heurística offline): erro cometido com alta convicção, sugerindo um modelo mental distorcido.';
     } else {
-      if (attempt.confidence >= 60) {
-        verdict = 'blind_spot';
-        reasoningDiagnosis =
-          'Ponto Cego identificado: O estudante cometeu um erro na alternativa com alto índice de convicção, sugerindo um modelo mental distorcido.';
-      } else {
-        verdict = 'frontier';
-        reasoningDiagnosis =
-          'Fronteira limpa de conhecimento: O estudante expressou dúvida sincera e não dominou a questão, marcando o limite exato de sua compreensão atual.';
-      }
+      verdict = 'frontier';
+      reasoningDiagnosis =
+        'Fronteira (avaliação heurística offline): erro com dúvida declarada, marcando o limite atual da compreensão.';
     }
 
     return {
@@ -98,9 +87,6 @@ export class CognitiveJudgeService {
       isCorrectOption,
       confidenceLevel: attempt.confidence,
       reasoningDiagnosis,
-      identifiedMisconception: hasFlawedReasoning
-        ? 'Confusão entre descarte de pacote L3 e retorno/retransmissão'
-        : undefined,
     };
   }
 }

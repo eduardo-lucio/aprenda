@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'path';
 import { KnowledgeStore } from './knowledge/KnowledgeStore';
 import { SessionStateMachine } from './fsm/SessionStateMachine';
@@ -44,6 +44,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Allow microphone capture for voice dictation (MediaRecorder / getUserMedia)
+  const allowed = new Set(['media', 'audioCapture', 'microphone']);
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(allowed.has(permission));
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
+
   createWindow();
 
   app.on('activate', () => {

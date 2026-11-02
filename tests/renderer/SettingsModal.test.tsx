@@ -316,4 +316,45 @@ describe('SettingsModal Functional Component', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
     expect(screen.getByText(/personalização de aparência \(em breve\)/i)).toBeDefined();
   });
+
+  it('allows validating Deepgram API key and selecting voice language in Providers tab', async () => {
+    const onSave = vi.fn();
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ projects: [] }),
+    } as any);
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSave={onSave}
+        initialSettings={DEFAULT_SETTINGS}
+      />
+    );
+
+    const dgInput = screen.getByPlaceholderText(/token deepgram/i);
+    fireEvent.change(dgInput, { target: { value: 'dg-secret-key-123456789' } });
+    fireEvent.click(screen.getByRole('button', { name: /salvar deepgram/i }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepgramApiKey: 'dg-secret-key-123456789',
+          deepgramValidated: true,
+        })
+      );
+    });
+
+    // Change voice language via checkbox
+    const englishCheckbox = screen.getByLabelText('English (US)');
+    fireEvent.click(englishCheckbox);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        voiceLanguage: 'en-US',
+      })
+    );
+  });
 });

@@ -40,6 +40,12 @@ const api: ElectronAPI = {
 
   updateSettings: (settings: any) =>
     ipcRenderer.invoke('settings:update', settings),
+
+  validateDeepgramKey: (apiKey: string) =>
+    ipcRenderer.invoke('speech:validate-key', apiKey),
+
+  transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) =>
+    ipcRenderer.invoke('speech:transcribe', params),
 };
 
 contextBridge.exposeInMainWorld('api', api);

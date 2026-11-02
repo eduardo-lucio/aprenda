@@ -7,15 +7,8 @@ import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/Setti
 import { ProbingSession } from '../shared/types';
 
 export default function App() {
-  const [sessions, setSessions] = useState<SessionItem[]>([
-    {
-      id: 'sess-default',
-      title: 'Camada 3 Modelo OSI (Redes)',
-      mode: 'teaching',
-      date: 'Hoje',
-    },
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>('sess-default');
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [pendingSessionMode, setPendingSessionMode] = useState<'teaching' | 'practice' | null>(null);
   const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -24,10 +17,25 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('aprenda_settings');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
     } catch {}
     return DEFAULT_SETTINGS;
   });
+
+  // Sync saved settings with Electron Main process on startup
+  useEffect(() => {
+    if (window.api?.updateSettings) {
+      window.api.updateSettings({
+        providerId: settings.activeProviderId,
+        apiKey: settings.apiKey,
+        baseUrl: settings.baseUrl,
+        model: settings.strongModel || settings.model,
+        effortLevel: settings.strongThinking,
+        deepgramApiKey: settings.deepgramApiKey,
+        voiceLanguage: settings.voiceLanguage,
+      });
+    }
+  }, []);
 
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -37,7 +45,6 @@ export default function App() {
   };
 
   // Called when user clicks + TEACHING or + PRACTICE in sidebar
-  // Does NOT create a dummy session; sets pending mode and prompts user for their actual goal
   const handleNewSession = (mode: 'teaching' | 'practice') => {
     setPendingSessionMode(mode);
     setActiveSessionId(null);
@@ -49,7 +56,7 @@ export default function App() {
     const item: SessionItem = {
       id: newSession.id,
       title: newSession.goal,
-      mode: pendingSessionMode || 'teaching',
+      mode: pendingSessionMode || newSession.mode || 'teaching',
       date: 'Hoje',
     };
     setSessions((prev) => [item, ...prev.filter((s) => s.id !== newSession.id)]);
@@ -94,7 +101,7 @@ export default function App() {
     ? currentSession.goal
     : pendingSessionMode === 'practice'
     ? 'Nova Prática Rápida — APRENDA'
-    : 'Camada 3 Modelo OSI — Diagnóstico Cognitivo';
+    : 'APRENDA — Diagnóstico Cognitivo & Ensino Socrático';
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-gray-100 overflow-hidden font-sans select-none">
@@ -129,7 +136,7 @@ export default function App() {
       <StatusBar
         questionCount={currentSession?.questionCount || 0}
         frontierClarity={currentSession?.frontierClarity || 0}
-        modelName={settings.model}
+        modelName={settings.strongModel || settings.model || 'Sem modelo'}
         thinkingLevel={settings.thinkingLevel}
         isRecording={isRecording}
         onToggleDictate={handleToggleDictate}

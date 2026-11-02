@@ -6,26 +6,87 @@ export interface LLMConfig {
 }
 
 export const defaultLLMConfig: LLMConfig = {
-  baseURL: process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1',
-  apiKey: process.env.OPENAI_API_KEY || 'ollama',
-  model: process.env.OPENAI_MODEL || 'gemini-2.0-flash',
-  timeoutMs: 6000,
+  baseURL: process.env.OPENAI_BASE_URL || '',
+  apiKey: process.env.OPENAI_API_KEY || '',
+  model: process.env.OPENAI_MODEL || '',
+  timeoutMs: 45000,
 };
 
 export function updateDefaultLLMConfig(newConfig: Partial<LLMConfig>): void {
   Object.assign(defaultLLMConfig, newConfig);
 }
 
-export async function callLLM(options: {
+export function isLLMConfigured(): boolean {
+  return Boolean(defaultLLMConfig.baseURL && defaultLLMConfig.model);
+}
+
+/**
+ * Maps a provider id (as configured in Settings) to its OpenAI-compatible
+ * chat completions base URL.
+ */
+export function resolveChatBaseUrl(providerId: string | undefined, baseUrl?: string): string {
+  switch (providerId) {
+    case 'openrouter':
+      return 'https://openrouter.ai/api/v1';
+    case 'google':
+      return 'https://generativelanguage.googleapis.com/v1beta/openai';
+    case 'openai':
+      return 'https://api.openai.com/v1';
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1';
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1';
+    case 'groq':
+      return 'https://api.groq.com/openai/v1';
+    case 'ollama': {
+      const root = (baseUrl || 'http://localhost:11434').replace(/\/+$/, '').replace(/\/v1$/, '');
+      return `${root}/v1`;
+    }
+    default:
+      return (baseUrl || '').replace(/\/+$/, '');
+  }
+}
+
+/** Removes reasoning blocks (<think>…</think>) and markdown fences from a model answer. */
+export function cleanLLMText(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+}
+
+/** Extracts and parses the first JSON object (or array) in a model answer. */
+export function parseLLMJson<T = any>(raw: string): T {
+  const text = cleanLLMText(raw);
+  const firstObj = text.indexOf('{');
+  const firstArr = text.indexOf('[');
+  let start = firstObj;
+  let endChar = '}';
+  if (firstArr !== -1 && (firstObj === -1 || firstArr < firstObj)) {
+    start = firstArr;
+    endChar = ']';
+  }
+  const end = text.lastIndexOf(endChar);
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('A resposta do modelo não contém JSON válido.');
+  }
+  return JSON.parse(text.slice(start, end + 1)) as T;
+}
+
+export interface CallLLMOptions {
   prompt: string;
   systemPrompt?: string;
   temperature?: number;
   jsonMode?: boolean;
+  timeoutMs?: number;
   config?: Partial<LLMConfig>;
-}): Promise<string> {
-  const config = { ...defaultLLMConfig, ...options.config };
+}
+
+export type LLMCaller = (options: CallLLMOptions) => Promise<string>;
+
+async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode: boolean): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? config.timeoutMs);
 
   const messages: Array<{ role: string; content: string }> = [];
   if (options.systemPrompt) {
@@ -34,35 +95,61 @@ export async function callLLM(options: {
   messages.push({ role: 'user', content: options.prompt });
 
   try {
-    const res = await fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
+    return await fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${config.apiKey || 'none'}`,
+        'HTTP-Referer': 'https://aprenda.app',
+        'X-Title': 'APRENDA',
       },
       body: JSON.stringify({
         model: config.model,
         messages,
         temperature: options.temperature ?? 0.2,
-        ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      throw new Error(`LLM HTTP error: ${res.status} ${res.statusText}`);
-    }
-
-    const data: any = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('Empty response from LLM');
-    }
-    return content;
   } catch (err: any) {
-    clearTimeout(timeoutId);
+    if (err?.name === 'AbortError') {
+      throw new Error('Tempo limite excedido aguardando resposta do modelo.');
+    }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
+
+export const callLLM: LLMCaller = async (options) => {
+  const config = { ...defaultLLMConfig, ...options.config };
+
+  if (!config.baseURL || !config.model) {
+    throw new Error(
+      'Nenhum provedor/modelo de IA configurado. Abra Configurações → Providers, valide sua chave e escolha um modelo em Agent.'
+    );
+  }
+
+  let res = await doRequest(config, options, Boolean(options.jsonMode));
+
+  // Some providers reject response_format; retry once without it.
+  if (!res.ok && options.jsonMode && (res.status === 400 || res.status === 422)) {
+    res = await doRequest(config, options, false);
+  }
+
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body: any = await res.json();
+      detail = body?.error?.message || body?.message || '';
+    } catch {}
+    throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
+  }
+
+  const data: any = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content || typeof content !== 'string') {
+    throw new Error('O modelo retornou uma resposta vazia.');
+  }
+  return content;
+};

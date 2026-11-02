@@ -165,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex items-center justify-between border-t border-[#1e293b] p-3 text-xs text-gray-400 bg-[#0d0d0d]">
         <div className="flex items-center space-x-2">
           <Layers className="h-4 w-4 text-emerald-500" />
-          <span className="text-[11px] font-medium text-gray-300">Camada 3 OSI</span>
+          <span className="text-[11px] font-medium text-gray-300">APRENDA</span>
         </div>
         <button
           type="button"

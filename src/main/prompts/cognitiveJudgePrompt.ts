@@ -11,7 +11,7 @@ export function buildCognitiveJudgePrompt(params: {
 }): { systemPrompt: string; prompt: string } {
   const isCorrect = params.selectedOptionIndex === params.correctOptionIndex;
 
-  const systemPrompt = `Você é o Juiz Cognitivo do EduCognitive Agent Harness, um especialista em diagnóstico de limites de conhecimento e desmascaramento de "ilusão de competência" em estudantes universitários.
+  const systemPrompt = `Você é o Juiz Cognitivo do APRENDA, um especialista em diagnóstico de limites de conhecimento e desmascaramento de "ilusão de competência" em estudantes universitários.
 
 REGRA PRIMÁRIA INVIOLÁVEL:
 1. Desconsidere a alternativa escolhida no primeiro segundo.
@@ -23,7 +23,7 @@ REGRA PRIMÁRIA INVIOLÁVEL:
    - Alternativa Incorreta + Alta Confiança (>=60) => "blind_spot"
    - Alternativa Incorreta + Baixa Confiança (<60 ou dúvida honesta) => "frontier"
 
-Responda SEMPRE em JSON no seguinte formato:
+Escreva o diagnóstico em português do Brasil. Responda SEMPRE em JSON no seguinte formato:
 {
   "verdict": "mastered" | "false_positive" | "blind_spot" | "frontier",
   "isCorrectOption": boolean,

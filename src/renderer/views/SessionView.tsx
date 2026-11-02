@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ConceptNode, ProbingSession, QuestionData, CheckQuestionData } from '../../shared/types';
+import { ConceptNode, ProbingSession, QuestionData } from '../../shared/types';
 import { QuestionCard } from '../components/QuestionCard';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
 import { AgentThinkingBlock } from '../components/AgentThinkingBlock';
@@ -11,11 +11,9 @@ import {
   BarChart3,
   CheckCircle2,
   AlertTriangle,
-  HelpCircle,
   Award,
   RefreshCw,
-  Search,
-  Layers,
+  AlertCircle,
 } from 'lucide-react';
 
 interface SessionViewProps {
@@ -39,7 +37,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
   const [activeTab, setActiveTab] = useState<'session' | 'dag'>('session');
   const [agentThinking, setAgentThinking] = useState<string>(
-    'Aguardando definição de escopo do estudante para calibrar busca topológica na árvore de dependências...'
+    'Aguardando definição do seu objetivo de aprendizado para estruturar o grafo de dependências conceituais...'
   );
   const [socraticNode, setSocraticNode] = useState<ConceptNode | null>(null);
   const [socraticPredictData, setSocraticPredictData] = useState<{
@@ -47,6 +45,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     promptGoal?: string;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (window.api?.getGraphState && initialNodes.length === 0) {
@@ -65,15 +64,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
           setActiveTab('session');
         }
       } else {
-        // Reset when session cleared
         setCurrentQuestion(null);
         setSocraticNode(null);
         setSocraticPredictData(null);
         setGoalInput('');
         setActiveTab('session');
+        if (initialNodes.length === 0) {
+          setNodes([]);
+        }
       }
     }
-  }, [currentSession]);
+  }, [currentSession, initialNodes.length]);
 
   const refreshGraph = async () => {
     if (window.api?.getGraphState) {
@@ -82,11 +83,18 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   };
 
+  const cleanError = (err: any): string =>
+    String(err?.message || err || 'Erro inesperado').replace(
+      /^Error invoking remote method '[^']+': (Error: )?/,
+      ''
+    );
+
   const handleStartGoal = async (customGoal?: string) => {
     const goalToUse = (customGoal || goalInput).trim();
     if (!goalToUse) return;
 
     setIsSubmitting(true);
+    setActionError(null);
     try {
       const mode = pendingMode || 'teaching';
       const sess = await window.api.startSession(mode, goalToUse);
@@ -95,8 +103,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (onSessionCreated) onSessionCreated(sess);
 
       setAgentThinking(
-        `Objetivo registrado (${mode.toUpperCase()}): "${goalToUse}". Selecione uma das opções de afunilamento para delimitar a fronteira de teste.`
+        `Objetivo registrado (${mode.toUpperCase()}): "${goalToUse}". Selecione uma das opções de afunilamento para gerar o grafo de dependências e iniciar a sondagem.`
       );
+    } catch (err: any) {
+      setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -104,8 +114,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const handleSelectGoalOption = async (option: string) => {
     setIsSubmitting(true);
+    setActionError(null);
     try {
       const q = await window.api.submitGoalClarification(option);
+      await refreshGraph();
       setCurrentQuestion(q);
       setSession((prev) =>
         prev
@@ -126,8 +138,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
         }
       }
       setAgentThinking(
-        `Foco afunilado para: "${option}". Iniciando Fase 1 de Sondagem Adaptativa com piso mínimo de 8 questões. Avaliando raciocínio livre primeiro.`
+        `Foco afunilado para: "${option}". Grafo de dependências gerado. Iniciando Fase 1 de Sondagem Adaptativa com piso mínimo de 8 questões. Avaliando raciocínio livre primeiro.`
       );
+    } catch (err: any) {
+      setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -139,6 +153,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     thinkingText: string;
   }) => {
     setIsSubmitting(true);
+    setActionError(null);
     try {
       const result = await window.api.submitProbeAnswer(data);
       await refreshGraph();
@@ -167,6 +182,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
       } else if (result.nextQuestion) {
         setCurrentQuestion(result.nextQuestion);
       }
+    } catch (err: any) {
+      setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -174,6 +191,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const handleForceAdvanceDiagnosis = async () => {
     setIsSubmitting(true);
+    setActionError(null);
     try {
       const sess = await window.api.advanceToDiagnosis();
       setSession(sess);
@@ -183,6 +201,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setAgentThinking(
         'Sondagem concluída (piso de 8 questões atingido). Diagnóstico completo da fronteira de conhecimento exibido abaixo.'
       );
+    } catch (err: any) {
+      setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -190,6 +210,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const handleStartSocraticCycle = async (nodeId?: string) => {
     setIsSubmitting(true);
+    setActionError(null);
     try {
       const targetId =
         nodeId ||
@@ -205,6 +226,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         promptGoal: data.promptGoal,
       });
       setActiveTab('session');
+    } catch (err: any) {
+      setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -217,14 +240,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const falsePositiveCount = nodes.filter((n) => n.status === 'false_positive').length;
   const blindSpotCount = nodes.filter((n) => n.status === 'blind_spot').length;
   const frontierCount = nodes.filter((n) => n.status === 'frontier').length;
-
-  const quickGoalSuggestions = [
-    'Camada 3 e TTL (Prevenção de Loops)',
-    'Sub-redes IPv4 e Máscaras CIDR',
-    'Tabela de Roteamento e Longest Prefix Match',
-    'Protocolo ICMP e Ping/Traceroute',
-    'Fragmentação de Pacotes e MTU',
-  ];
 
   return (
     <div className="flex h-full w-full flex-col bg-[#0a0a0a] text-gray-200">
@@ -287,7 +302,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
               <button
                 onClick={() => handleStartSocraticCycle()}
-                className="flex items-center space-x-1.5 rounded bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 shadow-sm transition-colors"
+                disabled={nodes.length === 0}
+                className="flex items-center space-x-1.5 rounded bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 shadow-sm transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>Iniciar Ensino Socrático</span>
@@ -306,6 +322,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
             {/* Collapsible Agent Thinking Block */}
             <AgentThinkingBlock thinkingText={agentThinking} defaultExpanded={false} />
 
+            {actionError && (
+              <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3.5 text-xs text-red-200 flex items-start space-x-2">
+                <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{actionError}</span>
+              </div>
+            )}
+
             {/* 1. GOAL ORIENTATION */}
             {(!session || (phase === 'goal_orientation' && !currentQuestion)) && (
               <div className="flex flex-col gap-5 rounded-lg border border-[#1e293b] bg-[#111111] p-6 shadow-xl">
@@ -322,8 +345,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
                     <p className="text-xs text-gray-400 leading-relaxed">
                       {pendingMode === 'practice'
-                        ? 'Exercite nós específicos da Camada 3 de Redes para aferir solidez de raciocínio e calibrar certeza.'
-                        : 'Defina sua intenção de aprendizado em Redes de Computadores (ex: Camada 3, TTL, Sub-redes CIDR ou Tabela de Rotas). O EduCognitive isolará os nós de dependência para testar sua real competência.'}
+                        ? 'Digite o tema ou conteúdo que deseja praticar para aferir solidez de raciocínio e calibrar certeza.'
+                        : 'Digite qualquer tema, disciplina ou conceito que deseja aprender. O APRENDA construirá dinamicamente o grafo de pré-requisitos e diagnosticará sua real competência.'}
                     </p>
 
                     <div className="flex gap-2">
@@ -332,7 +355,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         value={goalInput}
                         onChange={(e) => setGoalInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleStartGoal()}
-                        placeholder="Ex: Quero aprender a Camada 3 do Modelo OSI e TTL"
+                        placeholder="Ex: Digite o tema ou disciplina que deseja estudar..."
                         className="flex-1 rounded border border-[#1e293b] bg-[#0a0a0a] px-3.5 py-2 text-xs text-gray-200 outline-none focus:border-emerald-500"
                         autoFocus
                       />
@@ -341,30 +364,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         disabled={isSubmitting || !goalInput.trim()}
                         className="rounded bg-emerald-600 px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 shadow-sm"
                       >
-                        {pendingMode === 'practice' ? 'Iniciar Prática' : 'Iniciar Diagnóstico'}
+                        {isSubmitting
+                          ? 'Preparando...'
+                          : pendingMode === 'practice'
+                          ? 'Iniciar Prática'
+                          : 'Iniciar Diagnóstico'}
                       </button>
-                    </div>
-
-                    {/* Quick suggestion chips */}
-                    <div className="flex flex-col gap-1.5 pt-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                        Sugestões Rápidas:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {quickGoalSuggestions.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            type="button"
-                            onClick={() => {
-                              setGoalInput(suggestion);
-                              handleStartGoal(suggestion);
-                            }}
-                            className="rounded-full border border-[#1e293b] bg-[#0a0a0a] px-2.5 py-1 text-[11px] text-gray-300 hover:border-emerald-500 hover:text-white transition-colors"
-                          >
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   </div>
                 ) : (
@@ -376,8 +381,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       {session.goalClarificationOptions.map((opt, i) => (
                         <div
                           key={i}
-                          onClick={() => handleSelectGoalOption(opt)}
-                          className="flex cursor-pointer items-center justify-between rounded border border-[#1e293b] bg-[#0a0a0a] p-3 text-xs text-gray-300 hover:border-emerald-500 hover:bg-[#141414] transition-all shadow-sm"
+                          onClick={() => !isSubmitting && handleSelectGoalOption(opt)}
+                          className={`flex cursor-pointer items-center justify-between rounded border border-[#1e293b] bg-[#0a0a0a] p-3 text-xs text-gray-300 hover:border-emerald-500 hover:bg-[#141414] transition-all shadow-sm ${
+                            isSubmitting ? 'opacity-50 pointer-events-none' : ''
+                          }`}
                         >
                           <span>{opt}</span>
                           <ArrowRight className="h-4 w-4 text-emerald-400" />
@@ -507,7 +514,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     Parabéns! Ciclo Socrático Concluído
                   </h2>
                   <p className="text-xs text-gray-400 max-w-md mx-auto">
-                    Você validou seu entendimento cirúrgico e eliminou equívocos na árvore de dependências da Camada 3 do Modelo OSI.
+                    Você validou seu entendimento cirúrgico e eliminou equívocos na árvore de dependências conceituais.
                   </p>
                 </div>
 
