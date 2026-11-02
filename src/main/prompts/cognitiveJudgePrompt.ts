@@ -9,7 +9,14 @@ export function buildCognitiveJudgePrompt(params: {
   confidence: number;
   thinkingText: string;
 }): { systemPrompt: string; prompt: string } {
-  const isCorrect = params.selectedOptionIndex === params.correctOptionIndex;
+  const isCorrect =
+    params.selectedOptionIndex >= 0 &&
+    params.selectedOptionIndex === params.correctOptionIndex;
+
+  const chosenText =
+    params.selectedOptionIndex === -1
+      ? '[Não sei / O aluno declarou explicitamente que ainda não domina este conceito]'
+      : `[${params.selectedOptionIndex}] ${params.options[params.selectedOptionIndex] || 'N/A'}`;
 
   const systemPrompt = `Você é o Juiz Cognitivo do APRENDA, um especialista em diagnóstico de limites de conhecimento e desmascaramento de "ilusão de competência" em estudantes universitários.
 
@@ -44,7 +51,7 @@ Alternativas:
 ${params.options.map((opt, idx) => `[${idx}] ${opt} ${idx === params.correctOptionIndex ? '(CORRETA)' : ''}`).join('\n')}
 
 RESPOSTA DO ALUNO:
-Alternativa Escolhida: [${params.selectedOptionIndex}] ${params.options[params.selectedOptionIndex] || 'N/A'} (É correta: ${isCorrect})
+Alternativa Escolhida: ${chosenText} (É correta: ${isCorrect})
 Nível de Confiança Declarado: ${params.confidence}%
 Raciocínio Livre ("Your Thinking"): "${params.thinkingText}"
 

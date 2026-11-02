@@ -21,8 +21,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   isSubmitting = false,
 }) => {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
-  const [customAnswer, setCustomAnswer] = useState('');
-  const [isCustomOption, setIsCustomOption] = useState(false);
+  const [isDontKnow, setIsDontKnow] = useState(false);
   const [confidence, setConfidence] = useState<number>(50);
   const [thinkingText, setThinkingText] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -30,8 +29,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   // Reset all fields whenever a new question is loaded
   useEffect(() => {
     setSelectedOptionIndex(null);
-    setCustomAnswer('');
-    setIsCustomOption(false);
+    setIsDontKnow(false);
     setConfidence(50);
     setThinkingText('');
     setValidationError(null);
@@ -52,17 +50,12 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   }, [toggleListening]);
 
   const handleSubmit = () => {
-    if (selectedOptionIndex === null && !isCustomOption) {
-      setValidationError('Selecione uma alternativa ou escolha "Outro".');
+    if (selectedOptionIndex === null && !isDontKnow) {
+      setValidationError('Selecione uma alternativa ou clique em "Não sei".');
       return;
     }
 
-    if (isCustomOption && !customAnswer.trim()) {
-      setValidationError('Digite sua resposta personalizada antes de enviar.');
-      return;
-    }
-
-    if (!thinkingText.trim() || thinkingText.trim().length < 3) {
+    if (!isDontKnow && (!thinkingText.trim() || thinkingText.trim().length < 3)) {
       setValidationError(
         'Explique seu raciocínio com pelo menos algumas palavras ou fale pelo microfone antes de enviar.'
       );
@@ -71,9 +64,11 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
 
     setValidationError(null);
     onSubmit({
-      selectedOptionIndex: isCustomOption ? 99 : (selectedOptionIndex as number),
-      confidence,
-      thinkingText: thinkingText.trim(),
+      selectedOptionIndex: isDontKnow ? -1 : (selectedOptionIndex as number),
+      confidence: isDontKnow ? Math.min(confidence, 30) : confidence,
+      thinkingText: isDontKnow
+        ? thinkingText.trim() || 'Não sei responder esta questão / ainda não domino o conceito.'
+        : thinkingText.trim(),
     });
   };
 
@@ -102,13 +97,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
       {/* Options List */}
       <div className="flex flex-col gap-2">
         {question.options.map((opt, idx) => {
-          const isSelected = !isCustomOption && selectedOptionIndex === idx;
+          const isSelected = !isDontKnow && selectedOptionIndex === idx;
           return (
             <div
               key={idx}
               onClick={() => {
                 setSelectedOptionIndex(idx);
-                setIsCustomOption(false);
+                setIsDontKnow(false);
                 setValidationError(null);
               }}
               className={`flex cursor-pointer items-start space-x-3 rounded-md border p-3 text-xs transition-all ${
@@ -129,40 +124,33 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
           );
         })}
 
-        {/* Custom Option */}
+        {/* Opção "Não sei" */}
         <div
           onClick={() => {
-            setIsCustomOption(true);
+            setIsDontKnow(true);
             setSelectedOptionIndex(null);
             setValidationError(null);
+            setConfidence(0);
           }}
-          className={`flex cursor-pointer flex-col space-y-2 rounded-md border p-3 text-xs transition-all ${
-            isCustomOption
-              ? 'border-emerald-500 bg-emerald-950/20 text-white shadow-sm ring-1 ring-emerald-500/40'
-              : 'border-[#1e293b] bg-[#0a0a0a]/60 text-gray-400 hover:border-gray-600'
+          className={`flex cursor-pointer items-center justify-between rounded-md border p-3 text-xs transition-all ${
+            isDontKnow
+              ? 'border-amber-500/80 bg-amber-950/25 text-white shadow-sm ring-1 ring-amber-500/40'
+              : 'border-[#1e293b] bg-[#0a0a0a]/60 text-gray-400 hover:border-gray-600 hover:bg-[#141414]'
           }`}
         >
           <div className="flex items-center space-x-3">
             <span
               className={`flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[11px] font-bold ${
-                isCustomOption ? 'bg-emerald-500 text-black' : 'bg-[#1e293b] text-gray-400'
+                isDontKnow ? 'bg-amber-500 text-black' : 'bg-[#1e293b] text-gray-400'
               }`}
             >
-              *
+              ?
             </span>
-            <span>Outro / Escreva sua própria resposta...</span>
+            <span className="leading-snug font-medium">Não sei / Ainda não domino este conceito</span>
           </div>
-
-          {isCustomOption && (
-            <input
-              type="text"
-              value={customAnswer}
-              onChange={(e) => setCustomAnswer(e.target.value)}
-              placeholder="Digite sua resposta personalizada..."
-              className="mt-1 w-full rounded border border-[#1e293b] bg-[#111111] p-2 text-xs text-gray-200 outline-none focus:border-emerald-500"
-              autoFocus
-            />
-          )}
+          <span className="text-[10px] text-amber-400/80 uppercase font-mono tracking-wider">
+            Fronteira Cognitiva
+          </span>
         </div>
       </div>
 

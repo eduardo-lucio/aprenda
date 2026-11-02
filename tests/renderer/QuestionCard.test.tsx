@@ -111,6 +111,25 @@ describe('QuestionCard Component', () => {
     const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
     fireEvent.click(submitBtn);
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/selecione uma alternativa ou escolha "outro"/i)).toBeDefined();
+    expect(screen.getByText(/selecione uma alternativa ou clique em "não sei"/i)).toBeDefined();
+  });
+
+  it('allows selecting "Não sei" and submitting with default frontier thinking', () => {
+    const onSubmit = vi.fn();
+    render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
+
+    // Click "Não sei"
+    const dontKnowOption = screen.getByText(/não sei \/ ainda não domino este conceito/i);
+    fireEvent.click(dontKnowOption);
+
+    // Submit directly without typing custom thinking
+    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
+    fireEvent.click(submitBtn);
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      selectedOptionIndex: -1,
+      confidence: 0,
+      thinkingText: expect.stringMatching(/não sei responder/i),
+    });
   });
 });
