@@ -27,6 +27,16 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   const [thinkingText, setThinkingText] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Reset all fields whenever a new question is loaded
+  useEffect(() => {
+    setSelectedOptionIndex(null);
+    setCustomAnswer('');
+    setIsCustomOption(false);
+    setConfidence(50);
+    setThinkingText('');
+    setValidationError(null);
+  }, [question.id]);
+
   const { isListening, isTranscribing, error: speechError, toggleListening } = useSpeechRecognition((voiceText) => {
     setThinkingText((prev) => (prev ? `${prev} ${voiceText}` : voiceText));
     setValidationError(null);

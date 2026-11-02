@@ -414,6 +414,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             {phase === 'probing' && currentQuestion && !socraticNode && (
               <div className="space-y-4">
                 <QuestionCard
+                  key={currentQuestion.id}
                   question={currentQuestion}
                   onSubmit={handleProbeSubmit}
                   isSubmitting={isSubmitting}
@@ -563,6 +564,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             {/* 5. SOCRATIC TEACHING PHASE */}
             {socraticNode && socraticPredictData && (
               <SocraticCard
+                key={socraticNode.id}
                 node={socraticNode}
                 predictQuestion={socraticPredictData.questionText}
                 promptGoal={socraticPredictData.promptGoal}

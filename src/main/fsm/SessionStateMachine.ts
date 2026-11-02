@@ -95,6 +95,13 @@ export class SessionStateMachine {
       nodesState[n.id] = 'untested';
     }
 
+    // Populate question cache with all pre-generated questions from the graph
+    if (graph.questions) {
+      for (const [nodeId, q] of Object.entries(graph.questions)) {
+        this.questionCache.set(nodeId, q);
+      }
+    }
+
     // Sort by level descending (bracket from top)
     this.candidateQueue = [...this.strandNodes].sort((a, b) => b.level - a.level).map((n) => n.id);
 
@@ -118,10 +125,6 @@ export class SessionStateMachine {
     session.phase = 'probing';
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
-
-    // Immediately kick off background prefetch for subsequent candidate nodes
-    // Runs while student is reading and answering question 1!
-    void this.triggerBackgroundPrefetch(selectedOption);
 
     return firstQuestion;
   }
@@ -150,26 +153,16 @@ export class SessionStateMachine {
       throw new Error('Conceito da questão atual não encontrado no grafo.');
     }
 
-    // Concurrently anticipate the next candidate node so question fetch overlaps with judge evaluation
-    const probableNextId = this.candidateQueue[0] || this.strandNodes[0]?.id;
-    const prefetchPromise =
-      probableNextId && !this.questionCache.has(probableNextId)
-        ? this.getOrGenerateQuestionFor(probableNextId, session.goal).catch(() => undefined)
-        : Promise.resolve(undefined);
-
-    // Parallel execution: Judge evaluation + next question preparation
-    const [evaluation] = await Promise.all([
-      this.judge.evaluate({
-        node: currentNode,
-        questionText: currentQ.questionText,
-        options: currentQ.options,
-        selectedOptionIndex: data.selectedOptionIndex,
-        correctOptionIndex: currentQ.correctOptionIndex,
-        confidence: data.confidence,
-        thinkingText: data.thinkingText,
-      }),
-      prefetchPromise,
-    ]);
+    // High-speed evaluation: judge evaluates reasoning freely with zero background network interference
+    const evaluation = await this.judge.evaluate({
+      node: currentNode,
+      questionText: currentQ.questionText,
+      options: currentQ.options,
+      selectedOptionIndex: data.selectedOptionIndex,
+      correctOptionIndex: currentQ.correctOptionIndex,
+      confidence: data.confidence,
+      thinkingText: data.thinkingText,
+    });
 
     const attempt: ProbeAttempt = {
       questionId: currentQ.id,
@@ -212,15 +205,13 @@ export class SessionStateMachine {
       return { attempt, nextAction: 'transition_diagnosis' };
     }
 
+    // Pick next node and retrieve pre-cached question instantly (0ms)
     const nextNodeId = this.pickNextNode();
     const nextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
     this.askedQuestions.push(nextQuestion.questionText);
 
     session.questionCount += 1;
     session.currentQuestion = nextQuestion;
-
-    // Continue background prefetching remaining nodes while user solves the next question
-    void this.triggerBackgroundPrefetch(session.goal);
 
     return { attempt, nextAction: 'next_question', nextQuestion };
   }

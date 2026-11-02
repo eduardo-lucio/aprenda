@@ -76,4 +76,41 @@ describe('QuestionCard Component', () => {
     // Button state should toggle without crashing even if Web Speech API is absent in test
     expect(micBtn).toBeDefined();
   });
+
+  it('resets selected option, custom input, and thinking text when question changes', () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
+
+    // Select option 0
+    const option0 = screen.getByText('O pacote é descartado e é gerado ICMP Time Exceeded');
+    fireEvent.click(option0);
+
+    // Fill thinking text
+    const textarea = screen.getByPlaceholderText(/escreva ou dite seu raciocínio/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'Minha justificativa anterior' } });
+    expect(textarea.value).toBe('Minha justificativa anterior');
+
+    // Rerender with next question
+    const nextQuestion: QuestionData = {
+      id: 'q-test-2',
+      nodeId: 'osi-l3-ip-packets',
+      questionText: 'Qual o campo do cabeçalho IPv4 que impede loops infinitos?',
+      options: ['TTL', 'Checksum', 'Protocol', 'Fragment Offset'],
+      correctOptionIndex: 0,
+      anchorConcept: 'Pacotes IP',
+      difficulty: 2,
+    };
+
+    rerender(<QuestionCard question={nextQuestion} onSubmit={onSubmit} />);
+
+    // Thinking text must be completely cleared
+    const updatedTextarea = screen.getByPlaceholderText(/escreva ou dite seu raciocínio/i) as HTMLTextAreaElement;
+    expect(updatedTextarea.value).toBe('');
+
+    // Clicking submit must fail because no option is selected
+    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
+    fireEvent.click(submitBtn);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/selecione uma alternativa ou escolha "outro"/i)).toBeDefined();
+  });
 });

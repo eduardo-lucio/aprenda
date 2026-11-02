@@ -94,9 +94,27 @@ export function sanitizeGraph(rawNodes: any[]): ConceptNode[] {
   });
 }
 
+export function buildDeterministicQuestion(node: ConceptNode, goal: string): QuestionData {
+  return {
+    id: `q-${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    nodeId: node.id,
+    questionText: `No estudo de "${goal}", em relação a "${node.title}", qual alternativa expressa o princípio correto?`,
+    options: [
+      node.unconditionalTruth,
+      `O conceito de "${node.title}" opera de forma isolada, sem depender de premissas ou condições de contorno.`,
+      `"${node.title}" aplica-se por pura convenção empírica arbitrária, sem relações de causalidade no sistema.`,
+      `Nenhuma validação conceitual ou verificação é necessária para aplicar "${node.title}".`,
+    ],
+    correctOptionIndex: 0,
+    anchorConcept: node.title,
+    difficulty: node.level || 2,
+  };
+}
+
 export function buildFallbackGraphForGoal(goal: string): {
   discipline: string;
   nodes: ConceptNode[];
+  questions: Record<string, QuestionData>;
   firstQuestion: QuestionData;
 } {
   const topic = goal.trim() || 'Tema de Estudo';
@@ -176,27 +194,20 @@ export function buildFallbackGraphForGoal(goal: string): {
     },
   ];
 
-  const firstQuestion: QuestionData = {
-    id: `q-${prefix}-l4-1`,
-    nodeId: `${prefix}-l4-sintese`,
-    questionText: `No estudo avançado de "${topic}", qual é o critério determinante para validar a solução de um problema complexo?`,
-    options: [
-      `Garantir que os princípios fundamentais e condições de contorno sejam respeitados de ponta a ponta.`,
-      `Ignorar restrições de contorno se a resposta parecer plausível na superfície.`,
-      `Considerar apenas a intuição inicial sem testar casos extremos.`,
-      `Aplicar fórmulas prontas sem verificar a aplicabilidade ao contexto.`,
-    ],
-    correctOptionIndex: 0,
-    anchorConcept: `${topic}: Síntese Avançada`,
-    difficulty: 4,
-  };
+  const questions: Record<string, QuestionData> = {};
+  for (const n of nodes) {
+    questions[n.id] = buildDeterministicQuestion(n, topic);
+  }
 
-  return { discipline: topic, nodes, firstQuestion };
+  const firstQuestion = questions[`${prefix}-l4-sintese`] || questions[nodes[nodes.length - 1].id];
+
+  return { discipline: topic, nodes, questions, firstQuestion };
 }
 
 export interface GeneratedGraphResult {
   discipline: string;
   nodes: ConceptNode[];
+  questions?: Record<string, QuestionData>;
   firstQuestion?: QuestionData;
 }
 
@@ -242,7 +253,7 @@ export class CurriculumGenerator {
         prompt,
         temperature: 0.2,
         jsonMode: true,
-        maxTokens: 1400,
+        maxTokens: 1600,
         timeoutMs: 40000,
       });
       const parsed = parseLLMJson<any>(raw);
@@ -250,7 +261,37 @@ export class CurriculumGenerator {
       const nodes = sanitizeGraph(rawNodes);
 
       if (nodes.length >= 3) {
-        let firstQuestion: QuestionData | undefined;
+        const questions: Record<string, QuestionData> = {};
+
+        // 1. Extract any questions attached to individual nodes
+        if (Array.isArray(rawNodes)) {
+          for (const raw of rawNodes) {
+            const rawId = typeof raw?.id === 'string' ? slugify(raw.id) : '';
+            const matchingNode = nodes.find((n) => n.id === rawId);
+            const q = raw?.question;
+            if (
+              matchingNode &&
+              q &&
+              q.questionText &&
+              Array.isArray(q.options) &&
+              q.options.length === 4 &&
+              Number(q.correctOptionIndex) >= 0 &&
+              Number(q.correctOptionIndex) < 4
+            ) {
+              questions[matchingNode.id] = {
+                id: `q-${matchingNode.id}-${Date.now()}`,
+                nodeId: matchingNode.id,
+                questionText: String(q.questionText),
+                options: q.options.map((o: unknown) => String(o)),
+                correctOptionIndex: Number(q.correctOptionIndex),
+                anchorConcept: matchingNode.title,
+                difficulty: matchingNode.level,
+              };
+            }
+          }
+        }
+
+        // 2. Also check if a standalone firstQuestion was provided
         const rawQ = parsed?.firstQuestion;
         if (
           rawQ &&
@@ -260,11 +301,10 @@ export class CurriculumGenerator {
           Number(rawQ.correctOptionIndex) >= 0 &&
           Number(rawQ.correctOptionIndex) < 4
         ) {
-          // Identify matching node or default to highest level node
           const targetNode =
             nodes.find((n) => n.id === rawQ.nodeId) ||
             [...nodes].sort((a, b) => b.level - a.level)[0];
-          firstQuestion = {
+          questions[targetNode.id] = {
             id: `q-${targetNode.id}-${Date.now()}`,
             nodeId: targetNode.id,
             questionText: String(rawQ.questionText),
@@ -275,12 +315,23 @@ export class CurriculumGenerator {
           };
         }
 
+        // 3. Ensure EVERY single node in the DAG has an immediate question ready in memory
+        for (const node of nodes) {
+          if (!questions[node.id]) {
+            questions[node.id] = buildDeterministicQuestion(node, goal);
+          }
+        }
+
+        const highestNode = [...nodes].sort((a, b) => b.level - a.level)[0];
+        const firstQuestion = questions[highestNode.id] || questions[nodes[0].id];
+
         return {
           discipline:
             typeof parsed?.discipline === 'string' && parsed.discipline.trim()
               ? parsed.discipline.trim()
               : goal,
           nodes,
+          questions,
           firstQuestion,
         };
       }

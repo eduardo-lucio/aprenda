@@ -14,7 +14,7 @@ Responda SOMENTE em JSON: {"options": ["recorte 1", "recorte 2", "recorte 3"]}`;
 
 export function buildGraphPrompt(goal: string): { systemPrompt: string; prompt: string } {
   const systemPrompt = `Você é o arquiteto curricular do APRENDA.
-Sua tarefa é decompor o objetivo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) E formular a PRIMEIRA questão diagnóstica para o conceito-alvo principal (nível mais alto).
+Sua tarefa é decompor o objetivo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) E fornecer uma questão diagnóstica objetiva para CADA nó.
 
 Regras do DAG:
 - 6 a 8 nós essenciais ao tema.
@@ -23,10 +23,10 @@ Regras do DAG:
 - "prerequisites": lista de ids de nós de nível MENOR dos quais depende diretamente. Nós de nível 1 têm [].
 - "summary": 1 frase direta.
 - "unconditionalTruth": 1 frase com o princípio fundamental.
-
-Regras da primeira questão ("firstQuestion"):
-- Alvo: o nó de nível mais alto gerado no DAG.
-- 4 alternativas plausíveis (apenas 1 correta).
+- "question": questão diagnóstica direta para este nó:
+  - "questionText": pergunta prática direta e contextualizada (1 a 2 frases)
+  - "options": exatamente 4 alternativas curtas (apenas 1 correta)
+  - "correctOptionIndex": índice numérico (0 a 3) da alternativa correta
 
 ${LANG_RULE}
 Responda SOMENTE em JSON no formato:
@@ -39,20 +39,17 @@ Responda SOMENTE em JSON no formato:
       "summary": "Resumo",
       "level": 1,
       "prerequisites": [],
-      "unconditionalTruth": "Verdade incondicional"
+      "unconditionalTruth": "Verdade incondicional",
+      "question": {
+        "questionText": "Pergunta sobre este conceito?",
+        "options": ["Opção correta", "Distrator 1", "Distrator 2", "Distrator 3"],
+        "correctOptionIndex": 0
+      }
     }
-  ],
-  "firstQuestion": {
-    "nodeId": "slug-do-no-nivel-4",
-    "questionText": "Pergunta prática contextualizada",
-    "options": ["A", "B", "C", "D"],
-    "correctOptionIndex": 0,
-    "anchorConcept": "Título do conceito",
-    "difficulty": 3
-  }
+  ]
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo e a primeira questão em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo com as questões diagnósticas em JSON:`;
   return { systemPrompt, prompt };
 }
 
