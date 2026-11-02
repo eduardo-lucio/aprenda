@@ -148,9 +148,6 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             </span>
             <span className="leading-snug font-medium">Não sei / Ainda não domino este conceito</span>
           </div>
-          <span className="text-[10px] text-amber-400/80 uppercase font-mono tracking-wider">
-            Fronteira Cognitiva
-          </span>
         </div>
       </div>
 

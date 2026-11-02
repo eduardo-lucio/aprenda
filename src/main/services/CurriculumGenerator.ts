@@ -232,11 +232,11 @@ export class CurriculumGenerator {
   constructor(private llm: LLMCaller = callLLM) {}
 
   defaultGoalOptions(goal: string): string[] {
-    const clean = goal.trim();
+    const clean = goal.trim() || 'Conceito';
     return [
-      `Domínio completo de: ${clean}`,
-      `Fundamentos e pré-requisitos essenciais de: ${clean}`,
-      `Aplicações práticas e resolução de problemas em: ${clean}`,
+      `Mecanismos internos e dinâmicas causais de ${clean}`,
+      `Condições de contorno, restrições e casos limites em ${clean}`,
+      `Modelagem analítica e diagnóstico de falhas em ${clean}`,
     ];
   }
 
@@ -248,7 +248,7 @@ export class CurriculumGenerator {
         prompt,
         temperature: 0.3,
         jsonMode: true,
-        maxTokens: 250,
+        maxTokens: 400,
         timeoutMs: 15000,
       });
       const parsed = parseLLMJson<{ options?: unknown }>(raw);
@@ -256,8 +256,8 @@ export class CurriculumGenerator {
         ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 3)
         : [];
       if (options.length > 0) return options;
-    } catch {
-      // Fallback directly derived from the user's input
+    } catch (err) {
+      console.error('[CurriculumGenerator] Falha ao gerar opções de escopo via IA:', err);
     }
     return this.defaultGoalOptions(goal);
   }
@@ -270,7 +270,7 @@ export class CurriculumGenerator {
         prompt,
         temperature: 0.2,
         jsonMode: true,
-        maxTokens: 1600,
+        maxTokens: 2000,
         timeoutMs: 40000,
       });
       const parsed = parseLLMJson<any>(raw);
@@ -311,8 +311,8 @@ export class CurriculumGenerator {
           firstQuestion,
         };
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
     }
     return buildFallbackGraphForGoal(goal);
   }
@@ -335,7 +335,7 @@ export class CurriculumGenerator {
           prompt,
           temperature: 0.4,
           jsonMode: true,
-          maxTokens: 450,
+          maxTokens: 800,
           timeoutMs: 25000,
           signal: callOpts?.signal,
         });
@@ -355,8 +355,8 @@ export class CurriculumGenerator {
             difficulty: Number(parsed.difficulty) || node.level,
           };
         }
-      } catch {
-        // Retry once or fall through to high-quality fallback
+      } catch (err) {
+        console.error(`[CurriculumGenerator] Falha ao gerar questão via IA (tentativa ${attempt + 1}):`, err);
       }
     }
 

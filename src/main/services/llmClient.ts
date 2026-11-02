@@ -40,6 +40,12 @@ export function resolveChatBaseUrl(providerId: string | undefined, baseUrl?: str
       return 'https://api.anthropic.com/v1';
     case 'groq':
       return 'https://api.groq.com/openai/v1';
+    case 'cerebras':
+      return 'https://api.cerebras.ai/v1';
+    case 'together':
+      return 'https://api.together.xyz/v1';
+    case 'mistral':
+      return 'https://api.mistral.ai/v1';
     case 'ollama': {
       const root = (baseUrl || 'http://localhost:11434').replace(/\/+$/, '').replace(/\/v1$/, '');
       return `${root}/v1`;
@@ -110,6 +116,8 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
   messages.push({ role: 'user', content: options.prompt });
 
   const isReasoningModel = /\b(o1|o3|o4)\b/i.test(config.model);
+  const isOpenRouter = config.baseURL.includes('openrouter.ai');
+
   const bodyPayload: any = {
     model: config.model,
     messages,
@@ -118,22 +126,23 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
   };
 
   if (options.maxTokens) {
-    bodyPayload.max_tokens = options.maxTokens;
     if (isReasoningModel) {
       bodyPayload.max_completion_tokens = options.maxTokens;
+    } else {
+      bodyPayload.max_tokens = options.maxTokens;
     }
   }
 
-  // Calibrate reasoning/thinking effort so thinking models don't stall for 30s
+  // Only pass reasoning parameters if explicitly supported by model/provider
+  // OpenAI o1/o3/o4 accepts reasoning_effort. OpenRouter accepts reasoning object.
+  // Standard models on OpenAI (gpt-4o), Groq, Gemini, DeepSeek reject these with HTTP 400.
   const effort = options.effortLevel ?? config.effortLevel;
-  if (effort) {
-    if (effort === 'off') {
-      bodyPayload.reasoning = { effort: 'none' };
-      bodyPayload.reasoning_effort = 'low';
-    } else {
-      const mapped = effort === 'minimal' ? 'low' : effort;
-      bodyPayload.reasoning = { effort: mapped };
+  if (effort && effort !== 'off') {
+    const mapped = effort === 'minimal' ? 'low' : effort;
+    if (isReasoningModel) {
       bodyPayload.reasoning_effort = mapped;
+    } else if (isOpenRouter) {
+      bodyPayload.reasoning = { effort: mapped };
     }
   }
 
@@ -176,9 +185,9 @@ export const callLLM: LLMCaller = async (options) => {
 
   let res = await doRequest(config, options, Boolean(options.jsonMode));
 
-  // Some providers reject response_format; retry once without it.
-  if (!res.ok && options.jsonMode && (res.status === 400 || res.status === 422)) {
-    res = await doRequest(config, options, false);
+  // If provider rejects specialized payload (400/422), retry once with clean baseline payload
+  if (!res.ok && (res.status === 400 || res.status === 422)) {
+    res = await doRequest(config, { ...options, effortLevel: 'off' }, false);
   }
 
   if (!res.ok) {

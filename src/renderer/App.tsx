@@ -22,20 +22,29 @@ export default function App() {
     return DEFAULT_SETTINGS;
   });
 
-  // Sync saved settings with Electron Main process on startup
+  // Sync saved settings with Electron Main process on startup and whenever settings change
   useEffect(() => {
     if (window.api?.updateSettings) {
+      const activeProvider = settings.providers?.find(
+        (p) => p.id === settings.activeProviderId || p.isActive
+      );
+      const effectiveApiKey = activeProvider?.apiKey || settings.apiKey || '';
+      const effectiveBaseUrl = activeProvider?.baseUrl || settings.baseUrl || '';
+      const effectiveProviderId = settings.activeProviderId || activeProvider?.id || '';
+      const effectiveModel = settings.strongModel || settings.model || activeProvider?.models?.[0]?.id || '';
+      const effectiveEffort = settings.strongThinking || 'medium';
+
       window.api.updateSettings({
-        providerId: settings.activeProviderId,
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.strongModel || settings.model,
-        effortLevel: settings.strongThinking,
+        providerId: effectiveProviderId,
+        apiKey: effectiveApiKey,
+        baseUrl: effectiveBaseUrl,
+        model: effectiveModel,
+        effortLevel: effectiveEffort as any,
         deepgramApiKey: settings.deepgramApiKey,
         voiceLanguage: settings.voiceLanguage,
       });
     }
-  }, []);
+  }, [settings]);
 
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);

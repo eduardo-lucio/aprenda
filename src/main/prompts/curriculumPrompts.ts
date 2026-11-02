@@ -3,12 +3,17 @@ import { ConceptNode, QuestionData } from '../../shared/types';
 const LANG_RULE = 'Escreva em português do Brasil com precisão técnica universitária e extrema concisão.';
 
 export function buildGoalOptionsPrompt(goal: string): { systemPrompt: string; prompt: string } {
-  const systemPrompt = `Você é o orientador do APRENDA.
-Dado o objetivo de aprendizado do estudante, proponha exatamente 3 recortes de escopo distintos e objetivos para guiar a sondagem diagnóstica.
-${LANG_RULE}
-Responda SOMENTE em JSON: {"options": ["recorte 1", "recorte 2", "recorte 3"]}`;
+  const systemPrompt = `Você é o orientador pedagógico do APRENDA.
+O estudante definiu o objetivo de estudo: "${goal}".
+Sua tarefa é propor exatamente 3 recortes temáticos objetivos, técnicos e distintos para guiar a sondagem diagnóstica.
+Regras OBRIGATÓRIAS:
+- Proibido usar clichês genéricos como "Domínio completo de...", "Fundamentos e pré-requisitos de...", ou "Aplicações práticas de...".
+- Cada opção deve ser um recorte técnico, conceitual ou aplicado CONCRETO, diretamente relacionado a "${goal}".
+- Cada opção deve ter entre 4 e 10 palavras, escrita em português do Brasil com precisão técnica.
+- Responda EXCLUSIVAMENTE em formato JSON:
+{"options": ["Recorte temático 1", "Recorte temático 2", "Recorte temático 3"]}`;
 
-  const prompt = `Objetivo: "${goal}"\nGere os 3 recortes em JSON:`;
+  const prompt = `Tema de estudo: "${goal}"\nGere os 3 recortes de escopo temático específicos em JSON:`;
   return { systemPrompt, prompt };
 }
 

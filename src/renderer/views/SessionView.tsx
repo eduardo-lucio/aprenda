@@ -48,7 +48,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
   const [customScopeInput, setCustomScopeInput] = useState('');
-  const [isCustomScopeOpen, setIsCustomScopeOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,7 +96,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     const goalToUse = (customGoal || goalInput).trim();
     if (!goalToUse) return;
 
-    setIsCustomScopeOpen(false);
     setCustomScopeInput('');
     setSubmittingLabel('Definindo objetivo e preparando opções de escopo...');
     setIsSubmitting(true);
@@ -409,53 +407,34 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         </div>
                       ))}
 
-                      {/* Opção livre / personalizada de escopo */}
-                      <div
-                        onClick={() => {
-                          if (!isSubmitting && !isCustomScopeOpen) setIsCustomScopeOpen(true);
-                        }}
-                        className={`flex flex-col rounded border p-3 text-xs transition-all shadow-sm ${
-                          isCustomScopeOpen
-                            ? 'border-emerald-500/80 bg-[#121212]'
-                            : 'border-[#1e293b] bg-[#0a0a0a] text-gray-300 hover:border-gray-500 hover:bg-[#141414] cursor-pointer'
-                        } ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-gray-200">
-                            ✨ Outro: Definir meu próprio escopo personalizado...
-                          </span>
-                          <ArrowRight className="h-4 w-4 text-emerald-400" />
-                        </div>
-
-                        {isCustomScopeOpen && (
-                          <div className="mt-2.5 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="text"
-                              value={customScopeInput}
-                              onChange={(e) => setCustomScopeInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && customScopeInput.trim() && !isSubmitting) {
-                                  handleSelectGoalOption(customScopeInput.trim());
-                                }
-                              }}
-                              placeholder="Digite o escopo específico que deseja aprofundar..."
-                              className="flex-1 rounded border border-[#1e293b] bg-[#0a0a0a] px-3.5 py-1.5 text-xs text-gray-200 outline-none focus:border-emerald-500"
-                              autoFocus
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (customScopeInput.trim() && !isSubmitting) {
-                                  handleSelectGoalOption(customScopeInput.trim());
-                                }
-                              }}
-                              disabled={isSubmitting || !customScopeInput.trim()}
-                              className="rounded bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50 shadow-sm"
-                            >
-                              Confirmar Escopo
-                            </button>
-                          </div>
-                        )}
+                      {/* Campo em branco para escopo personalizado */}
+                      <div className="flex gap-2 pt-1">
+                        <input
+                          type="text"
+                          value={customScopeInput}
+                          onChange={(e) => setCustomScopeInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && customScopeInput.trim() && !isSubmitting) {
+                              handleSelectGoalOption(customScopeInput.trim());
+                            }
+                          }}
+                          placeholder="Outro: digite seu próprio escopo personalizado..."
+                          disabled={isSubmitting}
+                          className="flex-1 rounded border border-[#1e293b] bg-[#0a0a0a] px-3.5 py-2.5 text-xs text-gray-200 outline-none focus:border-emerald-500 placeholder-gray-500 transition-colors shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (customScopeInput.trim() && !isSubmitting) {
+                              handleSelectGoalOption(customScopeInput.trim());
+                            }
+                          }}
+                          disabled={isSubmitting || !customScopeInput.trim()}
+                          className="rounded bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-40 shadow-sm shrink-0 flex items-center gap-1.5"
+                        >
+                          <span>Avançar</span>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
