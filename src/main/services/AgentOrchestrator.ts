@@ -85,8 +85,11 @@ export class AgentOrchestrator {
       .filter((n) => !questionCache.has(n.id))
       .map((n) => n.id);
 
-    // Prioritized, deduplicated target list
-    const combined = Array.from(new Set([...zoomInTargets, ...successTargets, ...strandTargets]));
+    // Prioritized, deduplicated target list — cap to immediate next 2 branches to preserve API quota
+    const combined = Array.from(new Set([...zoomInTargets, ...successTargets, ...strandTargets])).slice(
+      0,
+      2
+    );
 
     for (const nodeId of combined) {
       if (questionCache.has(nodeId)) continue;
@@ -109,8 +112,10 @@ export class AgentOrchestrator {
             if (!signal.aborted) {
               questionCache.set(nodeId, question);
             }
-          } catch (_err) {
-            // Task canceled or network error handled gracefully
+          } catch (err: any) {
+            if (/HTTP (401|402|403|429)/i.test(String(err?.message || err))) {
+              this.taskQueue = this.taskQueue.filter((t) => t.priority !== TaskPriority.LOW);
+            }
           }
         },
       });

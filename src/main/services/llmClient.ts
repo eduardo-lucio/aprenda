@@ -137,12 +137,18 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
   // OpenAI o1/o3/o4 accepts reasoning_effort. OpenRouter accepts reasoning object.
   // Standard models on OpenAI (gpt-4o), Groq, Gemini, DeepSeek reject these with HTTP 400.
   const effort = options.effortLevel ?? config.effortLevel;
-  if (effort && effort !== 'off') {
-    const mapped = effort === 'minimal' ? 'low' : effort;
-    if (isReasoningModel) {
-      bodyPayload.reasoning_effort = mapped;
-    } else if (isOpenRouter) {
-      bodyPayload.reasoning = { effort: mapped };
+  if (effort) {
+    if (effort === 'off') {
+      if (isOpenRouter) {
+        bodyPayload.reasoning = { effort: 'none' };
+      }
+    } else {
+      const mapped = effort === 'minimal' ? 'low' : effort;
+      if (isReasoningModel) {
+        bodyPayload.reasoning_effort = mapped;
+      } else if (isOpenRouter) {
+        bodyPayload.reasoning = { effort: mapped };
+      }
     }
   }
 
@@ -196,12 +202,50 @@ export const callLLM: LLMCaller = async (options) => {
       const body: any = await res.json();
       detail = body?.error?.message || body?.message || '';
     } catch {}
+    if (res.status === 429) {
+      throw new Error(
+        `Limite de requisições atingido no provedor de IA (HTTP 429)${detail ? `: ${detail}` : ''}. Se estiver usando modelos gratuitos (:free) no OpenRouter, o limite diário (50 req/dia) dessa chave foi atingido — troque a chave/provedor ou o modelo em Configurações.`
+      );
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `Chave de API inválida ou sem autorização (HTTP ${res.status})${detail ? `: ${detail}` : ''}. Verifique Configurações → Providers.`
+      );
+    }
+    if (res.status === 402) {
+      throw new Error(
+        `Saldo/créditos insuficientes no provedor de IA (HTTP 402)${detail ? `: ${detail}` : ''}.`
+      );
+    }
     throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
-  const data: any = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== 'string') {
+  let data: any = await res.json();
+  let msg = data?.choices?.[0]?.message;
+  let content: string | undefined = msg?.content;
+
+  // If a reasoning model exhausted max_tokens inside <think> and returned empty content, retry once without maxTokens cap
+  if ((!content || !content.trim()) && options.maxTokens) {
+    const retryRes = await doRequest(
+      config,
+      { ...options, maxTokens: undefined, effortLevel: 'off' },
+      false
+    );
+    if (retryRes.ok) {
+      data = await retryRes.json();
+      msg = data?.choices?.[0]?.message;
+      content = msg?.content;
+    }
+  }
+
+  if ((!content || !content.trim()) && (msg?.reasoning_content || msg?.reasoning)) {
+    const fallbackReasoning = String(msg.reasoning_content || msg.reasoning);
+    if (fallbackReasoning.includes('{') && fallbackReasoning.includes('}')) {
+      content = fallbackReasoning;
+    }
+  }
+
+  if (!content || typeof content !== 'string' || !content.trim()) {
     throw new Error('O modelo retornou uma resposta vazia.');
   }
   return content;

@@ -240,6 +240,11 @@ export class CurriculumGenerator {
     ];
   }
 
+  private isFatalProviderError(err: any): boolean {
+    const msg = String(err?.message || err || '');
+    return /HTTP (401|402|403|429)\b/i.test(msg);
+  }
+
   async generateGoalOptions(goal: string): Promise<string[]> {
     try {
       const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
@@ -248,8 +253,9 @@ export class CurriculumGenerator {
         prompt,
         temperature: 0.3,
         jsonMode: true,
-        maxTokens: 400,
-        timeoutMs: 15000,
+        maxTokens: 2048,
+        effortLevel: 'low',
+        timeoutMs: 25000,
       });
       const parsed = parseLLMJson<{ options?: unknown }>(raw);
       const options = Array.isArray(parsed.options)
@@ -258,6 +264,9 @@ export class CurriculumGenerator {
       if (options.length > 0) return options;
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar opções de escopo via IA:', err);
+      if (this.isFatalProviderError(err)) {
+        throw err;
+      }
     }
     return this.defaultGoalOptions(goal);
   }
@@ -270,8 +279,9 @@ export class CurriculumGenerator {
         prompt,
         temperature: 0.2,
         jsonMode: true,
-        maxTokens: 2000,
-        timeoutMs: 40000,
+        maxTokens: 4096,
+        effortLevel: 'low',
+        timeoutMs: 45000,
       });
       const parsed = parseLLMJson<any>(raw);
       const rawNodes = Array.isArray(parsed) ? parsed : parsed?.nodes;
@@ -313,6 +323,9 @@ export class CurriculumGenerator {
       }
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
+      if (this.isFatalProviderError(err)) {
+        throw err;
+      }
     }
     return buildFallbackGraphForGoal(goal);
   }
@@ -335,8 +348,9 @@ export class CurriculumGenerator {
           prompt,
           temperature: 0.4,
           jsonMode: true,
-          maxTokens: 800,
-          timeoutMs: 25000,
+          maxTokens: 2048,
+          effortLevel: 'low',
+          timeoutMs: 30000,
           signal: callOpts?.signal,
         });
         const parsed = parseLLMJson<any>(raw);
@@ -357,6 +371,9 @@ export class CurriculumGenerator {
         }
       } catch (err) {
         console.error(`[CurriculumGenerator] Falha ao gerar questão via IA (tentativa ${attempt + 1}):`, err);
+        if (this.isFatalProviderError(err)) {
+          throw err;
+        }
       }
     }
 
