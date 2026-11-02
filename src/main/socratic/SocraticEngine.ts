@@ -6,14 +6,37 @@ import { CurriculumGenerator } from '../services/CurriculumGenerator';
 export class SocraticEngine {
   private currentNode?: ConceptNode;
   private generator: CurriculumGenerator;
+  private predictCache = new Map<string, { questionText: string; promptGoal: string }>();
 
   constructor(private llm: LLMCaller = callLLM, generator?: CurriculumGenerator) {
     this.generator = generator || new CurriculumGenerator(llm);
   }
 
-  async generatePredictStep(node: ConceptNode, goal = ''): Promise<{ questionText: string; promptGoal: string }> {
+  async prebakePredict(
+    node: ConceptNode,
+    goal: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ questionText: string; promptGoal: string }> {
+    const cached = this.predictCache.get(node.id);
+    if (cached) return cached;
+
+    const res = await this.generator.generatePredict(node, goal || node.title, options);
+    this.predictCache.set(node.id, res);
+    return res;
+  }
+
+  async generatePredictStep(
+    node: ConceptNode,
+    goal = '',
+    options?: { signal?: AbortSignal }
+  ): Promise<{ questionText: string; promptGoal: string }> {
     this.currentNode = node;
-    return this.generator.generatePredict(node, goal || node.title);
+    const cached = this.predictCache.get(node.id);
+    if (cached) return cached;
+
+    const res = await this.generator.generatePredict(node, goal || node.title, options);
+    this.predictCache.set(node.id, res);
+    return res;
   }
 
   async submitPrediction(studentPrediction: string): Promise<{ teachProse: string; checkQuestion?: CheckQuestionData }> {

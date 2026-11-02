@@ -4,3 +4,7 @@ dist-electron/
 .superpowers/
 .DS_Store
 *.log
+.agents/
+.claude/
+.idea/
+skills-lock.json

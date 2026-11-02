@@ -16,6 +16,7 @@ export interface IpcDependencies {
 
 export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): void {
   const { fsm, store, socratic, getMainWindow } = deps;
+  fsm.setSocraticEngine(socratic);
   let currentSocraticNode: ConceptNode | undefined;
   let currentCheckData: CheckQuestionData | undefined;
   const speechConfig = { deepgramApiKey: '', voiceLanguage: 'pt-BR' };

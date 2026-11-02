@@ -83,6 +83,7 @@ export interface CallLLMOptions {
   maxTokens?: number;
   effortLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
   timeoutMs?: number;
+  signal?: AbortSignal;
   config?: Partial<LLMConfig>;
 }
 
@@ -91,6 +92,16 @@ export type LLMCaller = (options: CallLLMOptions) => Promise<string>;
 async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode: boolean): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? config.timeoutMs);
+
+  let onExternalAbort: (() => void) | undefined;
+  if (options.signal) {
+    if (options.signal.aborted) {
+      clearTimeout(timeoutId);
+      throw new Error('Operação cancelada pelo orquestrador.');
+    }
+    onExternalAbort = () => controller.abort();
+    options.signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
 
   const messages: Array<{ role: string; content: string }> = [];
   if (options.systemPrompt) {
@@ -139,12 +150,18 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
       signal: controller.signal,
     });
   } catch (err: any) {
+    if (options.signal?.aborted) {
+      throw new Error('Operação cancelada pelo orquestrador.');
+    }
     if (err?.name === 'AbortError') {
       throw new Error('Tempo limite excedido aguardando resposta do modelo.');
     }
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    if (options.signal && onExternalAbort) {
+      options.signal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 

@@ -7,6 +7,8 @@ import {
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
+import { AgentOrchestrator } from '../services/AgentOrchestrator';
+import { SocraticEngine } from '../socratic/SocraticEngine';
 
 export const MIN_PROBE_QUESTIONS = 8;
 
@@ -14,17 +16,31 @@ export class SessionStateMachine {
   private store: KnowledgeStore;
   private judge: CognitiveJudgeService;
   private generator: CurriculumGenerator;
+  private orchestrator: AgentOrchestrator;
   private session?: ProbingSession;
   private strandNodes: ConceptNode[] = [];
   private candidateQueue: string[] = [];
   private askedQuestions: string[] = [];
   private questionCache: Map<string, QuestionData> = new Map();
-  private isPrefetching = false;
 
-  constructor(store?: KnowledgeStore, judge?: CognitiveJudgeService, generator?: CurriculumGenerator) {
+  constructor(
+    store?: KnowledgeStore,
+    judge?: CognitiveJudgeService,
+    generator?: CurriculumGenerator,
+    orchestrator?: AgentOrchestrator
+  ) {
     this.store = store || new KnowledgeStore();
     this.judge = judge || new CognitiveJudgeService();
     this.generator = generator || new CurriculumGenerator();
+    this.orchestrator = orchestrator || new AgentOrchestrator(this.generator, this.store);
+  }
+
+  setSocraticEngine(socratic: SocraticEngine): void {
+    this.orchestrator.setSocraticEngine(socratic);
+  }
+
+  getOrchestrator(): AgentOrchestrator {
+    return this.orchestrator;
   }
 
   hasSession(): boolean {
@@ -45,11 +61,11 @@ export class SessionStateMachine {
   startSession(mode: 'teaching' | 'practice', goalText: string): Promise<ProbingSession> {
     const goal = (goalText || '').trim() || 'Objetivo de Estudo';
 
+    this.orchestrator.clear();
     this.strandNodes = [];
     this.candidateQueue = [];
     this.askedQuestions = [];
     this.questionCache.clear();
-    this.isPrefetching = false;
 
     const existingNodes = this.store.getNodes();
     const initialNodesState: Record<string, ConceptNode['status']> = {};
@@ -119,8 +135,15 @@ export class SessionStateMachine {
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
 
-    // Prefetch real LLM questions in the background while user solves question 1
-    void this.triggerBackgroundPrefetch(selectedOption);
+    // Speculatively prefetch upcoming branch questions in the background while user solves question 1
+    this.orchestrator.speculativePrefetch({
+      currentNodeId: firstNodeId,
+      candidateQueue: this.candidateQueue,
+      strandNodes: this.strandNodes,
+      questionCache: this.questionCache,
+      askedQuestions: this.askedQuestions,
+      goal: session.goal,
+    });
 
     return firstQuestion;
   }
@@ -149,7 +172,11 @@ export class SessionStateMachine {
       throw new Error('Conceito da questão atual não encontrado no grafo.');
     }
 
-    // High-speed evaluation: judge evaluates reasoning freely with zero background network interference
+    // High-priority user action: preempt all background speculative LLM calls immediately
+    // so 100% of bandwidth and quota are dedicated to the cognitive judge
+    this.orchestrator.preemptBackground();
+
+    // High-speed evaluation: judge evaluates reasoning freely with zero background interference
     const evaluation = await this.judge.evaluate({
       node: currentNode,
       questionText: currentQ.questionText,
@@ -176,6 +203,15 @@ export class SessionStateMachine {
 
     session.attempts.push(attempt);
     session.nodesState[currentNode.id] = evaluation.verdict;
+
+    // If a cognitive boundary or misconception is diagnosed, pre-bake the Socratic lesson in background
+    if (
+      evaluation.verdict === 'false_positive' ||
+      evaluation.verdict === 'blind_spot' ||
+      evaluation.verdict === 'frontier'
+    ) {
+      this.orchestrator.prebakeSocraticLesson(currentNode, session.goal);
+    }
 
     const prereqs = this.store.getPrerequisites(currentNode.id);
     if (evaluation.verdict === 'mastered') {
@@ -209,8 +245,15 @@ export class SessionStateMachine {
     session.questionCount += 1;
     session.currentQuestion = nextQuestion;
 
-    // Continue background prefetching candidate nodes while user solves the next question
-    void this.triggerBackgroundPrefetch(session.goal);
+    // Prefetch candidate branch questions in the background while user solves next question
+    this.orchestrator.speculativePrefetch({
+      currentNodeId: nextNodeId,
+      candidateQueue: this.candidateQueue,
+      strandNodes: this.strandNodes,
+      questionCache: this.questionCache,
+      askedQuestions: this.askedQuestions,
+      goal: session.goal,
+    });
 
     return { attempt, nextAction: 'next_question', nextQuestion };
   }
@@ -257,49 +300,6 @@ export class SessionStateMachine {
     const question = await this.generator.generateQuestion(node, goal, this.askedQuestions);
     this.questionCache.set(nodeId, question);
     return question;
-  }
-
-  /**
-   * Pre-generates questions in the background for upcoming candidate nodes
-   * so they are already waiting in cache when the user submits their answer.
-   */
-  private async triggerBackgroundPrefetch(goal: string): Promise<void> {
-    if (this.isPrefetching) return;
-    this.isPrefetching = true;
-
-    try {
-      // Prioritize prerequisites of current question (in case of zoom-in),
-      // then remaining candidate queue, then strand nodes
-      const currentPrereqs = this.session?.currentQuestion
-        ? this.store.getPrerequisites(this.session.currentQuestion.nodeId).map((p) => p.id)
-        : [];
-
-      const rawTargets = [
-        ...currentPrereqs,
-        ...this.candidateQueue,
-        ...this.strandNodes.map((n) => n.id),
-      ];
-      const targets = Array.from(new Set(rawTargets));
-
-      for (const nodeId of targets) {
-        if (!this.session || this.session.phase !== 'probing') break;
-        if (!this.questionCache.has(nodeId)) {
-          const node = this.store.getNodeById(nodeId);
-          if (node) {
-            try {
-              const q = await this.generator.generateQuestion(node, goal, this.askedQuestions);
-              this.questionCache.set(nodeId, q);
-            } catch {
-              // Ignore background errors
-            }
-          }
-          // Brief pause between background LLM calls
-          await new Promise((r) => setTimeout(r, 40));
-        }
-      }
-    } finally {
-      this.isPrefetching = false;
-    }
   }
 
   private pickNextNode(): string {

@@ -320,11 +320,15 @@ export class CurriculumGenerator {
   async generateQuestion(
     node: ConceptNode,
     goal: string,
-    previousQuestions: string[]
+    previousQuestions: string[],
+    callOpts?: { signal?: AbortSignal }
   ): Promise<QuestionData> {
     const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      if (callOpts?.signal?.aborted) {
+        throw new Error('Operação cancelada pelo orquestrador.');
+      }
       try {
         const raw = await this.llm({
           systemPrompt,
@@ -333,6 +337,7 @@ export class CurriculumGenerator {
           jsonMode: true,
           maxTokens: 450,
           timeoutMs: 25000,
+          signal: callOpts?.signal,
         });
         const parsed = parseLLMJson<any>(raw);
         const options: string[] = Array.isArray(parsed.options)
@@ -358,8 +363,15 @@ export class CurriculumGenerator {
     return buildContextualFallbackQuestion(node, goal);
   }
 
-  async generatePredict(node: ConceptNode, goal: string): Promise<{ questionText: string; promptGoal: string }> {
+  async generatePredict(
+    node: ConceptNode,
+    goal: string,
+    callOpts?: { signal?: AbortSignal }
+  ): Promise<{ questionText: string; promptGoal: string }> {
     try {
+      if (callOpts?.signal?.aborted) {
+        throw new Error('Operação cancelada pelo orquestrador.');
+      }
       const { systemPrompt, prompt } = buildPredictPrompt(node, goal);
       const raw = await this.llm({
         systemPrompt,
@@ -368,6 +380,7 @@ export class CurriculumGenerator {
         jsonMode: true,
         maxTokens: 300,
         timeoutMs: 20000,
+        signal: callOpts?.signal,
       });
       const parsed = parseLLMJson<any>(raw);
       if (parsed.questionText) {
