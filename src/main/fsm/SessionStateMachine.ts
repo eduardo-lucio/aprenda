@@ -95,13 +95,6 @@ export class SessionStateMachine {
       nodesState[n.id] = 'untested';
     }
 
-    // Populate question cache with all pre-generated questions from the graph
-    if (graph.questions) {
-      for (const [nodeId, q] of Object.entries(graph.questions)) {
-        this.questionCache.set(nodeId, q);
-      }
-    }
-
     // Sort by level descending (bracket from top)
     this.candidateQueue = [...this.strandNodes].sort((a, b) => b.level - a.level).map((n) => n.id);
 
@@ -125,6 +118,9 @@ export class SessionStateMachine {
     session.phase = 'probing';
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
+
+    // Prefetch real LLM questions in the background while user solves question 1
+    void this.triggerBackgroundPrefetch(selectedOption);
 
     return firstQuestion;
   }
@@ -212,6 +208,9 @@ export class SessionStateMachine {
 
     session.questionCount += 1;
     session.currentQuestion = nextQuestion;
+
+    // Continue background prefetching candidate nodes while user solves the next question
+    void this.triggerBackgroundPrefetch(session.goal);
 
     return { attempt, nextAction: 'next_question', nextQuestion };
   }

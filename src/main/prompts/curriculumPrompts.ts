@@ -14,19 +14,23 @@ Responda SOMENTE em JSON: {"options": ["recorte 1", "recorte 2", "recorte 3"]}`;
 
 export function buildGraphPrompt(goal: string): { systemPrompt: string; prompt: string } {
   const systemPrompt = `Você é o arquiteto curricular do APRENDA.
-Sua tarefa é decompor o objetivo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) E fornecer uma questão diagnóstica objetiva para CADA nó.
+Sua tarefa é decompor o objetivo de estudo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) E formular a PRIMEIRA questão diagnóstica para o conceito de nível mais alto gerado.
 
 Regras do DAG:
 - 6 a 8 nós essenciais ao tema.
 - "id": slug curto kebab-case (ex: "integral-definida").
 - "level": 1 (fundamento raiz) a 4 (síntese mais avançada).
 - "prerequisites": lista de ids de nós de nível MENOR dos quais depende diretamente. Nós de nível 1 têm [].
-- "summary": 1 frase direta.
+- "summary": 1 frase direta e técnica.
 - "unconditionalTruth": 1 frase com o princípio fundamental.
-- "question": questão diagnóstica direta para este nó:
-  - "questionText": pergunta prática direta e contextualizada (1 a 2 frases)
-  - "options": exatamente 4 alternativas curtas (apenas 1 correta)
-  - "correctOptionIndex": índice numérico (0 a 3) da alternativa correta
+
+Regras da primeira questão ("firstQuestion"):
+- Alvo: o nó de nível mais alto gerado no DAG ("nodeId").
+- "questionText": enunciado prático contextualizado com um cenário ou problema real (não use fórmulas mecânicas genéricas).
+- "options": exatamente 4 alternativas completas e plausíveis (apenas 1 correta).
+- "correctOptionIndex": índice numérico (0 a 3) da correta.
+- "anchorConcept": título do conceito.
+- "difficulty": nível (1 a 4).
 
 ${LANG_RULE}
 Responda SOMENTE em JSON no formato:
@@ -39,17 +43,20 @@ Responda SOMENTE em JSON no formato:
       "summary": "Resumo",
       "level": 1,
       "prerequisites": [],
-      "unconditionalTruth": "Verdade incondicional",
-      "question": {
-        "questionText": "Pergunta sobre este conceito?",
-        "options": ["Opção correta", "Distrator 1", "Distrator 2", "Distrator 3"],
-        "correctOptionIndex": 0
-      }
+      "unconditionalTruth": "Verdade incondicional"
     }
-  ]
+  ],
+  "firstQuestion": {
+    "nodeId": "slug-do-no-topo",
+    "questionText": "Enunciado prático com problema real...",
+    "options": ["A", "B", "C", "D"],
+    "correctOptionIndex": 0,
+    "anchorConcept": "Título",
+    "difficulty": 4
+  }
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo com as questões diagnósticas em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo e a primeira questão em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -58,22 +65,30 @@ export function buildProbeQuestionPrompt(
   goal: string,
   previousQuestions: string[]
 ): { systemPrompt: string; prompt: string } {
-  const systemPrompt = `Você é o Gerador Cirúrgico do APRENDA.
-Crie UMA questão de múltipla escolha focada no conceito indicado para diagnosticar a real compreensão do estudante.
+  const systemPrompt = `Você é o Gerador Cirúrgico do APRENDA, especialista em elaborar questões diagnósticas de múltipla escolha para estudantes universitários.
+Crie UMA questão prática, contextualizada e profunda focada no conceito indicado para diagnosticar a real compreensão do estudante.
 Regras:
-- 4 alternativas homogêneas e plausíveis (apenas 1 correta).
-- Distratores devem capturar equívocos comuns.
+- O enunciado deve conter um problema prático, cenário de aplicação ou análise de caso (NÃO use perguntas genéricas como "qual alternativa expressa o princípio correto").
+- Exatamente 4 alternativas homogêneas, bem escritas e plausíveis (apenas 1 correta).
+- Embaralhe a alternativa correta ("correctOptionIndex" pode ser 0, 1, 2 ou 3).
+- Distratores devem capturar equívocos comuns de estudantes universitários ou atalhos heurísticos falhos.
 - Não repita perguntas anteriores.
 ${LANG_RULE}
 Responda SOMENTE em JSON:
-{"questionText": "...", "options": ["...", "...", "...", "..."], "correctOptionIndex": 0, "anchorConcept": "...", "difficulty": 1}`;
+{
+  "questionText": "Enunciado prático contextualizado...",
+  "options": ["Opção 0", "Opção 1", "Opção 2", "Opção 3"],
+  "correctOptionIndex": 0,
+  "anchorConcept": "${node.title}",
+  "difficulty": ${node.level || 2}
+}`;
 
   const prompt = `Objetivo: "${goal}"
 Conceito: ${node.title} (${node.id})
 Resumo: ${node.summary}
-Verdade Incondicional: ${node.unconditionalTruth}
+Verdade Incondicional / Princípio: ${node.unconditionalTruth}
 Nível: ${node.level}/4
-${previousQuestions.length ? `Questões já aplicadas (não repita):\n- ${previousQuestions.slice(-4).join('\n- ')}` : ''}
+${previousQuestions.length ? `Questões já aplicadas (evite repetição):\n- ${previousQuestions.slice(-4).join('\n- ')}` : ''}
 Gere a questão em JSON:`;
 
   return { systemPrompt, prompt };
