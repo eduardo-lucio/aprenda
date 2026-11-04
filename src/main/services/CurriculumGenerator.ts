@@ -205,18 +205,18 @@ export function buildFallbackGraphForGoal(goal: string): {
   ];
 
   const firstQuestion: QuestionData = {
-    id: `q-${prefix}-l4-1`,
-    nodeId: `${prefix}-l4-sintese`,
-    questionText: `No estudo avançado de "${topic}", qual é o critério determinante para validar a solução de um problema complexo?`,
+    id: `q-${prefix}-l1-1`,
+    nodeId: `${prefix}-l1-definicoes`,
+    questionText: `Para construir uma base sólida em "${topic}", qual é o papel das definições fundamentais e premissas iniciais do tema?`,
     options: [
-      `Garantir que os princípios fundamentais e condições de contorno sejam respeitados de ponta a ponta.`,
-      `Ignorar restrições de contorno se a resposta parecer plausível na superfície.`,
-      `Considerar apenas a intuição inicial sem testar casos extremos.`,
-      `Aplicar fórmulas prontas sem verificar a aplicabilidade ao contexto.`,
+      `Estabelecer os conceitos primitivos e invariantes sobre os quais mecanismos mais complexos se apoiam.`,
+      `Ignorar restrições básicas caso o resultado final pareça intuitivo.`,
+      `Substituir a compreensão conceitual pela memorização mecânica de fórmulas avançadas.`,
+      `Aplicar modelos complexos diretamente sem verificar as condições básicas do problema.`,
     ],
     correctOptionIndex: 0,
-    anchorConcept: `${topic}: Síntese Avançada`,
-    difficulty: 4,
+    anchorConcept: `Definições Essenciais de ${topic}`,
+    difficulty: 1,
   };
 
   return { discipline: topic, nodes, firstQuestion };
@@ -316,9 +316,13 @@ export class CurriculumGenerator {
           Number(rawQ.correctOptionIndex) >= 0 &&
           Number(rawQ.correctOptionIndex) < 4
         ) {
+          const sortedAsc = [...nodes].sort((a, b) => a.level - b.level);
+          const candidateNode = nodes.find((n) => n.id === rawQ.nodeId);
+          // Ensure the first question targets a foundational (lowest level) node
           const targetNode =
-            nodes.find((n) => n.id === rawQ.nodeId) ||
-            [...nodes].sort((a, b) => b.level - a.level)[0];
+            candidateNode && candidateNode.level <= sortedAsc[0].level
+              ? candidateNode
+              : sortedAsc[0];
           const qThink =
             (typeof rawQ.agentThinking === 'string' && rawQ.agentThinking.trim()) ||
             graphThinking;
@@ -357,7 +361,7 @@ export class CurriculumGenerator {
     node: ConceptNode,
     goal: string,
     previousQuestions: string[],
-    callOpts?: { signal?: AbortSignal }
+    callOpts?: { signal?: AbortSignal; isBackground?: boolean }
   ): Promise<QuestionData> {
     const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
 
@@ -375,6 +379,7 @@ export class CurriculumGenerator {
           effortLevel: 'low',
           timeoutMs: 30000,
           signal: callOpts?.signal,
+          isBackground: Boolean(callOpts?.signal || callOpts?.isBackground),
         });
         const nativeThink = extractLLMThinking(raw);
         const parsed = parseLLMJson<any>(raw);
@@ -426,6 +431,7 @@ export class CurriculumGenerator {
         maxTokens: 300,
         timeoutMs: 20000,
         signal: callOpts?.signal,
+        isBackground: Boolean(callOpts?.signal),
       });
       const parsed = parseLLMJson<any>(raw);
       if (parsed.questionText) {

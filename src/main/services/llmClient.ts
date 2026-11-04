@@ -95,6 +95,51 @@ export function parseLLMJson<T = any>(raw: string): T {
   return JSON.parse(text.slice(start, end + 1)) as T;
 }
 
+export type ThinkingStreamListener = (payload: { text: string; done?: boolean }) => void;
+
+let globalThinkingListener: ThinkingStreamListener | undefined;
+
+export function setGlobalThinkingStreamListener(listener?: ThinkingStreamListener): void {
+  globalThinkingListener = listener;
+}
+
+export function emitThinkingStream(text: string, done = false): void {
+  if (globalThinkingListener) {
+    try {
+      globalThinkingListener({ text, done });
+    } catch {}
+  }
+}
+
+/** Extracts partial or complete thinking from an accumulating LLM stream buffer. */
+export function extractPartialThinkingFromBuffer(raw: string): string | undefined {
+  // 1. Check for <think>...</think> (even if unclosed while streaming)
+  const thinkOpenIdx = raw.search(/<think>/i);
+  if (thinkOpenIdx !== -1) {
+    const afterOpen = raw.slice(thinkOpenIdx + 7);
+    const thinkCloseIdx = afterOpen.search(/<\/think>/i);
+    const inner = thinkCloseIdx !== -1 ? afterOpen.slice(0, thinkCloseIdx) : afterOpen;
+    if (inner.trim()) return inner.trim();
+  }
+
+  // 2. Check for "agentThinking": "..." inside JSON buffer while streaming
+  const jsonMatch = raw.match(/"agentThinking"\s*:\s*"((?:\\.|[^"\\])*)/);
+  if (jsonMatch && jsonMatch[1]) {
+    try {
+      // Unescape partial JSON string escapes safely
+      const unescaped = jsonMatch[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+      if (unescaped.trim()) return unescaped.trim();
+    } catch {
+      return jsonMatch[1];
+    }
+  }
+
+  return undefined;
+}
+
 export interface CallLLMOptions {
   prompt: string;
   systemPrompt?: string;
@@ -104,12 +149,18 @@ export interface CallLLMOptions {
   effortLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
   timeoutMs?: number;
   signal?: AbortSignal;
+  isBackground?: boolean;
   config?: Partial<LLMConfig>;
 }
 
 export type LLMCaller = (options: CallLLMOptions) => Promise<string>;
 
-async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode: boolean): Promise<Response> {
+async function doRequest(
+  config: LLMConfig,
+  options: CallLLMOptions,
+  useJsonMode: boolean,
+  useStream = false
+): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? config.timeoutMs);
 
@@ -137,6 +188,7 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
     messages,
     ...(isReasoningModel ? {} : { temperature: options.temperature ?? 0.2 }),
     ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
+    ...(useStream ? { stream: true } : {}),
   };
 
   if (options.maxTokens) {
@@ -194,6 +246,92 @@ async function doRequest(config: LLMConfig, options: CallLLMOptions, useJsonMode
   }
 }
 
+async function readResponseOrStream(
+  res: Response,
+  shouldEmitLiveThinking: boolean
+): Promise<{ content: string; nativeReasoning: string }> {
+  const contentType = res.headers?.get?.('content-type') || '';
+  const isSSE = contentType.includes('text/event-stream') && res.body && typeof res.body.getReader === 'function';
+
+  if (isSSE) {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let sseBuffer = '';
+    let contentAcc = '';
+    let reasoningAcc = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      sseBuffer += decoder.decode(value, { stream: true });
+
+      const lines = sseBuffer.split('\n');
+      sseBuffer = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith('data:')) continue;
+        const dataStr = line.slice(5).trim();
+        if (!dataStr || dataStr === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed?.choices?.[0]?.delta || parsed?.choices?.[0]?.message;
+          if (!delta) continue;
+
+          const rChunk = delta.reasoning_content || delta.reasoning || '';
+          const cChunk = delta.content || '';
+
+          if (rChunk) reasoningAcc += String(rChunk);
+          if (cChunk) contentAcc += String(cChunk);
+
+          if (shouldEmitLiveThinking) {
+            const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
+            const liveThinking = [reasoningAcc.trim(), partialFromContent]
+              .filter(Boolean)
+              .join('\n\n')
+              .trim();
+            if (liveThinking) {
+              emitThinkingStream(liveThinking, false);
+            }
+          }
+        } catch {
+          // Ignore malformed partial SSE line
+        }
+      }
+    }
+
+    if (shouldEmitLiveThinking) {
+      const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
+      const finalThinking = [reasoningAcc.trim(), partialFromContent]
+        .filter(Boolean)
+        .join('\n\n')
+        .trim();
+      if (finalThinking) {
+        emitThinkingStream(finalThinking, true);
+      }
+    }
+
+    return { content: contentAcc, nativeReasoning: reasoningAcc.trim() };
+  }
+
+  // Fallback for non-streaming responses (or unit test mocks returning res.json())
+  const data: any = await res.json();
+  const msg = data?.choices?.[0]?.message;
+  const content = String(msg?.content || '');
+  const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
+
+  if (shouldEmitLiveThinking) {
+    const extracted = extractPartialThinkingFromBuffer(content) || extractLLMThinking(content);
+    const combined = [nativeReasoning, extracted].filter(Boolean).join('\n\n').trim();
+    if (combined) {
+      emitThinkingStream(combined, true);
+    }
+  }
+
+  return { content, nativeReasoning };
+}
+
 export const callLLM: LLMCaller = async (options) => {
   const config = { ...defaultLLMConfig, ...options.config };
 
@@ -203,11 +341,12 @@ export const callLLM: LLMCaller = async (options) => {
     );
   }
 
-  let res = await doRequest(config, options, Boolean(options.jsonMode));
+  const shouldStreamLive = !options.isBackground && Boolean(globalThinkingListener);
+  let res = await doRequest(config, options, Boolean(options.jsonMode), shouldStreamLive);
 
   // If provider rejects specialized payload (400/422), retry once with clean baseline payload
   if (!res.ok && (res.status === 400 || res.status === 422)) {
-    res = await doRequest(config, { ...options, effortLevel: 'off' }, false);
+    res = await doRequest(config, { ...options, effortLevel: 'off' }, false, shouldStreamLive);
   }
 
   if (!res.ok) {
@@ -234,25 +373,22 @@ export const callLLM: LLMCaller = async (options) => {
     throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
-  let data: any = await res.json();
-  let msg = data?.choices?.[0]?.message;
-  let content: string | undefined = msg?.content;
+  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive);
 
   // If a reasoning model exhausted max_tokens inside <think> and returned empty content, retry once without maxTokens cap
   if ((!content || !content.trim()) && options.maxTokens) {
     const retryRes = await doRequest(
       config,
       { ...options, maxTokens: undefined, effortLevel: 'off' },
-      false
+      false,
+      shouldStreamLive
     );
     if (retryRes.ok) {
-      data = await retryRes.json();
-      msg = data?.choices?.[0]?.message;
-      content = msg?.content;
+      const retried = await readResponseOrStream(retryRes, shouldStreamLive);
+      content = retried.content;
+      nativeReasoning = retried.nativeReasoning || nativeReasoning;
     }
   }
-
-  const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
 
   if ((!content || !content.trim()) && nativeReasoning) {
     if (nativeReasoning.includes('{') && nativeReasoning.includes('}')) {

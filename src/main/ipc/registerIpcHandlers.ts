@@ -4,7 +4,11 @@ import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import { CheckQuestionData, ConceptNode, SettingsUpdatePayload } from '../../shared/types';
 import { validateAndFetchModels } from '../services/providerValidationService';
-import { resolveChatBaseUrl, updateDefaultLLMConfig } from '../services/llmClient';
+import {
+  resolveChatBaseUrl,
+  setGlobalThinkingStreamListener,
+  updateDefaultLLMConfig,
+} from '../services/llmClient';
 import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
 export interface IpcDependencies {
@@ -17,6 +21,13 @@ export interface IpcDependencies {
 export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): void {
   const { fsm, store, socratic, getMainWindow } = deps;
   fsm.setSocraticEngine(socratic);
+
+  setGlobalThinkingStreamListener((payload) => {
+    const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();
+    if (win && !win.isDestroyed() && win.webContents) {
+      win.webContents.send('llm:thinking-stream', payload);
+    }
+  });
   let currentSocraticNode: ConceptNode | undefined;
   let currentCheckData: CheckQuestionData | undefined;
   const speechConfig = { deepgramApiKey: '', voiceLanguage: 'pt-BR' };

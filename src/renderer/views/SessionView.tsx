@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ConceptNode, ProbingSession, QuestionData } from '../../shared/types';
+import { ChatTurnMessage, ConceptNode, ProbingSession, QuestionData } from '../../shared/types';
 import { AgentThinkingBlock } from '../components/AgentThinkingBlock';
 import { QuestionCard } from '../components/QuestionCard';
 import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
@@ -53,11 +53,42 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
   const [customScopeInput, setCustomScopeInput] = useState('');
   const [bottomChatInput, setBottomChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>([]);
+  const [streamingThinking, setStreamingThinking] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const feedContainerRef = useRef<HTMLDivElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
+
+  const appendUserChatMessage = (text: string, afterAttemptCount = session?.attempts?.length || 0) => {
+    const clean = text.trim();
+    if (!clean) return;
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        role: 'user',
+        text: clean,
+        afterAttemptCount,
+        timestamp: Date.now(),
+      },
+    ]);
+  };
+
+  // Subscribe to real-time LLM thinking stream from main process
+  useEffect(() => {
+    if (!window.api?.onThinkingStream) return;
+    const unsubscribe = window.api.onThinkingStream((payload) => {
+      if (payload.text && payload.text.trim()) {
+        setStreamingThinking(payload.text);
+        setAgentThinking(payload.text);
+      }
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
 
   const scrollToBottom = () => {
     if (feedEndRef.current && typeof feedEndRef.current.scrollIntoView === 'function') {
@@ -87,6 +118,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setSocraticNode(null);
         setSocraticPredictData(null);
         setGoalInput('');
+        setChatMessages([]);
+        setStreamingThinking('');
         setActiveTab('session');
         if (initialNodes.length === 0) {
           setNodes([]);
@@ -95,7 +128,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   }, [currentSession, initialNodes.length]);
 
-  // Auto-scroll feed down whenever a new question, attempt, or phase transition arrives
+  // Auto-scroll feed down whenever a new question, attempt, message, or streaming thinking arrives
   useEffect(() => {
     const timer = setTimeout(() => {
       scrollToBottom();
@@ -106,6 +139,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
     session?.attempts?.length,
     currentQuestion?.id,
     socraticNode?.id,
+    chatMessages.length,
+    streamingThinking,
     isSubmitting,
   ]);
 
@@ -133,11 +168,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
     const goalToUse = (customGoal || goalInput).trim();
     if (!goalToUse) return;
 
+    setGoalInput('');
     setCustomScopeInput('');
+    setStreamingThinking('');
+    appendUserChatMessage(goalToUse);
     setSubmittingLabel('Definindo objetivo e preparando opções de escopo...');
-    setAgentThinking(
-      `O estudante definiu o objetivo "${goalToUse}". Analisando a área de conhecimento para propor 3 recortes técnicos específicos que sirvam de âncora para o Grafo Acíclico Dirigido (DAG)...`
-    );
+    setAgentThinking('Analisando o tema em tempo real...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -162,17 +198,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleSelectGoalOption = async (option: string) => {
+    setCustomScopeInput('');
+    setStreamingThinking('');
+    appendUserChatMessage(option);
     setSubmittingLabel('Construindo o Grafo de Dependências e preparando a 1ª questão...');
-    setAgentThinking(
-      `O estudante selecionou o escopo "${option}".\nDecompondo o tema em nós de pré-requisitos (Níveis 1 a 4) e formulando a primeira questão diagnóstica no topo da cadeia...`
-    );
+    setAgentThinking('Estruturando o grafo do nível básico ao avançado em tempo real...');
     setIsSubmitting(true);
     setActionError(null);
     try {
       const q = await window.api.submitGoalClarification(option);
       await refreshGraph();
       setCurrentQuestion(q);
-      setCustomScopeInput('');
       setSession((prev) =>
         prev
           ? {
@@ -195,7 +231,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setAgentThinking(q.agentThinking);
       } else {
         setAgentThinking(
-          `Foco afunilado para "${option}". Grafo de dependências gerado. Começando a sondagem pelo nó "${q.anchorConcept}" para verificar o domínio estrutural e calibrar a certeza do estudante.`
+          `Foco afunilado para "${option}". Grafo de dependências gerado. Começando a sondagem pelo nó de base "${q.anchorConcept}" para verificar os fundamentos.`
         );
       }
     } catch (err: any) {
@@ -210,11 +246,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
     confidence: number;
     thinkingText: string;
   }) => {
-    const currentConceptTitle = currentQuestion?.anchorConcept || 'conceito atual';
-    setSubmittingLabel('O Juiz Cognitivo está analisando seu raciocínio livre...');
-    setAgentThinking(
-      `Analisando a autoexplicação do estudante para "${currentConceptTitle}" (confiança reportada: ${data.confidence}%)...\nVerificando se a justificativa sustenta o princípio incondicional ou se há falso positivo / lacuna em pré-requisito para decidir o próximo nó da sondagem.`
-    );
+    setStreamingThinking('');
+    setSubmittingLabel('O Juiz Cognitivo está analisando seu raciocínio em tempo real...');
+    setAgentThinking('Avaliando a resposta do estudante em tempo real...');
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -312,12 +346,22 @@ export const SessionView: React.FC<SessionViewProps> = ({
       return;
     }
 
-    // 3. If in probing with an active question, bottom bar dispatches reasoning to the active QuestionCard
+    // 3. If in probing with an active question, save user's message in the chat feed AND dispatch reasoning to QuestionCard
     if (session.phase === 'probing' && currentQuestion && bottomChatInput.trim()) {
-      window.dispatchEvent(
-        new CustomEvent('chat-bar-submit-thinking', { detail: bottomChatInput.trim() })
-      );
+      const msgText = bottomChatInput.trim();
       setBottomChatInput('');
+      appendUserChatMessage(msgText, (session.attempts?.length || 0) + 1);
+      window.dispatchEvent(
+        new CustomEvent('chat-bar-submit-thinking', { detail: msgText })
+      );
+      return;
+    }
+
+    // 4. In any other phase (diagnosis, socratic, completed), save user's message in the chat feed
+    if (bottomChatInput.trim()) {
+      const msgText = bottomChatInput.trim();
+      setBottomChatInput('');
+      appendUserChatMessage(msgText, session.attempts?.length || 0);
     }
   };
 
@@ -446,8 +490,25 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {/* TURN 0: Goal Orientation & Scope Selection */}
               {!session ? (
                 <div className="space-y-4">
+                  {/* Show user message immediately when submitted while starting session */}
+                  {chatMessages
+                    .filter((m) => (m.afterAttemptCount || 0) === 0)
+                    .map((msg) => (
+                      <div
+                        key={msg.id}
+                        className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      >
+                        <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                          YOU
+                        </span>
+                        <div className="text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))}
+
                   <AgentThinkingBlock
-                    thinkingText={agentThinking}
+                    thinkingText={isSubmitting && streamingThinking ? streamingThinking : agentThinking}
                     defaultExpanded={true}
                     isStreaming={isSubmitting}
                     statusLabel={submittingLabel}
@@ -468,11 +529,29 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Saved User Messages before probing attempts (e.g. goal & scope) */}
+                  {chatMessages
+                    .filter((m) => (m.afterAttemptCount || 0) === 0)
+                    .map((msg) => (
+                      <div
+                        key={msg.id}
+                        className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      >
+                        <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                          YOU
+                        </span>
+                        <div className="text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))}
+
                   {/* Historical Goal Turn */}
                   <AgentThinkingBlock
                     thinkingText={
-                      session.agentThinking ||
-                      agentThinking
+                      isSubmitting && phase === 'goal_orientation' && streamingThinking
+                        ? streamingThinking
+                        : session.agentThinking || agentThinking
                     }
                     defaultExpanded={false}
                   />
@@ -532,7 +611,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
                       {isSubmitting && (
                         <AgentThinkingBlock
-                          thinkingText={agentThinking}
+                          thinkingText={streamingThinking || agentThinking}
                           defaultExpanded={true}
                           isStreaming={true}
                           statusLabel={submittingLabel}
@@ -549,6 +628,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   const turnThinking =
                     attempt.agentThinking ||
                     attempt.judgeReasoning;
+                  const turnMessages = chatMessages.filter((m) => m.afterAttemptCount === idx + 1);
 
                   return (
                     <div key={`${attempt.questionId}-${idx}`} className="space-y-3 border-t border-[#1f1f1f] pt-4">
@@ -556,9 +636,41 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         <AgentThinkingBlock thinkingText={turnThinking} defaultExpanded={false} />
                       )}
                       <AnsweredQuestionCard attempt={attempt} index={idx} />
+                      {turnMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                        >
+                          <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                            YOU
+                          </span>
+                          <div className="text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   );
                 })}
+
+              {/* Any user messages sent during the current active turn */}
+              {session &&
+                (session.attempts?.length || 0) > 0 &&
+                chatMessages
+                  .filter((m) => (m.afterAttemptCount || 0) > (session.attempts?.length || 0))
+                  .map((msg) => (
+                    <div
+                      key={msg.id}
+                      className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                    >
+                      <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                        YOU
+                      </span>
+                      <div className="text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
 
               {/* ACTIVE QUESTION TURN (Probing Phase) */}
               {phase === 'probing' && currentQuestion && !socraticNode && (
@@ -566,7 +678,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   <AgentThinkingBlock
                     thinkingText={
                       isSubmitting
-                        ? agentThinking
+                        ? streamingThinking || agentThinking
                         : currentQuestion.agentThinking ||
                           session?.agentThinking ||
                           agentThinking

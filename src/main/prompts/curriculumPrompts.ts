@@ -23,33 +23,33 @@ Regras OBRIGATÓRIAS:
 
 export function buildGraphPrompt(goal: string): { systemPrompt: string; prompt: string } {
   const systemPrompt = `Você é o arquiteto curricular do APRENDA.
-Sua tarefa é decompor o objetivo de estudo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) E formular a PRIMEIRA questão diagnóstica para o conceito de nível mais alto gerado.
+Sua tarefa é decompor o objetivo de estudo em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós objetivos, níveis 1 a 4) em ordem crescente de dificuldade E formular a PRIMEIRA questão diagnóstica para o conceito FUNDAMENTAL DE BASE (Nível 1) gerado.
 
 Regras do DAG:
-- 6 a 8 nós essenciais ao tema.
+- 6 a 8 nós essenciais ao tema, organizados dos conceitos mais fundamentais e básicos (Nível 1) até a síntese avançada (Nível 4).
 - "id": slug curto kebab-case (ex: "integral-definida").
-- "level": 1 (fundamento raiz) a 4 (síntese mais avançada).
+- "level": 1 (fundamento raiz / base essencial) a 4 (síntese mais avançada).
 - "prerequisites": lista de ids de nós de nível MENOR dos quais depende diretamente. Nós de nível 1 têm [].
 - "summary": 1 frase direta e técnica.
 - "unconditionalTruth": 1 frase com o princípio fundamental.
 
 Regras da primeira questão ("firstQuestion"):
-- Alvo: o nó de nível mais alto gerado no DAG ("nodeId").
-- "questionText": enunciado prático contextualizado com um cenário ou problema real (não use fórmulas mecânicas genéricas).
+- Alvo: o nó de NÍVEL 1 (base fundamental) gerado no DAG ("nodeId"), para verificar primeiro se o estudante compreende a base essencial antes de avançar para níveis maiores.
+- "questionText": enunciado claro e contextualizado sobre o fundamento básico (Nível 1), acessível para diagnosticar a base conceitual.
 - "options": exatamente 4 alternativas completas e plausíveis (apenas 1 correta).
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
-- "difficulty": nível (1 a 4).
-- "agentThinking": seu monólogo interno autêntico em primeira pessoa (fluxo de consciência do tutor) explicando como está estruturando os pré-requisitos desse tema, por que escolheu começar testando esse conceito e qual armadilha cognitiva ou hipótese quer verificar na primeira pergunta.
+- "difficulty": 1.
+- "agentThinking": seu monólogo interno autêntico em primeira pessoa (fluxo de consciência do tutor) explicando como estruturou a progressão do básico ao avançado e por que escolheu iniciar a sondagem validando este fundamento de base (Nível 1).
 
 ${LANG_RULE}
 Responda SOMENTE em JSON no formato:
 {
   "discipline": "nome curto",
-  "agentThinking": "Monólogo interno em primeira pessoa planejando o grafo e o motivo de iniciar a sondagem por esta pergunta...",
+  "agentThinking": "Monólogo interno em primeira pessoa planejando o grafo do básico ao avançado e o motivo de iniciar a sondagem pela base...",
   "nodes": [
     {
-      "id": "slug",
+      "id": "slug-base",
       "title": "Título",
       "summary": "Resumo",
       "level": 1,
@@ -58,17 +58,17 @@ Responda SOMENTE em JSON no formato:
     }
   ],
   "firstQuestion": {
-    "nodeId": "slug-do-no-topo",
-    "questionText": "Enunciado prático com problema real...",
+    "nodeId": "slug-base",
+    "questionText": "Enunciado contextualizado sobre o fundamento de base...",
     "options": ["A", "B", "C", "D"],
     "correctOptionIndex": 0,
     "anchorConcept": "Título",
-    "difficulty": 4,
-    "agentThinking": "Monólogo interno sobre o que esta primeira pergunta vai testar..."
+    "difficulty": 1,
+    "agentThinking": "Monólogo interno sobre o que esta primeira pergunta de base vai testar..."
   }
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo, seu monólogo interno e a primeira questão em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo em ordem crescente (Nível 1 a 4), seu monólogo interno e a primeira questão de Nível 1 em JSON:`;
   return { systemPrompt, prompt };
 }
 

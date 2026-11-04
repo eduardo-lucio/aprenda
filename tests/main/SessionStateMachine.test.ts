@@ -78,9 +78,21 @@ describe('SessionStateMachine', () => {
     fsm.startSession('teaching', 'TTL');
     await fsm.submitGoalClarification('TTL e Loops');
 
-    // Force current question to be osi-l3-ttl
+    // Advance until we reach a node with prerequisites (Level >= 2)
+    while (store.getPrerequisites(fsm.getState().currentQuestion!.nodeId).length === 0) {
+      await fsm.submitProbeAnswer({
+        selectedOptionIndex: fsm.getState().currentQuestion!.correctOptionIndex,
+        confidence: 95,
+        thinkingText: 'Raciocínio completo e correto sobre o fundamento.',
+      });
+    }
+
     const currentQ = fsm.getState().currentQuestion!;
     expect(currentQ).toBeDefined();
+    const prereqsOfCurrent = store.getPrerequisites(currentQ.nodeId).map((n) => n.id);
+    for (const pid of prereqsOfCurrent) {
+      fsm.markNodeStatus(pid, 'untested');
+    }
 
     // Answer with a false positive or failure
     const res = await fsm.submitProbeAnswer({
@@ -90,9 +102,8 @@ describe('SessionStateMachine', () => {
     });
 
     expect(res.attempt.verdict).toBe('false_positive');
-    // Zoom-in: next question should target prerequisite (osi-l3-ip-packets or osi-l2-mac)
+    // Zoom-in: next question should target prerequisite
     expect(res.nextQuestion).toBeDefined();
-    const prereqsOfCurrent = store.getPrerequisites(currentQ.nodeId).map(n => n.id);
     expect(prereqsOfCurrent).toContain(res.nextQuestion!.nodeId);
   });
 

@@ -46,6 +46,16 @@ const api: ElectronAPI = {
 
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) =>
     ipcRenderer.invoke('speech:transcribe', params),
+
+  onThinkingStream: (callback: (payload: { text: string; done?: boolean }) => void) => {
+    const handler = (_event: any, payload: { text: string; done?: boolean }) => {
+      callback(payload);
+    };
+    ipcRenderer.on('llm:thinking-stream', handler);
+    return () => {
+      ipcRenderer.removeListener('llm:thinking-stream', handler);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

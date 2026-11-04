@@ -24,26 +24,8 @@ export const AgentThinkingBlock: React.FC<AgentThinkingBlockProps> = ({
   }, [isStreaming]);
 
   useEffect(() => {
-    if (!isStreaming) {
-      setDisplayedText(thinkingText);
-      return;
-    }
-
-    // Real-time typewriter effect while streaming/thinking
-    setDisplayedText('');
-    let index = 0;
-    const interval = setInterval(() => {
-      index += 3;
-      if (index >= thinkingText.length) {
-        setDisplayedText(thinkingText);
-        clearInterval(interval);
-      } else {
-        setDisplayedText(thinkingText.slice(0, index));
-      }
-    }, 18);
-
-    return () => clearInterval(interval);
-  }, [thinkingText, isStreaming]);
+    setDisplayedText(thinkingText);
+  }, [thinkingText]);
 
   return (
     <div className="my-2 text-xs">

@@ -53,6 +53,15 @@ export interface SocraticStep {
   repairExplanation?: string;
 }
 
+export interface ChatTurnMessage {
+  id: string;
+  role: 'user' | 'agent';
+  text: string;
+  thinking?: string;
+  afterAttemptCount?: number;
+  timestamp: number;
+}
+
 export interface ProbingSession {
   id: string;
   mode: 'teaching' | 'practice';
@@ -67,6 +76,7 @@ export interface ProbingSession {
   currentQuestion?: QuestionData;
   goalClarificationOptions?: string[];
   agentThinking?: string;
+  chatHistory?: ChatTurnMessage[];
 }
 
 export interface JudgeEvaluationResult {
@@ -143,4 +153,5 @@ export interface ElectronAPI {
   updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
   validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
+  onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
 }

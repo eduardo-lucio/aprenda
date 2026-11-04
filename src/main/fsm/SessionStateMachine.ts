@@ -115,8 +115,8 @@ export class SessionStateMachine {
       nodesState[n.id] = 'untested';
     }
 
-    // Sort by level descending (bracket from top)
-    this.candidateQueue = [...this.strandNodes].sort((a, b) => b.level - a.level).map((n) => n.id);
+    // Sort by level ascending (increasing difficulty: foundational Level 1 first -> Level 4)
+    this.candidateQueue = [...this.strandNodes].sort((a, b) => a.level - b.level).map((n) => n.id);
 
     let firstQuestion = graph.firstQuestion;
     let firstNodeId: string;
