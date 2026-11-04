@@ -3,7 +3,6 @@ import { QuestionData } from '../../shared/types';
 import { ConfidenceSlider } from './ConfidenceSlider';
 import { ThinkingField } from './ThinkingField';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { Send, HelpCircle } from 'lucide-react';
 
 interface QuestionCardProps {
   question: QuestionData;
@@ -13,12 +12,14 @@ interface QuestionCardProps {
     thinkingText: string;
   }) => void;
   isSubmitting?: boolean;
+  questionNumber?: number;
 }
 
 export const QuestionCard: React.FC<QuestionCardProps> = ({
   question,
   onSubmit,
   isSubmitting = false,
+  questionNumber,
 }) => {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const [isDontKnow, setIsDontKnow] = useState(false);
@@ -49,6 +50,28 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     return () => window.removeEventListener('toggle-dictate', handleGlobalDictate);
   }, [toggleListening]);
 
+  // Listen to custom event from bottom chat bar if user sends reasoning from there
+  useEffect(() => {
+    const handleChatSubmit = (e: Event) => {
+      const custom = e as CustomEvent<string>;
+      const draft = (custom.detail || '').trim();
+      if (!draft) return;
+      if (selectedOptionIndex === null && !isDontKnow) {
+        setThinkingText(draft);
+        setValidationError('Selecione uma alternativa acima para enviar seu raciocínio.');
+        return;
+      }
+      setValidationError(null);
+      onSubmit({
+        selectedOptionIndex: isDontKnow ? -1 : (selectedOptionIndex as number),
+        confidence: isDontKnow ? Math.min(confidence, 30) : confidence,
+        thinkingText: draft,
+      });
+    };
+    window.addEventListener('chat-bar-submit-thinking', handleChatSubmit);
+    return () => window.removeEventListener('chat-bar-submit-thinking', handleChatSubmit);
+  }, [selectedOptionIndex, isDontKnow, confidence, onSubmit]);
+
   const handleSubmit = () => {
     if (selectedOptionIndex === null && !isDontKnow) {
       setValidationError('Selecione uma alternativa ou clique em "Não sei".');
@@ -72,29 +95,24 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     });
   };
 
-  const optionLetters = ['A', 'B', 'C', 'D'];
-
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[#1e293b] bg-[#111111] p-5 shadow-xl text-gray-200">
-      {/* Header / Question Concept */}
-      <div className="flex items-center justify-between border-b border-[#1e293b]/70 pb-3">
-        <div className="flex items-center space-x-2">
-          <HelpCircle className="h-4 w-4 text-emerald-400" />
-          <span className="font-semibold text-xs tracking-wider uppercase text-emerald-400">
-            {question.anchorConcept}
-          </span>
-        </div>
-        <span className="rounded bg-[#1e293b] px-2 py-0.5 text-[10px] font-mono text-gray-400">
-          Nível {question.difficulty || 2}/5
+    <div className="flex flex-col gap-4 rounded-xl border border-[#282828] bg-[#141414] p-5 shadow-2xl text-gray-200">
+      {/* Header: PREDICTION + Anchor Concept */}
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+          PREDICTION {questionNumber ? `#${questionNumber}` : ''}
+        </span>
+        <span className="font-mono text-[10px] text-gray-500 truncate max-w-[260px]">
+          {question.anchorConcept}
         </span>
       </div>
 
       {/* Question Text */}
-      <div className="text-sm font-medium leading-relaxed text-gray-100 font-serif">
+      <div className="text-sm font-semibold leading-relaxed text-gray-100">
         {question.questionText}
       </div>
 
-      {/* Options List */}
+      {/* Options List with Radio Circles */}
       <div className="flex flex-col gap-2">
         {question.options.map((opt, idx) => {
           const isSelected = !isDontKnow && selectedOptionIndex === idx;
@@ -106,25 +124,27 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                 setIsDontKnow(false);
                 setValidationError(null);
               }}
-              className={`flex cursor-pointer items-start space-x-3 rounded-md border p-3 text-xs transition-all ${
+              className={`flex cursor-pointer items-center space-x-3 rounded-lg border px-4 py-2.5 text-xs transition-all ${
                 isSelected
-                  ? 'border-emerald-500 bg-emerald-950/20 text-white shadow-sm ring-1 ring-emerald-500/40'
-                  : 'border-[#1e293b] bg-[#0a0a0a]/60 text-gray-300 hover:border-gray-600 hover:bg-[#141414]'
+                  ? 'border-emerald-500/80 bg-emerald-950/25 text-white ring-1 ring-emerald-500/30'
+                  : 'border-[#282828] bg-[#181818] text-gray-300 hover:border-[#3a3a3a] hover:bg-[#1e1e1e]'
               }`}
             >
               <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[11px] font-bold ${
-                  isSelected ? 'bg-emerald-500 text-black' : 'bg-[#1e293b] text-gray-400'
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                  isSelected
+                    ? 'border-emerald-400 bg-emerald-500/20'
+                    : 'border-gray-600 bg-transparent'
                 }`}
               >
-                {optionLetters[idx] || idx + 1}
+                {isSelected && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
               </span>
               <span className="leading-snug">{opt}</span>
             </div>
           );
         })}
 
-        {/* Opção "Não sei" */}
+        {/* Dashed Option "Não sei" */}
         <div
           onClick={() => {
             setIsDontKnow(true);
@@ -132,29 +152,29 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             setValidationError(null);
             setConfidence(0);
           }}
-          className={`flex cursor-pointer items-center justify-between rounded-md border p-3 text-xs transition-all ${
+          className={`flex cursor-pointer items-center space-x-3 rounded-lg border border-dashed px-4 py-2.5 text-xs transition-all ${
             isDontKnow
-              ? 'border-amber-500/80 bg-amber-950/25 text-white shadow-sm ring-1 ring-amber-500/40'
-              : 'border-[#1e293b] bg-[#0a0a0a]/60 text-gray-400 hover:border-gray-600 hover:bg-[#141414]'
+              ? 'border-amber-500/80 bg-amber-950/20 text-amber-200'
+              : 'border-[#2a2a2a] bg-transparent text-gray-400 hover:border-gray-600 hover:bg-[#181818]/50'
           }`}
         >
-          <div className="flex items-center space-x-3">
-            <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[11px] font-bold ${
-                isDontKnow ? 'bg-amber-500 text-black' : 'bg-[#1e293b] text-gray-400'
-              }`}
-            >
-              ?
-            </span>
-            <span className="leading-snug font-medium">Não sei / Ainda não domino este conceito</span>
-          </div>
+          <span
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+              isDontKnow ? 'border-amber-400 bg-amber-500/20' : 'border-gray-600 bg-transparent'
+            }`}
+          >
+            {isDontKnow && <span className="h-2 w-2 rounded-full bg-amber-400" />}
+          </span>
+          <span className="font-mono text-[11px] leading-snug">
+            Não sei / Ainda não domino este conceito
+          </span>
         </div>
       </div>
 
       {/* Confidence Slider */}
       <ConfidenceSlider value={confidence} onChange={setConfidence} />
 
-      {/* Thinking Field */}
+      {/* Thinking Field (with inline Submit button) */}
       <ThinkingField
         value={thinkingText}
         onChange={(val) => {
@@ -163,23 +183,11 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
         }}
         isRecording={isListening}
         isTranscribing={isTranscribing}
+        isSubmitting={isSubmitting}
         onToggleRecording={toggleListening}
         onSubmitHotkey={handleSubmit}
         errorMessage={validationError || speechError}
       />
-
-      {/* Submit Button */}
-      <div className="flex justify-end pt-1">
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="flex items-center space-x-2 rounded-md bg-emerald-600 px-5 py-2 text-xs font-semibold text-white shadow-md hover:bg-emerald-500 transition-colors disabled:opacity-50"
-        >
-          <Send className="h-3.5 w-3.5" />
-          <span>{isSubmitting ? 'Avaliando Raciocínio...' : 'Enviar Resposta'}</span>
-        </button>
-      </div>
     </div>
   );
 };

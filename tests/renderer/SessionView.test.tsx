@@ -182,4 +182,74 @@ describe('SessionView Integration', () => {
     expect(screen.getByRole('button', { name: /explorar no grafo dag/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /iniciar ensino socrático cirúrgico/i })).toBeDefined();
   });
+
+  it('renders vertical chat feed with previous answered questions, collapsible AGENT THINKING blocks, and bottom chat input', () => {
+    const probingSessionWithHistory: ProbingSession = {
+      id: 'sess-chat',
+      mode: 'teaching',
+      disciplineId: 'osi-layer3',
+      phase: 'probing',
+      goal: 'Camada 3 e Roteamento',
+      questionCount: 2,
+      frontierClarity: 25,
+      attempts: [
+        {
+          questionId: 'q-prev-1',
+          nodeId: 'osi-context',
+          questionText: 'Qual é o propósito da Camada 3 (Camada de Rede) no modelo OSI?',
+          options: [
+            'Gerenciar conexões de usuário (Camada 7)',
+            'Transporte de dados entre aplicações (Camada 4)',
+            'Encaminhar pacotes entre redes diferentes (roteamento)',
+            'Conexão física de dispositivos (Camada 1)',
+          ],
+          correctOptionIndex: 2,
+          selectedOptionIndex: 2,
+          confidence: 100,
+          thinkingText: 'A camada 3 roteia pacotes entre sub-redes distintas.',
+          verdict: 'mastered',
+          judgeReasoning: 'Raciocínio causal perfeito sobre roteamento inter-redes.',
+        },
+      ],
+      socraticSteps: [],
+      nodesState: { 'osi-context': 'mastered', 'osi-l3-ttl': 'untested' },
+      currentQuestion: {
+        id: 'q-active-2',
+        nodeId: 'osi-l3-ttl',
+        questionText: 'Como o IP determina se um host de destino está na mesma rede local?',
+        options: [
+          'Comparando o IP de destino com a máscara de sub-rede',
+          'Enviando um ARP broadcast',
+          'Consultando a tabela DNS',
+          'Verificando o endereço MAC',
+        ],
+        correctOptionIndex: 0,
+        anchorConcept: 'Máscara de Sub-rede',
+        difficulty: 2,
+      },
+    };
+
+    render(<SessionView initialNodes={initialNodes} currentSession={probingSessionWithHistory} />);
+
+    // Previous answered question remains in the feed above
+    expect(
+      screen.getByText('Qual é o propósito da Camada 3 (Camada de Rede) no modelo OSI?')
+    ).toBeDefined();
+    expect(screen.getByText('CORRECT')).toBeDefined();
+    expect(screen.getByText('A camada 3 roteia pacotes entre sub-redes distintas.')).toBeDefined();
+
+    // Active question is rendered below it
+    expect(
+      screen.getByText('Como o IP determina se um host de destino está na mesma rede local?')
+    ).toBeDefined();
+
+    // Multiple AGENT'S THINKING blocks exist between turns
+    const thinkingToggles = screen.getAllByText(/agent's thinking/i);
+    expect(thinkingToggles.length).toBeGreaterThanOrEqual(2);
+
+    // Bottom chat input bar is rendered
+    expect(
+      screen.getByPlaceholderText(/digite sua autoexplicação ou mensagem/i)
+    ).toBeDefined();
+  });
 });
