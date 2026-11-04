@@ -137,8 +137,9 @@ describe('SessionView Integration', () => {
       expect(screen.getByText('Aprofundar em TTL e Prevenção de Loops')).toBeDefined();
     });
 
-    // Select clarification option
+    // Select clarification option and submit
     fireEvent.click(screen.getByText('Aprofundar em TTL e Prevenção de Loops'));
+    fireEvent.click(screen.getByRole('button', { name: /submit answer/i }));
 
     await waitFor(() => {
       expect((window as any).api.submitGoalClarification).toHaveBeenCalled();

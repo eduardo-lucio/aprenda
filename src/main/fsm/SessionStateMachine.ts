@@ -74,6 +74,7 @@ export class SessionStateMachine {
     }
 
     const defaultOptions = this.generator.defaultGoalOptions(goal);
+    const defaultQuestion = this.generator.defaultGoalQuestion(goal);
 
     this.session = {
       id: `session-${Date.now()}`,
@@ -86,23 +87,24 @@ export class SessionStateMachine {
       attempts: [],
       socraticSteps: [],
       nodesState: initialNodesState,
+      goalClarificationQuestion: defaultQuestion,
       goalClarificationOptions: defaultOptions,
     };
 
     const currentSession = this.session;
-    return this.generator.generateGoalOptions(goal).then((opts) => {
-      if (this.session === currentSession && opts.length > 0) {
-        currentSession.goalClarificationOptions = opts;
-        const goalThink = this.generator.getLastGoalThinking?.();
-        if (goalThink) {
-          currentSession.agentThinking = goalThink;
+    return this.generator.generateGoalOptions(goal).then((res) => {
+      if (this.session === currentSession && res.options.length > 0) {
+        currentSession.goalClarificationQuestion = res.question;
+        currentSession.goalClarificationOptions = res.options;
+        if (res.agentThinking) {
+          currentSession.agentThinking = res.agentThinking;
         }
       }
       return this.getState();
     });
   }
 
-  async submitGoalClarification(selectedOption: string): Promise<QuestionData> {
+  async submitGoalClarification(selectedOption: string, studentThinking?: string): Promise<QuestionData> {
     const session = this.requireSession();
 
     // 1 single combined call generates the DAG and the first probe question together

@@ -5,8 +5,8 @@ const api: ElectronAPI = {
   startSession: (mode: 'teaching' | 'practice', goal: string) =>
     ipcRenderer.invoke('session:start', mode, goal),
 
-  submitGoalClarification: (option: string) =>
-    ipcRenderer.invoke('session:submit-goal', option),
+  submitGoalClarification: (option: string, thinkingText?: string) =>
+    ipcRenderer.invoke('session:submit-goal', option, thinkingText),
 
   submitProbeAnswer: (data: {
     selectedOptionIndex: number;

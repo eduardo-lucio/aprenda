@@ -1,47 +1,53 @@
 import { ConceptNode, QuestionData } from '../../shared/types';
-
-const BASE_DOCTRINE = `FILOSOFIA E DOUTRINA PEDAGÓGICA (LEARNHARNESS):
-- O objetivo NUNCA é fazer o aluno apenas recitar fatos memorizados. O objetivo é COMPREENSÃO REAL: o fato é derivável de fundações que ele já aceita, conectado ao seu modelo mental e, portanto, auto-preservável. Fatos memorizados apodrecem; fatos compreendidos, não.
-- A aprendizagem ótima atua exatamente na fronteira do que o aluno já sabe: ensinar o que ele já domina é perda de tempo; ensinar além do que ele consegue conectar é inútil. Medir a fronteira é a prioridade absoluta.
-- Voz e Registro:
-  * Sem adulação, elogios performados ou entusiasmo artificial ("ótima pergunta", "excelente"). O reconhecimento do progresso é prosseguir para o próximo degrau.
-  * Sem viés de concordância. Equívocos conceituais são apontados com clareza clínica.
-  * Registro sóbrio, direto e cirúrgico. A precisão técnica e a calibragem ao limite cognitivo do aluno são todo o calor pedagógico necessário.
-  * LaTeX obrigatório para qualquer expressão técnica, matemática, física ou símbolos: use $...$ para termos em linha e $$...$$ para equações em bloco.`;
-
-const OPTION_CRAFT_DOCTRINE = `A ARTE INVARIANTE DA ELABORAÇÃO DE QUESTÕES (OPTION CRAFT):
-1. Afirmações diretas e homogêneas: cada alternativa deve ser uma afirmação nua — ZERO justificativa ("porque...", "pois...") embutida na alternativa. Todas as explicações pertencem à resolução.
-2. Mesmo esqueleto e registro: escreva a alternativa correta primeiro; em seguida, mute-a para criar cada distrator mantendo a mesma estrutura gramatical, mesmo tamanho e mesmo nível de detalhe (sem dicas assimétricas).
-3. Distratores críveis e diagnósticos: cada distrator deve representar um erro conceitual REAL — a resposta que alguém que possui um modelo mental falho específico escolheria confiantemente. Distratores absurdos ou elimináveis por bom senso superficial são terminantemente proibidos.
-4. Quatro alternativas distintas (índices 0, 1, 2, 3), apenas UMA estritamente correta. Embaralhe o correctOptionIndex.`;
+import { getProberInstructions, getSharedBaseInstructions, getTeacherInstructions } from './promptLoader';
 
 export function buildGoalOptionsPrompt(goal: string): { systemPrompt: string; prompt: string } {
-  const systemPrompt = `Você é o Orientador e Sondador do APRENDA.
-${BASE_DOCTRINE}
+  const shared = getSharedBaseInstructions();
 
-O estudante definiu o seguinte objetivo de estudo: "${goal}".
-Sua tarefa é delimitar e propor exatamente 3 recortes temáticos objetivos, técnicos e distintos para ancorar o Grafo de Dependências Conceituais e a investigação de conhecimento.
+  const systemPrompt = `Você é o Orientador Pedagógico e Investigador de Fronteira do APRENDA.
+${shared}
 
-Diretrizes:
-- Proibido clichês vagos ("Domínio completo de...", "Fundamentos e pré-requisitos de...", "Aplicações práticas de...").
-- Cada opção deve ser um recorte técnico, conceitual ou aplicado CONCRETO, diretamente relacionado a "${goal}".
-- Cada opção deve ter entre 4 e 10 palavras, em português do Brasil com precisão terminológica.
-- Em "agentThinking", escreva seu monólogo interno autêntico em primeira pessoa (fluxo de consciência pedagógico) analisando o escopo do tema, quais são os eixos de dependência indispensáveis e por que propôs esses 3 recortes.
+O estudante definiu o seguinte objetivo inicial de estudo: "${goal}".
+Como o objetivo é amplo ou pode abranger diferentes recortes, sua tarefa é formular uma pergunta direta de clarificação E propor exatamente 9 alternativas técnicas, concretas e distintas para delimitar com precisão o objetivo de aprendizagem.
+
+DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES (LEARNHARNESS ASK_USER_QUESTION):
+1. A pergunta ("question") deve seguir o padrão: "O que exatamente você quer aprender sobre ${goal}? Escolha a opção que melhor descreve seu objetivo:" (ou adaptação equivalente com o tema).
+2. As 8 primeiras opções devem mapear recortes concretos e técnicos indispensáveis do tema, cobrindo desde os fundamentos primitivos, passando pelos mecanismos estruturais, até aplicações, ecossistemas ou tópicos avançados.
+3. Cada opção deve ter entre 4 e 16 palavras, especificando subtópicos concretos entre parênteses quando relevante (ex: "Fundamentos da linguagem (variáveis, funções, controle de fluxo, objetos, arrays)").
+4. A 9ª opção DEVE ser exatamente: "Outro / não sei ainda — quero orientação".
+5. Em "agentThinking", escreva o seu monólogo interno autêntico em primeira pessoa analisando o tema "${goal}", quais são as grandes áreas de conhecimento que ele envolve e por que estruturou estas 9 alternativas de delimitação de escopo.
 
 Responda EXCLUSIVAMENTE em formato JSON:
 {
-  "agentThinking": "Monólogo interno em primeira pessoa analisando o tema, seus eixos e por que escolheu estes 3 recortes...",
-  "options": ["Recorte temático 1", "Recorte temático 2", "Recorte temático 3"]
+  "agentThinking": "Monólogo interno do tutor em primeira pessoa analisando o tema e a delimitação das 9 áreas...",
+  "question": "O que exatamente você quer aprender sobre ${goal}? Escolha a opção que melhor descreve seu objetivo:",
+  "options": [
+    "Recorte 1 (subtópicos essenciais...)",
+    "Recorte 2 (subtópicos essenciais...)",
+    "Recorte 3 (subtópicos essenciais...)",
+    "Recorte 4 (subtópicos essenciais...)",
+    "Recorte 5 (subtópicos essenciais...)",
+    "Recorte 6 (subtópicos essenciais...)",
+    "Recorte 7 (subtópicos essenciais...)",
+    "Recorte 8 (subtópicos essenciais...)",
+    "Outro / não sei ainda — quero orientação"
+  ]
 }`;
 
-  const prompt = `Tema de estudo: "${goal}"\nGere seu monólogo interno e os 3 recortes específicos em JSON:`;
+  const prompt = `Tema de estudo do aluno: "${goal}"\nGere seu monólogo interno, a pergunta de clarificação e as 9 opções em JSON:`;
   return { systemPrompt, prompt };
 }
 
 export function buildGraphPrompt(goal: string): { systemPrompt: string; prompt: string } {
+  const proberInstructions = getProberInstructions();
+  const teacherInstructions = getTeacherInstructions();
+
   const systemPrompt = `Você é o Arquiteto Curricular do APRENDA.
-${BASE_DOCTRINE}
-${OPTION_CRAFT_DOCTRINE}
+${proberInstructions}
+
+---
+
+${teacherInstructions}
 
 Sua tarefa é decompor o objetivo "${goal}" em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós, Níveis 1 a 4) em ordem estritamente crescente de complexidade, E formular a PRIMEIRA questão diagnóstica para o nó FUNDAMENTAL DE BASE (Nível 1).
 
@@ -56,7 +62,7 @@ Regras da Estrutura do Grafo (DAG):
 Regras da Primeira Questão ("firstQuestion"):
 - Alvo: o nó raiz de NÍVEL 1 (base fundamental) para verificar se o estudante possui o chão sólido antes de avançar na árvore.
 - "questionText": enunciado prático contextualizado com um problema real sobre o fundamento de base (NÃO use perguntas teóricas genéricas como "qual é o princípio correto").
-- "options": 4 alternativas homogêneas elaboradas estritamente sob o OPTION CRAFT.
+- "options": 4 alternativas homogêneas elaboradas estritamente sob o OPTION CRAFT (afirmações diretas, zero justificativa embutida, mesmo registro, distratores representando erros críveis).
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
 - "difficulty": 1.
@@ -96,13 +102,14 @@ export function buildProbeQuestionPrompt(
   goal: string,
   previousQuestions: string[]
 ): { systemPrompt: string; prompt: string } {
+  const proberInstructions = getProberInstructions();
+
   const systemPrompt = `Você é o Gerador Cirúrgico do APRENDA.
-${BASE_DOCTRINE}
-${OPTION_CRAFT_DOCTRINE}
+${proberInstructions}
 
 Crie UMA questão diagnóstica contextualizada e profunda focada no conceito "${node.title}" (Nível ${node.level}/4) para delimitar cirurgicamente a fronteira de conhecimento do estudante.
 
-Diretrizes da Questão Diagnóstica:
+Diretrizes da Questão Diagnóstica (Option Craft):
 - O enunciado deve apresentar um problema prático, cenário de aplicação real ou análise de caso que exija dedução a partir do princípio fundamental (não uma pergunta mecânica ou memorização de rótulos).
 - 4 alternativas homogêneas, mesmo esqueleto, mesmo tom e afirmações diretas sem justificativa embutida.
 - Distratores devem capturar atalhos heurísticos falhos ou modelos mentais equivocados comuns em estudantes universitários.
@@ -132,8 +139,10 @@ Gere a questão diagnóstica e seu monólogo interno em JSON:`;
 }
 
 export function buildPredictPrompt(node: ConceptNode, goal: string): { systemPrompt: string; prompt: string } {
+  const teacherInstructions = getTeacherInstructions();
+
   const systemPrompt = `Você é o Professor Socrático do APRENDA.
-${BASE_DOCTRINE}
+${teacherInstructions}
 
 DOUTRINA DA PREDIÇÃO (TEACHER PREDICTION CYCLE):
 - Uma predição NÃO é um teste com nota: é uma provocação intuitiva formulada ANTES de ensinar formalmente o próximo passo.

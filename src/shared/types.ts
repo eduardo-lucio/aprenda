@@ -74,6 +74,7 @@ export interface ProbingSession {
   socraticSteps: SocraticStep[];
   nodesState: Record<string, ConceptNode['status']>;
   currentQuestion?: QuestionData;
+  goalClarificationQuestion?: string;
   goalClarificationOptions?: string[];
   agentThinking?: string;
   chatHistory?: ChatTurnMessage[];
@@ -131,7 +132,7 @@ export interface SettingsUpdatePayload {
 
 export interface ElectronAPI {
   startSession: (mode: 'teaching' | 'practice', goal: string) => Promise<ProbingSession>;
-  submitGoalClarification: (option: string) => Promise<QuestionData>;
+  submitGoalClarification: (option: string, thinkingText?: string) => Promise<QuestionData>;
   submitProbeAnswer: (data: { selectedOptionIndex: number; confidence: number; thinkingText: string }) => Promise<{
     attempt: ProbeAttempt;
     nextAction: 'next_question' | 'transition_diagnosis';

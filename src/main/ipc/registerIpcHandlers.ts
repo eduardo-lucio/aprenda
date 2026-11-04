@@ -38,8 +38,8 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     return await fsm.startSession(mode, goal);
   });
 
-  ipcMain.handle('session:submit-goal', async (_event, option: string) => {
-    return await fsm.submitGoalClarification(option);
+  ipcMain.handle('session:submit-goal', async (_event, option: string, thinkingText?: string) => {
+    return await fsm.submitGoalClarification(option, thinkingText);
   });
 
   ipcMain.handle(

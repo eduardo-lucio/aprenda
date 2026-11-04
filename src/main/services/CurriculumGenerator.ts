@@ -229,6 +229,12 @@ export interface GeneratedGraphResult {
   agentThinking?: string;
 }
 
+export interface GoalClarificationResult {
+  question: string;
+  options: string[];
+  agentThinking?: string;
+}
+
 export class CurriculumGenerator {
   private lastGoalThinking?: string;
 
@@ -238,12 +244,23 @@ export class CurriculumGenerator {
     return this.lastGoalThinking;
   }
 
+  defaultGoalQuestion(goal: string): string {
+    const clean = goal.trim() || 'o tema';
+    return `O que exatamente você quer aprender sobre ${clean}? Escolha a opção que melhor descreve seu objetivo:`;
+  }
+
   defaultGoalOptions(goal: string): string[] {
     const clean = goal.trim() || 'Conceito';
     return [
-      `Mecanismos internos e dinâmicas causais de ${clean}`,
-      `Condições de contorno, restrições e casos limites em ${clean}`,
-      `Modelagem analítica e diagnóstico de falhas em ${clean}`,
+      `Fundamentos da linguagem e premissas primitivas de ${clean}`,
+      `Sintaxe moderna, convenções e construções essenciais de ${clean}`,
+      `Programação assíncrona, concorrência e fluxo de controle em ${clean}`,
+      `Manipulação de estruturas, dados e APIs em ${clean}`,
+      `Mecanismos internos, ciclo de vida e tempo de execução de ${clean}`,
+      `Arquitetura de módulos, ecossistema e ferramentas de ${clean}`,
+      `Modelagem analítica, padrões e boas práticas em ${clean}`,
+      `Testes, validação, benchmarking e depuração em ${clean}`,
+      `Outro / não sei ainda — quero orientação`,
     ];
   }
 
@@ -252,7 +269,12 @@ export class CurriculumGenerator {
     return /HTTP (401|402|403|429)\b/i.test(msg);
   }
 
-  async generateGoalOptions(goal: string): Promise<string[]> {
+  async generateGoalOptions(goal: string): Promise<GoalClarificationResult> {
+    const fallback: GoalClarificationResult = {
+      question: this.defaultGoalQuestion(goal),
+      options: this.defaultGoalOptions(goal),
+    };
+
     try {
       const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
       const raw = await this.llm({
@@ -265,24 +287,42 @@ export class CurriculumGenerator {
         timeoutMs: 25000,
       });
       const nativeThink = extractLLMThinking(raw);
-      const parsed = parseLLMJson<{ options?: unknown; agentThinking?: unknown }>(raw);
+      const parsed = parseLLMJson<{ options?: unknown; question?: unknown; agentThinking?: unknown }>(raw);
       const jsonThink =
         typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
           ? parsed.agentThinking.trim()
           : undefined;
       this.lastGoalThinking = jsonThink || nativeThink;
 
-      const options = Array.isArray(parsed.options)
-        ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 3)
+      const rawOpts = Array.isArray(parsed.options)
+        ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 9)
         : [];
-      if (options.length > 0) return options;
+
+      let options = rawOpts.length >= 6 ? rawOpts : fallback.options;
+      if (!options.some((o) => o.toLowerCase().includes('outro') || o.toLowerCase().includes('não sei'))) {
+        options = [...options.slice(0, 8), 'Outro / não sei ainda — quero orientação'];
+      }
+
+      const question =
+        typeof parsed.question === 'string' && parsed.question.trim()
+          ? parsed.question.trim()
+          : this.defaultGoalQuestion(goal);
+
+      return {
+        question,
+        options,
+        agentThinking: this.lastGoalThinking,
+      };
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar opções de escopo via IA:', err);
       if (this.isFatalProviderError(err)) {
         throw err;
       }
     }
-    return this.defaultGoalOptions(goal);
+    return {
+      ...fallback,
+      agentThinking: this.lastGoalThinking,
+    };
   }
 
   async generateGraph(goal: string): Promise<GeneratedGraphResult> {

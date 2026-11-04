@@ -5,6 +5,7 @@ import { QuestionCard } from '../components/QuestionCard';
 import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
 import { SocraticCard } from '../components/SocraticCard';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
+import { ScopeOrientationCard } from '../components/ScopeOrientationCard';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -197,16 +198,19 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   };
 
-  const handleSelectGoalOption = async (option: string) => {
+  const handleSelectGoalOption = async (option: string, studentThinking?: string) => {
     setCustomScopeInput('');
     setStreamingThinking('');
-    appendUserChatMessage(option);
+    const userMsg = studentThinking?.trim()
+      ? `${option}\n\n[Raciocínio]: ${studentThinking.trim()}`
+      : option;
+    appendUserChatMessage(userMsg);
     setSubmittingLabel('Construindo o Grafo de Dependências e preparando a 1ª questão...');
     setAgentThinking('Estruturando o grafo do nível básico ao avançado em tempo real...');
     setIsSubmitting(true);
     setActionError(null);
     try {
-      const q = await window.api.submitGoalClarification(option);
+      const q = await window.api.submitGoalClarification(option, studentThinking?.trim());
       await refreshGraph();
       setCurrentQuestion(q);
       setSession((prev) =>
@@ -559,55 +563,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {/* If still choosing scope in goal_orientation */}
                   {phase === 'goal_orientation' && !currentQuestion && session.goalClarificationOptions && (
                     <div className="border-t border-[#1f1f1f] pt-5 space-y-4">
-                      <div className="flex flex-col gap-3 rounded-xl border border-[#262626] bg-[#141414] p-5 shadow-xl">
-                        <h3 className="text-sm font-semibold font-serif text-gray-200">
-                          Escolha o escopo de ancoragem para a sondagem:
-                        </h3>
-                        <div className="flex flex-col gap-2">
-                          {session.goalClarificationOptions.map((opt, i) => (
-                            <div
-                              key={i}
-                              onClick={() => !isSubmitting && handleSelectGoalOption(opt)}
-                              className={`flex cursor-pointer items-center justify-between rounded-lg border border-[#282828] bg-[#181818] px-4 py-3 text-xs text-gray-200 hover:border-emerald-500/80 hover:bg-[#1e1e1e] transition-all ${
-                                isSubmitting ? 'opacity-50 pointer-events-none' : ''
-                              }`}
-                            >
-                              <span>{opt}</span>
-                              <ArrowRight className="h-4 w-4 text-emerald-400 shrink-0" />
-                            </div>
-                          ))}
-
-                          {/* Direct blank input with placeholder for custom scope */}
-                          <div className="flex gap-2 pt-1">
-                            <input
-                              type="text"
-                              value={customScopeInput}
-                              onChange={(e) => setCustomScopeInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && customScopeInput.trim() && !isSubmitting) {
-                                  handleSelectGoalOption(customScopeInput.trim());
-                                }
-                              }}
-                              placeholder="Outro: digite seu próprio escopo personalizado..."
-                              disabled={isSubmitting}
-                              className="flex-1 rounded-lg border border-[#282828] bg-[#0e0e0e] px-3.5 py-2.5 text-xs text-gray-200 outline-none focus:border-emerald-500 placeholder-gray-500 transition-colors"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (customScopeInput.trim() && !isSubmitting) {
-                                  handleSelectGoalOption(customScopeInput.trim());
-                                }
-                              }}
-                              disabled={isSubmitting || !customScopeInput.trim()}
-                              className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-40 shrink-0 flex items-center gap-1.5"
-                            >
-                              <span>Avançar</span>
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      <ScopeOrientationCard
+                        questionText={
+                          session.goalClarificationQuestion ||
+                          `O que exatamente você quer aprender sobre ${session.goal}? Escolha a opção que melhor descreve seu objetivo:`
+                        }
+                        options={session.goalClarificationOptions}
+                        onSubmit={(selectedOption, thinkingText) =>
+                          handleSelectGoalOption(selectedOption, thinkingText)
+                        }
+                        isSubmitting={isSubmitting}
+                      />
 
                       {isSubmitting && (
                         <AgentThinkingBlock
