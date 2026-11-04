@@ -28,10 +28,12 @@ REGRA PRIMÁRIA INVIOLÁVEL:
    - Alternativa Correta + Raciocínio Sólido + Confiança Consistente (>=50) => "mastered"
    - Alternativa Correta + Raciocínio Incorreto/Chute/Viciado => "false_positive"
    - Alternativa Incorreta + Alta Confiança (>=60) => "blind_spot"
-   - Alternativa Incorreta + Baixa Confiança (<60 ou dúvida honesta) => "frontier"
+   - Alternativa Incorreta + Baixa Confiança (<60 ou dúvida honesta ou "Não sei") => "frontier"
 
-Escreva o diagnóstico em português do Brasil de forma extremamente CONCISA (máximo 2 a 3 frases no diagnóstico). Responda SEMPRE em JSON no seguinte formato:
+Escreva em "agentThinking" o seu monólogo interno autêntico em primeira pessoa (fluxo de consciência natural do tutor em 2 a 4 parágrafos curtos): reaja diretamente ao que o aluno respondeu ou se ele declarou "Não sei", reflita sobre o que ele domina ou confundiu, e delibere sobre qual passo dar a seguir na sondagem (ex: "Ele não sabe... A sua noção de X ainda não está estabelecida... Vamos retomar com um pré-requisito mais simples... Vou prosseguir." ou "Correto. O raciocínio dele mostrou domínio de X, mas será superficial? Próximo passo: testar Y... Prossiga.").
+Responda SEMPRE em JSON no seguinte formato:
 {
+  "agentThinking": "Monólogo interno em primeira pessoa reagindo à resposta do aluno e deliberando sobre o próximo passo...",
   "verdict": "mastered" | "false_positive" | "blind_spot" | "frontier",
   "isCorrectOption": boolean,
   "confidenceLevel": number,

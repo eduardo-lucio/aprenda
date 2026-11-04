@@ -5,7 +5,7 @@ import {
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, LLMCaller, parseLLMJson } from './llmClient';
 
 function slugify(text: string): string {
   return (
@@ -226,10 +226,17 @@ export interface GeneratedGraphResult {
   discipline: string;
   nodes: ConceptNode[];
   firstQuestion?: QuestionData;
+  agentThinking?: string;
 }
 
 export class CurriculumGenerator {
+  private lastGoalThinking?: string;
+
   constructor(private llm: LLMCaller = callLLM) {}
+
+  getLastGoalThinking(): string | undefined {
+    return this.lastGoalThinking;
+  }
 
   defaultGoalOptions(goal: string): string[] {
     const clean = goal.trim() || 'Conceito';
@@ -257,7 +264,14 @@ export class CurriculumGenerator {
         effortLevel: 'low',
         timeoutMs: 25000,
       });
-      const parsed = parseLLMJson<{ options?: unknown }>(raw);
+      const nativeThink = extractLLMThinking(raw);
+      const parsed = parseLLMJson<{ options?: unknown; agentThinking?: unknown }>(raw);
+      const jsonThink =
+        typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
+          ? parsed.agentThinking.trim()
+          : undefined;
+      this.lastGoalThinking = jsonThink || nativeThink;
+
       const options = Array.isArray(parsed.options)
         ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 3)
         : [];
@@ -283,9 +297,13 @@ export class CurriculumGenerator {
         effortLevel: 'low',
         timeoutMs: 45000,
       });
+      const nativeThink = extractLLMThinking(raw);
       const parsed = parseLLMJson<any>(raw);
       const rawNodes = Array.isArray(parsed) ? parsed : parsed?.nodes;
       const nodes = sanitizeGraph(rawNodes);
+      const graphThinking =
+        (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) ||
+        nativeThink;
 
       if (nodes.length >= 3) {
         let firstQuestion: QuestionData | undefined;
@@ -301,6 +319,9 @@ export class CurriculumGenerator {
           const targetNode =
             nodes.find((n) => n.id === rawQ.nodeId) ||
             [...nodes].sort((a, b) => b.level - a.level)[0];
+          const qThink =
+            (typeof rawQ.agentThinking === 'string' && rawQ.agentThinking.trim()) ||
+            graphThinking;
           firstQuestion = {
             id: `q-${targetNode.id}-${Date.now()}`,
             nodeId: targetNode.id,
@@ -309,6 +330,7 @@ export class CurriculumGenerator {
             correctOptionIndex: Number(rawQ.correctOptionIndex),
             anchorConcept: String(rawQ.anchorConcept || targetNode.title),
             difficulty: Number(rawQ.difficulty) || targetNode.level,
+            agentThinking: qThink,
           };
         }
 
@@ -319,6 +341,7 @@ export class CurriculumGenerator {
               : goal,
           nodes,
           firstQuestion,
+          agentThinking: graphThinking,
         };
       }
     } catch (err) {
@@ -353,12 +376,16 @@ export class CurriculumGenerator {
           timeoutMs: 30000,
           signal: callOpts?.signal,
         });
+        const nativeThink = extractLLMThinking(raw);
         const parsed = parseLLMJson<any>(raw);
         const options: string[] = Array.isArray(parsed.options)
           ? parsed.options.map((o: unknown) => String(o)).filter((o: string) => o.trim())
           : [];
         const correct = Number(parsed.correctOptionIndex);
         if (parsed.questionText && options.length === 4 && correct >= 0 && correct < 4) {
+          const qThink =
+            (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) ||
+            nativeThink;
           return {
             id: `q-${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             nodeId: node.id,
@@ -367,6 +394,7 @@ export class CurriculumGenerator {
             correctOptionIndex: correct,
             anchorConcept: String(parsed.anchorConcept || node.title),
             difficulty: Number(parsed.difficulty) || node.level,
+            agentThinking: qThink,
           };
         }
       } catch (err) {

@@ -7,13 +7,19 @@ interface AnsweredQuestionCardProps {
   index: number;
 }
 
-export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt, index }) => {
+export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt }) => {
   const [showUserThinking, setShowUserThinking] = useState(true);
 
   const isCorrectOption = attempt.selectedOptionIndex === attempt.correctOptionIndex;
   const isDontKnow = attempt.selectedOptionIndex === -1;
 
   const getBadgeConfig = () => {
+    if (isDontKnow) {
+      return {
+        label: "DIDN'T KNOW",
+        className: 'bg-[#262626] text-gray-300 border border-[#383838]',
+      };
+    }
     if (attempt.verdict === 'mastered') {
       return {
         label: 'CORRECT',
@@ -26,12 +32,6 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
         className: 'bg-amber-950/90 text-amber-300 border border-amber-700/50',
       };
     }
-    if (isDontKnow || attempt.verdict === 'frontier') {
-      return {
-        label: 'FRONTIER',
-        className: 'bg-blue-950/90 text-blue-300 border border-blue-700/50',
-      };
-    }
     return {
       label: isCorrectOption ? 'PARTIAL' : 'INCORRECT',
       className: 'bg-red-950/90 text-red-400 border border-red-800/50',
@@ -42,11 +42,11 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
 
   return (
     <div className="rounded-xl border border-[#242424] bg-[#141414] p-5 shadow-lg space-y-4">
-      {/* Header: PREDICTION + Badge */}
+      {/* Header: PROBE + Badge */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
           <span className="font-mono text-[11px] uppercase tracking-widest text-gray-400">
-            PREDICTION #{index + 1}
+            PROBE
           </span>
           <span
             className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${badge.className}`}
@@ -92,24 +92,30 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
         })}
       </div>
 
-      {/* Confidence Bar */}
-      <div className="flex items-center space-x-3 pt-1">
-        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#262626]">
-          <div
-            className={`h-full rounded-full transition-all ${
-              attempt.verdict === 'mastered'
-                ? 'bg-emerald-500'
-                : attempt.verdict === 'false_positive'
-                ? 'bg-amber-500'
-                : 'bg-emerald-500/80'
-            }`}
-            style={{ width: `${Math.max(4, attempt.confidence)}%` }}
-          />
+      {/* Confidence Bar OR Answered "I don't know" */}
+      {isDontKnow ? (
+        <div className="text-xs text-gray-400 pt-0.5">
+          Answered &quot;I don&apos;t know&quot;.
         </div>
-        <span className="font-mono text-[11px] text-gray-400 shrink-0">
-          {attempt.confidence}%
-        </span>
-      </div>
+      ) : (
+        <div className="flex items-center space-x-3 pt-1">
+          <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#262626]">
+            <div
+              className={`h-full rounded-full transition-all ${
+                attempt.verdict === 'mastered'
+                  ? 'bg-emerald-500'
+                  : attempt.verdict === 'false_positive'
+                  ? 'bg-amber-500'
+                  : 'bg-emerald-500/80'
+              }`}
+              style={{ width: `${Math.max(4, attempt.confidence)}%` }}
+            />
+          </div>
+          <span className="font-mono text-[11px] text-gray-400 shrink-0">
+            {attempt.confidence}%
+          </span>
+        </div>
+      )}
 
       {/* Collapsible YOUR THINKING */}
       <div className="border-l-2 border-[#2e2e2e] pl-3 pt-0.5">

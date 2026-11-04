@@ -97,10 +97,10 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-[#282828] bg-[#141414] p-5 shadow-2xl text-gray-200">
-      {/* Header: PREDICTION + Anchor Concept */}
+      {/* Header: PROBE + Anchor Concept */}
       <div className="flex items-center justify-between">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-          PREDICTION {questionNumber ? `#${questionNumber}` : ''}
+          PROBE {questionNumber ? `#${questionNumber}` : ''}
         </span>
         <span className="font-mono text-[10px] text-gray-500 truncate max-w-[260px]">
           {question.anchorConcept}

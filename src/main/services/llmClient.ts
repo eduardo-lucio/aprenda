@@ -55,6 +55,20 @@ export function resolveChatBaseUrl(providerId: string | undefined, baseUrl?: str
   }
 }
 
+/** Extracts native reasoning (<think>...</think>) from a model response if present. */
+export function extractLLMThinking(raw: string): string | undefined {
+  const matches = Array.from(raw.matchAll(/<think>([\s\S]*?)<\/think>/gi));
+  if (matches.length > 0) {
+    const combined = matches
+      .map((m) => (m[1] || '').trim())
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+    if (combined) return combined;
+  }
+  return undefined;
+}
+
 /** Removes reasoning blocks (<think>…</think>) and markdown fences from a model answer. */
 export function cleanLLMText(raw: string): string {
   return raw
@@ -238,15 +252,20 @@ export const callLLM: LLMCaller = async (options) => {
     }
   }
 
-  if ((!content || !content.trim()) && (msg?.reasoning_content || msg?.reasoning)) {
-    const fallbackReasoning = String(msg.reasoning_content || msg.reasoning);
-    if (fallbackReasoning.includes('{') && fallbackReasoning.includes('}')) {
-      content = fallbackReasoning;
+  const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
+
+  if ((!content || !content.trim()) && nativeReasoning) {
+    if (nativeReasoning.includes('{') && nativeReasoning.includes('}')) {
+      content = nativeReasoning;
     }
   }
 
   if (!content || typeof content !== 'string' || !content.trim()) {
     throw new Error('O modelo retornou uma resposta vazia.');
+  }
+
+  if (nativeReasoning && !/<think>/i.test(content)) {
+    return `<think>${nativeReasoning}</think>\n${content}`;
   }
   return content;
 };

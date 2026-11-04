@@ -93,6 +93,10 @@ export class SessionStateMachine {
     return this.generator.generateGoalOptions(goal).then((opts) => {
       if (this.session === currentSession && opts.length > 0) {
         currentSession.goalClarificationOptions = opts;
+        const goalThink = this.generator.getLastGoalThinking?.();
+        if (goalThink) {
+          currentSession.agentThinking = goalThink;
+        }
       }
       return this.getState();
     });
@@ -126,6 +130,10 @@ export class SessionStateMachine {
       firstQuestion = await this.getOrGenerateQuestionFor(firstNodeId, selectedOption);
     }
 
+    if (!firstQuestion.agentThinking && graph.agentThinking) {
+      firstQuestion.agentThinking = graph.agentThinking;
+    }
+
     this.askedQuestions.push(firstQuestion.questionText);
 
     session.goal = selectedOption;
@@ -134,6 +142,9 @@ export class SessionStateMachine {
     session.phase = 'probing';
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
+    if (graph.agentThinking) {
+      session.agentThinking = graph.agentThinking;
+    }
 
     // Speculatively prefetch upcoming branch questions in the background while user solves question 1
     this.orchestrator.speculativePrefetch({
@@ -199,6 +210,7 @@ export class SessionStateMachine {
       verdict: evaluation.verdict,
       judgeReasoning: evaluation.reasoningDiagnosis,
       identifiedMisconception: evaluation.identifiedMisconception,
+      agentThinking: currentQ.agentThinking,
     };
 
     session.attempts.push(attempt);
@@ -234,16 +246,29 @@ export class SessionStateMachine {
     if (session.questionCount >= MIN_PROBE_QUESTIONS && session.frontierClarity >= 100) {
       session.phase = 'frontier_diagnosis';
       session.currentQuestion = undefined;
+      if (evaluation.agentThinking) {
+        session.agentThinking = evaluation.agentThinking;
+      }
       return { attempt, nextAction: 'transition_diagnosis' };
     }
 
     // Pick next node and retrieve pre-cached question instantly (0ms)
     const nextNodeId = this.pickNextNode();
-    const nextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
+    const rawNextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
+    const combinedNextThinking = [evaluation.agentThinking, rawNextQuestion.agentThinking]
+      .filter((t): t is string => Boolean(t && t.trim()))
+      .join('\n\n');
+    const nextQuestion: QuestionData = {
+      ...rawNextQuestion,
+      agentThinking: combinedNextThinking || rawNextQuestion.agentThinking,
+    };
     this.askedQuestions.push(nextQuestion.questionText);
 
     session.questionCount += 1;
     session.currentQuestion = nextQuestion;
+    if (nextQuestion.agentThinking) {
+      session.agentThinking = nextQuestion.agentThinking;
+    }
 
     // Prefetch candidate branch questions in the background while user solves next question
     this.orchestrator.speculativePrefetch({

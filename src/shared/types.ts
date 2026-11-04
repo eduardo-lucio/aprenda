@@ -16,6 +16,7 @@ export interface QuestionData {
   correctOptionIndex: number;
   anchorConcept: string;
   difficulty?: number;
+  agentThinking?: string;
 }
 
 export interface ProbeAttempt {
@@ -30,6 +31,7 @@ export interface ProbeAttempt {
   verdict: 'mastered' | 'false_positive' | 'blind_spot' | 'frontier';
   judgeReasoning: string;
   identifiedMisconception?: string;
+  agentThinking?: string;
 }
 
 export interface CheckQuestionData {
@@ -64,6 +66,7 @@ export interface ProbingSession {
   nodesState: Record<string, ConceptNode['status']>;
   currentQuestion?: QuestionData;
   goalClarificationOptions?: string[];
+  agentThinking?: string;
 }
 
 export interface JudgeEvaluationResult {
@@ -72,6 +75,7 @@ export interface JudgeEvaluationResult {
   confidenceLevel: number;
   reasoningDiagnosis: string;
   identifiedMisconception?: string;
+  agentThinking?: string;
 }
 
 export interface ModelOption {

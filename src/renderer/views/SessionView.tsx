@@ -147,9 +147,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (onSessionUpdate) onSessionUpdate(sess);
       if (onSessionCreated) onSessionCreated(sess);
 
-      setAgentThinking(
-        `Objetivo registrado (${mode.toUpperCase()}): "${goalToUse}". Estruturei os recortes de escopo abaixo. Assim que o estudante escolher o foco, construirei o grafo de dependências conceituais e iniciarei a sondagem.`
-      );
+      if (sess.agentThinking) {
+        setAgentThinking(sess.agentThinking);
+      } else {
+        setAgentThinking(
+          `Objetivo registrado (${mode.toUpperCase()}): "${goalToUse}". Estruturei os recortes de escopo abaixo. Assim que o estudante escolher o foco, construirei o grafo de dependências conceituais e iniciarei a sondagem.`
+        );
+      }
     } catch (err: any) {
       setActionError(cleanError(err));
     } finally {
@@ -187,9 +191,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
           if (onSessionUpdate) onSessionUpdate(updated);
         }
       }
-      setAgentThinking(
-        `Foco afunilado para "${option}". Grafo de dependências gerado. Começando a sondagem pelo nó "${q.anchorConcept}" para verificar o domínio estrutural e calibrar a certeza do estudante.`
-      );
+      if (q.agentThinking) {
+        setAgentThinking(q.agentThinking);
+      } else {
+        setAgentThinking(
+          `Foco afunilado para "${option}". Grafo de dependências gerado. Começando a sondagem pelo nó "${q.anchorConcept}" para verificar o domínio estrutural e calibrar a certeza do estudante.`
+        );
+      }
     } catch (err: any) {
       setActionError(cleanError(err));
     } finally {
@@ -219,12 +227,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setCurrentQuestion(null);
         setActiveTab('session');
         setAgentThinking(
-          `Sondagem concluída (${result.session.questionCount} questões avaliadas). Consolidando o mapa completo da fronteira cognitiva com nós dominados, falsos positivos e pontos cegos.`
+          result.session.agentThinking ||
+            `Sondagem concluída (${result.session.questionCount} questões avaliadas). Consolidando o mapa completo da fronteira cognitiva com nós dominados, falsos positivos e pontos cegos.`
         );
       } else if (result.nextQuestion) {
         setCurrentQuestion(result.nextQuestion);
         setAgentThinking(
-          `Diagnóstico anterior registrado (${result.attempt.verdict.toUpperCase()}): ${result.attempt.judgeReasoning}\nAvançando na árvore de dependências para sondar o nó "${result.nextQuestion.anchorConcept}" (Questão ${result.session.questionCount}).`
+          result.nextQuestion.agentThinking ||
+            result.session.agentThinking ||
+            result.attempt.judgeReasoning
         );
       }
     } catch (err: any) {
@@ -312,6 +323,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const phase = session?.phase || 'goal_orientation';
   const modeLabel = (session?.mode || pendingMode || 'teaching').toUpperCase();
+  const phaseDividerLabel = !session
+    ? modeLabel
+    : socraticNode || phase === 'socratic_teach'
+    ? 'TEACHING'
+    : phase === 'probing'
+    ? 'PROBING'
+    : phase === 'frontier_diagnosis'
+    ? 'DIAGNOSIS'
+    : phase === 'completed'
+    ? 'COMPLETED'
+    : 'ORIENTATION';
 
   // Stats counters for diagnosis view
   const masteredCount = nodes.filter((n) => n.status === 'mastered').length;
@@ -405,11 +427,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
             className="flex-1 overflow-y-auto px-6 py-5"
           >
             <div className="mx-auto max-w-3xl space-y-6 pb-8">
-              {/* Top Mode Pill Divider (like Screenshot 1: --- TEACHING ---) */}
+              {/* Top Phase Pill Divider (Coherent with active phase: PROBING / TEACHING / etc.) */}
               <div className="relative flex items-center justify-center py-1">
                 <div className="absolute inset-x-0 border-t border-[#1f1f1f]" />
                 <span className="relative rounded-full border border-[#2a2a2a] bg-[#0a0a0a] px-3.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gray-400">
-                  {modeLabel}
+                  {phaseDividerLabel}
                 </span>
               </div>
 
@@ -448,7 +470,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 <div className="space-y-4">
                   {/* Historical Goal Turn */}
                   <AgentThinkingBlock
-                    thinkingText={`O estudante iniciou uma sessão de ${modeLabel} com o objetivo: "${session.goal}". Estruturando o recorte de escopo e a cadeia de conceitos.`}
+                    thinkingText={
+                      session.agentThinking ||
+                      agentThinking
+                    }
                     defaultExpanded={false}
                   />
 
@@ -521,15 +546,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {/* HISTORICAL ANSWERED QUESTIONS IN THE CHAT FEED */}
               {session?.attempts &&
                 session.attempts.map((attempt, idx) => {
-                  const prevAttempt = idx > 0 ? session.attempts[idx - 1] : null;
                   const turnThinking =
-                    idx === 0
-                      ? `Iniciando a sondagem diagnóstica pelo conceito "${attempt.nodeId}" para aferir a base de conhecimento do estudante.\nAvaliação do Juiz Cognitivo após resposta: ${attempt.judgeReasoning}`
-                      : `Com base na resposta anterior (${prevAttempt?.verdict}), selecionei o conceito "${attempt.nodeId}" para continuar o mapeamento da fronteira.\nAvaliação do Juiz Cognitivo: ${attempt.judgeReasoning}`;
+                    attempt.agentThinking ||
+                    attempt.judgeReasoning;
 
                   return (
                     <div key={`${attempt.questionId}-${idx}`} className="space-y-3 border-t border-[#1f1f1f] pt-4">
-                      <AgentThinkingBlock thinkingText={turnThinking} defaultExpanded={false} />
+                      {turnThinking && (
+                        <AgentThinkingBlock thinkingText={turnThinking} defaultExpanded={false} />
+                      )}
                       <AnsweredQuestionCard attempt={attempt} index={idx} />
                     </div>
                   );
@@ -542,7 +567,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     thinkingText={
                       isSubmitting
                         ? agentThinking
-                        : `Questão ${session?.questionCount || 1}: Sondando o conceito "${currentQuestion.anchorConcept}" (Nível ${currentQuestion.difficulty || 2}). Aguardando a escolha da alternativa, calibração de confiança e autoexplicação do estudante.`
+                        : currentQuestion.agentThinking ||
+                          session?.agentThinking ||
+                          agentThinking
                     }
                     defaultExpanded={true}
                     isStreaming={isSubmitting}
@@ -759,7 +786,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 className="pointer-events-auto flex items-center space-x-3 rounded-full border border-[#2e2e2e] bg-[#141414]/95 px-4 py-1.5 text-xs text-gray-300 shadow-2xl hover:border-gray-500 transition-all max-w-lg"
               >
                 <span className="font-mono text-[10px] uppercase tracking-wider text-gray-500 shrink-0">
-                  PREDICTION
+                  {socraticNode ? 'PREDICTION' : 'PROBE'}
                 </span>
                 <span className="truncate text-gray-200">{currentQuestion.questionText}</span>
                 <span className="font-semibold text-white shrink-0">Answer ↓</span>

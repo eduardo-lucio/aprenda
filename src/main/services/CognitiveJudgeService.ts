@@ -1,6 +1,6 @@
 import { ConceptNode, JudgeEvaluationResult } from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, LLMCaller, parseLLMJson } from './llmClient';
 
 const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
 
@@ -25,19 +25,25 @@ export class CognitiveJudgeService {
         prompt,
         temperature: 0.1,
         jsonMode: true,
-        maxTokens: 200,
+        maxTokens: 1024,
         effortLevel: 'minimal',
-        timeoutMs: 12000,
+        timeoutMs: 18000,
       });
 
+      const nativeThink = extractLLMThinking(rawResponse);
       const parsed = parseLLMJson<any>(rawResponse);
       if (parsed.verdict && (VERDICTS as readonly string[]).includes(parsed.verdict)) {
+        const agentThinking =
+          (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) ||
+          nativeThink ||
+          parsed.reasoningDiagnosis;
         return {
           verdict: parsed.verdict,
           isCorrectOption,
           confidenceLevel: attempt.confidence,
           reasoningDiagnosis: parsed.reasoningDiagnosis || 'Avaliação cognitiva gerada pelo modelo.',
           identifiedMisconception: parsed.identifiedMisconception || undefined,
+          agentThinking,
         };
       }
     } catch (_err) {

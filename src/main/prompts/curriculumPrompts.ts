@@ -10,10 +10,14 @@ Regras OBRIGATÓRIAS:
 - Proibido usar clichês genéricos como "Domínio completo de...", "Fundamentos e pré-requisitos de...", ou "Aplicações práticas de...".
 - Cada opção deve ser um recorte técnico, conceitual ou aplicado CONCRETO, diretamente relacionado a "${goal}".
 - Cada opção deve ter entre 4 e 10 palavras, escrita em português do Brasil com precisão técnica.
+- Inclua em "agentThinking" o seu monólogo interno autêntico em primeira pessoa (fluxo de consciência pedagógico) analisando o tema pedido pelo estudante, quais subáreas críticas precisam ser destrinchadas e por que escolheu esses 3 recortes.
 - Responda EXCLUSIVAMENTE em formato JSON:
-{"options": ["Recorte temático 1", "Recorte temático 2", "Recorte temático 3"]}`;
+{
+  "agentThinking": "Monólogo interno do agente em primeira pessoa analisando o tema e planejando os recortes...",
+  "options": ["Recorte temático 1", "Recorte temático 2", "Recorte temático 3"]
+}`;
 
-  const prompt = `Tema de estudo: "${goal}"\nGere os 3 recortes de escopo temático específicos em JSON:`;
+  const prompt = `Tema de estudo: "${goal}"\nGere seu raciocínio interno e os 3 recortes de escopo temático específicos em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -36,11 +40,13 @@ Regras da primeira questão ("firstQuestion"):
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
 - "difficulty": nível (1 a 4).
+- "agentThinking": seu monólogo interno autêntico em primeira pessoa (fluxo de consciência do tutor) explicando como está estruturando os pré-requisitos desse tema, por que escolheu começar testando esse conceito e qual armadilha cognitiva ou hipótese quer verificar na primeira pergunta.
 
 ${LANG_RULE}
 Responda SOMENTE em JSON no formato:
 {
   "discipline": "nome curto",
+  "agentThinking": "Monólogo interno em primeira pessoa planejando o grafo e o motivo de iniciar a sondagem por esta pergunta...",
   "nodes": [
     {
       "id": "slug",
@@ -57,11 +63,12 @@ Responda SOMENTE em JSON no formato:
     "options": ["A", "B", "C", "D"],
     "correctOptionIndex": 0,
     "anchorConcept": "Título",
-    "difficulty": 4
+    "difficulty": 4,
+    "agentThinking": "Monólogo interno sobre o que esta primeira pergunta vai testar..."
   }
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo e a primeira questão em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo, seu monólogo interno e a primeira questão em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -78,9 +85,11 @@ Regras:
 - Embaralhe a alternativa correta ("correctOptionIndex" pode ser 0, 1, 2 ou 3).
 - Distratores devem capturar equívocos comuns de estudantes universitários ou atalhos heurísticos falhos.
 - Não repita perguntas anteriores.
+- Inclua em "agentThinking" o seu monólogo interno autêntico em primeira pessoa (fluxo de consciência de tutor) deliberando sobre o que ainda precisa ser testado no conhecimento do estudante, por que está formulando essa pergunta específica sobre "${node.title}" e quais confusões as alternativas falsas vão capturar.
 ${LANG_RULE}
 Responda SOMENTE em JSON:
 {
+  "agentThinking": "Monólogo interno em primeira pessoa deliberando sobre o que testar a seguir e como desenhar a pergunta...",
   "questionText": "Enunciado prático contextualizado...",
   "options": ["Opção 0", "Opção 1", "Opção 2", "Opção 3"],
   "correctOptionIndex": 0,
@@ -94,7 +103,7 @@ Resumo: ${node.summary}
 Verdade Incondicional / Princípio: ${node.unconditionalTruth}
 Nível: ${node.level}/4
 ${previousQuestions.length ? `Questões já aplicadas (evite repetição):\n- ${previousQuestions.slice(-4).join('\n- ')}` : ''}
-Gere a questão em JSON:`;
+Gere a questão e seu monólogo interno em JSON:`;
 
   return { systemPrompt, prompt };
 }
