@@ -110,7 +110,8 @@ describe('SessionView Integration', () => {
   it('renders initial goal orientation input and allows starting session', async () => {
     render(<SessionView initialNodes={initialNodes} />);
 
-    expect(screen.getByText(/o que você quer dominar hoje\?/i)).toBeDefined();
+    expect(screen.getByText(/nova sessão/i)).toBeDefined();
+    expect(screen.getByText(/o professor vai abrir uma investigação sobre o que você já sabe/i)).toBeDefined();
 
     const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });

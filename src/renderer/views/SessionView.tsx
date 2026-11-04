@@ -487,7 +487,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 </div>
               )}
 
-              {/* TURN 0: Goal Orientation & Scope Selection */}
+              {/* TURN 0: Initial Empty State & Goal Orientation */}
               {!session ? (
                 <div className="space-y-4">
                   {/* Show user message immediately when submitted while starting session */}
@@ -507,25 +507,25 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       </div>
                     ))}
 
-                  <AgentThinkingBlock
-                    thinkingText={isSubmitting && streamingThinking ? streamingThinking : agentThinking}
-                    defaultExpanded={true}
-                    isStreaming={isSubmitting}
-                    statusLabel={submittingLabel}
-                  />
+                  {isSubmitting && (
+                    <AgentThinkingBlock
+                      thinkingText={streamingThinking || agentThinking}
+                      defaultExpanded={true}
+                      isStreaming={true}
+                      statusLabel={submittingLabel}
+                    />
+                  )}
 
-                  <div className="border-t border-[#1f1f1f] pt-5 space-y-3">
-                    <h2 className="text-base font-bold font-serif text-white">
-                      {pendingMode === 'practice'
-                        ? 'Prática Rápida: O que você deseja exercitar hoje?'
-                        : 'O que você quer dominar hoje?'}
-                    </h2>
-                    <p className="text-xs text-gray-400 leading-relaxed">
-                      {pendingMode === 'practice'
-                        ? 'Digite abaixo o tema ou conteúdo que deseja praticar para aferir solidez de raciocínio e calibrar certeza.'
-                        : 'Digite abaixo qualquer tema, disciplina ou conceito que deseja aprender. O APRENDA construirá dinamicamente o grafo de pré-requisitos e conduzirá a sondagem neste chat.'}
-                    </p>
-                  </div>
+                  {!isSubmitting && chatMessages.length === 0 && (
+                    <div className="pt-8 space-y-1.5 text-center sm:text-left">
+                      <h2 className="text-base font-serif font-bold text-gray-100">
+                        Nova sessão
+                      </h2>
+                      <p className="text-xs text-gray-400">
+                        O professor vai abrir uma investigação sobre o que você já sabe.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
