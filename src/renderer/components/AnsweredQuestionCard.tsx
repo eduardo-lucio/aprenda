@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { ProbeAttempt } from '../../shared/types';
+import { RichText } from './RichText';
 
 interface AnsweredQuestionCardProps {
   attempt: ProbeAttempt;
@@ -57,9 +58,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       </div>
 
       {/* Question Text */}
-      <div className="text-sm font-semibold leading-relaxed text-gray-100">
-        {attempt.questionText}
-      </div>
+      <RichText text={attempt.questionText} className="text-sm font-semibold leading-relaxed text-gray-100" />
 
       {/* Options */}
       <div className="flex flex-col gap-2">
@@ -86,7 +85,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
               ) : (
                 <span className="h-3.5 w-3.5 shrink-0" />
               )}
-              <span className="leading-snug">{opt}</span>
+              <RichText text={opt} className="leading-snug" />
             </div>
           );
         })}
@@ -133,9 +132,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
         </button>
 
         {showUserThinking && (
-          <div className="mt-1.5 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
-            {attempt.thinkingText}
-          </div>
+          <RichText text={attempt.thinkingText} className="mt-1.5 text-xs text-gray-300 leading-relaxed" />
         )}
       </div>
     </div>

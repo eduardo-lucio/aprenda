@@ -8,6 +8,7 @@ import {
   resolveChatBaseUrl,
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
+  addGlobalTokenListener,
 } from '../services/llmClient';
 import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
@@ -26,6 +27,14 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();
     if (win && !win.isDestroyed() && win.webContents) {
       win.webContents.send('llm:thinking-stream', payload);
+    }
+  });
+
+  addGlobalTokenListener(() => {
+    const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();
+    if (win && !win.isDestroyed() && win.webContents) {
+      const currentTokens = fsm.hasSession() ? fsm.getTokensUsed() : 0;
+      win.webContents.send('session:tokens-update', { tokensUsed: currentTokens });
     }
   });
   let currentSocraticNode: ConceptNode | undefined;

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
+import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
+import { mockLLM } from '../helpers/mockLLM';
+import { emitTokenUsage } from '../../src/main/services/llmClient';
 
 describe('SessionStateMachine', () => {
   let store: KnowledgeStore;
@@ -8,11 +11,11 @@ describe('SessionStateMachine', () => {
 
   beforeEach(() => {
     store = new KnowledgeStore();
-    fsm = new SessionStateMachine(store);
+    fsm = new SessionStateMachine(store, undefined, new CurriculumGenerator(mockLLM));
   });
 
-  it('initializes session in goal_orientation phase', () => {
-    fsm.startSession('teaching', 'Quero dominar Camada 3 e TTL');
+  it('initializes session in goal_orientation phase', async () => {
+    await fsm.startSession('teaching', 'Quero dominar Camada 3 e TTL');
     const state = fsm.getState();
     expect(state.phase).toBe('goal_orientation');
     expect(state.goalClarificationOptions).toBeDefined();
@@ -20,7 +23,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('moves to probing upon goal clarification and loads first question', async () => {
-    fsm.startSession('teaching', 'Camada 3 e Roteamento');
+    await fsm.startSession('teaching', 'Camada 3 e Roteamento');
     const question = await fsm.submitGoalClarification('Entender roteamento e TTL');
     const state = fsm.getState();
     expect(state.phase).toBe('probing');
@@ -30,7 +33,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('enforces a strict floor of 8 questions before automatic transition', async () => {
-    fsm.startSession('teaching', 'Redes Camada 3');
+    await fsm.startSession('teaching', 'Redes Camada 3');
     await fsm.submitGoalClarification('Foco total em Camada 3');
 
     // Submit 7 answers
@@ -47,7 +50,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('allows manual forceAdvanceToDiagnosis only after question 8 or when enabled', async () => {
-    fsm.startSession('teaching', 'Redes Camada 3');
+    await fsm.startSession('teaching', 'Redes Camada 3');
     await fsm.submitGoalClarification('Foco total em Camada 3');
 
     // At question 1, forceAdvance should throw or be ignored
@@ -75,7 +78,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('regresses to prerequisites (Zoom-In) when a false positive or failure occurs', async () => {
-    fsm.startSession('teaching', 'TTL');
+    await fsm.startSession('teaching', 'TTL');
     await fsm.submitGoalClarification('TTL e Loops');
 
     // Advance until we reach a node with prerequisites (Level >= 2)
@@ -108,7 +111,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('propagates mastery down to unconditional roots on solid answers', async () => {
-    fsm.startSession('teaching', 'ICMP');
+    await fsm.startSession('teaching', 'ICMP');
     await fsm.submitGoalClarification('ICMP e Diagnóstico');
 
     // Assume current question is osi-l3-icmp (or similar L3 node)
@@ -124,5 +127,31 @@ describe('SessionStateMachine', () => {
     expect(res.attempt.verdict).toBe('mastered');
     const state = fsm.getState();
     expect(state.nodesState[currentQ.nodeId]).toBe('mastered');
+  });
+
+  it('tracks tokensUsed accurately across session LLM operations and resets on new session', async () => {
+    await fsm.startSession('teaching', 'Tokens test');
+    expect(fsm.getState().tokensUsed).toBe(0);
+
+    emitTokenUsage({ promptTokens: 120, completionTokens: 80, totalTokens: 200 });
+    expect(fsm.getState().tokensUsed).toBe(200);
+
+    emitTokenUsage({ promptTokens: 300, completionTokens: 150, totalTokens: 450 });
+    expect(fsm.getState().tokensUsed).toBe(650);
+
+    // Starting a new session resets tokensUsed back to 0
+    await fsm.startSession('practice', 'New session');
+    expect(fsm.getState().tokensUsed).toBe(0);
+  });
+});
+
+describe('SessionStateMachine without AI fallbacks', () => {
+  it('rejects instead of serving a pre-baked template when the AI fails', async () => {
+    const failing = new CurriculumGenerator(async () => {
+      throw new Error('boom');
+    });
+    const fsm = new SessionStateMachine(new KnowledgeStore(), undefined, failing);
+    await expect(fsm.startSession('teaching', 'Eu quero aprender sobre tcp/udp')).rejects.toThrow();
+    expect(fsm.hasSession()).toBe(false);
   });
 });

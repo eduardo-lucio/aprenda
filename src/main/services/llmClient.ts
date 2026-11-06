@@ -69,11 +69,13 @@ export function extractLLMThinking(raw: string): string | undefined {
   return undefined;
 }
 
-/** Removes reasoning blocks (<think>…</think>) and markdown fences from a model answer. */
+/** Removes reasoning blocks (<think>…</think>) and outer markdown JSON fences from a model answer. */
 export function cleanLLMText(raw: string): string {
   return raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/```(?:json)?/gi, '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
     .trim();
 }
 
@@ -107,6 +109,31 @@ export function emitThinkingStream(text: string, done = false): void {
   if (globalThinkingListener) {
     try {
       globalThinkingListener({ text, done });
+    } catch {}
+  }
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  model?: string;
+}
+
+export type TokenUsageListener = (usage: TokenUsage) => void;
+let globalTokenListeners: TokenUsageListener[] = [];
+
+export function addGlobalTokenListener(listener: TokenUsageListener): () => void {
+  globalTokenListeners.push(listener);
+  return () => {
+    globalTokenListeners = globalTokenListeners.filter((l) => l !== listener);
+  };
+}
+
+export function emitTokenUsage(usage: TokenUsage): void {
+  for (const listener of globalTokenListeners) {
+    try {
+      listener(usage);
     } catch {}
   }
 }
@@ -188,7 +215,7 @@ async function doRequest(
     messages,
     ...(isReasoningModel ? {} : { temperature: options.temperature ?? 0.2 }),
     ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
-    ...(useStream ? { stream: true } : {}),
+    ...(useStream ? { stream: true, stream_options: { include_usage: true } } : {}),
   };
 
   if (options.maxTokens) {
@@ -248,7 +275,9 @@ async function doRequest(
 
 async function readResponseOrStream(
   res: Response,
-  shouldEmitLiveThinking: boolean
+  shouldEmitLiveThinking: boolean,
+  messages: Array<{ role: string; content: string }> = [],
+  model = ''
 ): Promise<{ content: string; nativeReasoning: string }> {
   const contentType = res.headers?.get?.('content-type') || '';
   const isSSE = contentType.includes('text/event-stream') && res.body && typeof res.body.getReader === 'function';
@@ -259,6 +288,7 @@ async function readResponseOrStream(
     let sseBuffer = '';
     let contentAcc = '';
     let reasoningAcc = '';
+    let reportedUsage: TokenUsage | null = null;
 
     while (true) {
       const { value, done } = await reader.read();
@@ -276,6 +306,15 @@ async function readResponseOrStream(
 
         try {
           const parsed = JSON.parse(dataStr);
+          if (parsed?.usage) {
+            const p = Number(parsed.usage.prompt_tokens) || 0;
+            const c = Number(parsed.usage.completion_tokens) || 0;
+            const t = Number(parsed.usage.total_tokens) || (p + c);
+            if (t > 0) {
+              reportedUsage = { promptTokens: p, completionTokens: c, totalTokens: t, model };
+            }
+          }
+
           const delta = parsed?.choices?.[0]?.delta || parsed?.choices?.[0]?.message;
           if (!delta) continue;
 
@@ -287,10 +326,7 @@ async function readResponseOrStream(
 
           if (shouldEmitLiveThinking) {
             const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
-            const liveThinking = [reasoningAcc.trim(), partialFromContent]
-              .filter(Boolean)
-              .join('\n\n')
-              .trim();
+            const liveThinking = (partialFromContent || reasoningAcc.trim()).trim();
             if (liveThinking) {
               emitThinkingStream(liveThinking, false);
             }
@@ -303,14 +339,20 @@ async function readResponseOrStream(
 
     if (shouldEmitLiveThinking) {
       const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
-      const finalThinking = [reasoningAcc.trim(), partialFromContent]
-        .filter(Boolean)
-        .join('\n\n')
-        .trim();
+      const finalThinking = (partialFromContent || reasoningAcc.trim()).trim();
       if (finalThinking) {
         emitThinkingStream(finalThinking, true);
       }
     }
+
+    if (!reportedUsage) {
+      const promptChars = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+      const outputChars = contentAcc.length + reasoningAcc.length;
+      const p = Math.max(1, Math.ceil(promptChars / 3.8));
+      const c = Math.max(1, Math.ceil(outputChars / 3.8));
+      reportedUsage = { promptTokens: p, completionTokens: c, totalTokens: p + c, model };
+    }
+    emitTokenUsage(reportedUsage);
 
     return { content: contentAcc, nativeReasoning: reasoningAcc.trim() };
   }
@@ -321,9 +363,27 @@ async function readResponseOrStream(
   const content = String(msg?.content || '');
   const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
 
+  let reportedUsage: TokenUsage | null = null;
+  if (data?.usage) {
+    const p = Number(data.usage.prompt_tokens) || 0;
+    const c = Number(data.usage.completion_tokens) || 0;
+    const t = Number(data.usage.total_tokens) || (p + c);
+    if (t > 0) {
+      reportedUsage = { promptTokens: p, completionTokens: c, totalTokens: t, model };
+    }
+  }
+  if (!reportedUsage) {
+    const promptChars = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+    const outputChars = content.length + nativeReasoning.length;
+    const p = Math.max(1, Math.ceil(promptChars / 3.8));
+    const c = Math.max(1, Math.ceil(outputChars / 3.8));
+    reportedUsage = { promptTokens: p, completionTokens: c, totalTokens: p + c, model };
+  }
+  emitTokenUsage(reportedUsage);
+
   if (shouldEmitLiveThinking) {
     const extracted = extractPartialThinkingFromBuffer(content) || extractLLMThinking(content);
-    const combined = [nativeReasoning, extracted].filter(Boolean).join('\n\n').trim();
+    const combined = (extracted || nativeReasoning).trim();
     if (combined) {
       emitThinkingStream(combined, true);
     }
@@ -340,6 +400,12 @@ export const callLLM: LLMCaller = async (options) => {
       'Nenhum provedor/modelo de IA configurado. Abra Configurações → Providers, valide sua chave e escolha um modelo em Agent.'
     );
   }
+
+  const messages: Array<{ role: string; content: string }> = [];
+  if (options.systemPrompt) {
+    messages.push({ role: 'system', content: options.systemPrompt });
+  }
+  messages.push({ role: 'user', content: options.prompt });
 
   const shouldStreamLive = !options.isBackground && Boolean(globalThinkingListener);
   let res = await doRequest(config, options, Boolean(options.jsonMode), shouldStreamLive);
@@ -373,7 +439,7 @@ export const callLLM: LLMCaller = async (options) => {
     throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
-  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive);
+  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model);
 
   // If a reasoning model exhausted max_tokens inside <think> and returned empty content, retry once without maxTokens cap
   if ((!content || !content.trim()) && options.maxTokens) {
@@ -384,7 +450,7 @@ export const callLLM: LLMCaller = async (options) => {
       shouldStreamLive
     );
     if (retryRes.ok) {
-      const retried = await readResponseOrStream(retryRes, shouldStreamLive);
+      const retried = await readResponseOrStream(retryRes, shouldStreamLive, messages, config.model);
       content = retried.content;
       nativeReasoning = retried.nativeReasoning || nativeReasoning;
     }

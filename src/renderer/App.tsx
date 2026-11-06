@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
-import { StatusBar } from './components/StatusBar';
 import { SessionView } from './views/SessionView';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
-import { ProbingSession } from '../shared/types';
+import { ProbingSession, ModelOption } from '../shared/types';
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -106,6 +105,72 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('toggle-dictate'));
   };
 
+  const handleChangeThinkingLevel = (level: 'off' | 'low' | 'medium' | 'high') => {
+    const capitalized = (level.charAt(0).toUpperCase() + level.slice(1)) as any;
+    const updated = {
+      ...settings,
+      strongThinking: level,
+      thinkingLevel: capitalized,
+    };
+    handleSaveSettings(updated);
+  };
+
+  const handleChangeModel = (model: string) => {
+    const updated = {
+      ...settings,
+      strongModel: model,
+      model: model,
+    };
+    handleSaveSettings(updated);
+  };
+
+  const [sessionTokens, setSessionTokens] = useState<number>(0);
+
+  // Sync token usage with active session and live token updates
+  useEffect(() => {
+    if (currentSession?.tokensUsed !== undefined) {
+      setSessionTokens(currentSession.tokensUsed);
+    } else if (!currentSession) {
+      setSessionTokens(0);
+    }
+  }, [currentSession?.id, currentSession?.tokensUsed]);
+
+  useEffect(() => {
+    if (!window.api?.onTokensUpdate) return;
+    const unsub = window.api.onTokensUpdate((payload) => {
+      setSessionTokens(payload.tokensUsed);
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, []);
+
+  // Identify current active provider and its available models
+  const activeProvider = useMemo(() => {
+    if (!settings.providers || settings.providers.length === 0) return null;
+    const found = settings.providers.find((p) => p.id === settings.activeProviderId);
+    if (found) return found;
+    return settings.providers.find((p) => p.isActive) || settings.providers[0];
+  }, [settings.providers, settings.activeProviderId]);
+
+  const activeProviderModels = useMemo<ModelOption[]>(() => {
+    if (activeProvider && activeProvider.models && activeProvider.models.length > 0) {
+      return activeProvider.models;
+    }
+    const fallbackId = settings.strongModel || settings.model || 'gemini-2.0-flash';
+    return [
+      {
+        id: fallbackId,
+        name: fallbackId,
+        provider: activeProvider?.name || activeProvider?.id || 'openrouter',
+        slug: `~${fallbackId}`,
+        price: 'Free',
+        context: '128k',
+        defaultEffort: 'medium',
+      },
+    ];
+  }, [activeProvider, settings.strongModel, settings.model]);
+
   const titleText = currentSession?.goal
     ? currentSession.goal
     : pendingSessionMode === 'practice'
@@ -137,19 +202,19 @@ export default function App() {
             pendingMode={pendingSessionMode}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
             onSessionCreated={handleSessionCreated}
+            modelName={settings.strongModel || settings.model || 'Sem modelo'}
+            thinkingLevel={settings.strongThinking || settings.thinkingLevel || 'High'}
+            tokenCount={sessionTokens}
+            questionCount={currentSession?.questionCount}
+            isRecording={isRecording}
+            onToggleDictate={handleToggleDictate}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onChangeThinkingLevel={handleChangeThinkingLevel}
+            onChangeModel={handleChangeModel}
+            availableModels={activeProviderModels}
           />
         </main>
       </div>
-
-      {/* Bottom Status Bar */}
-      <StatusBar
-        questionCount={currentSession?.questionCount || 0}
-        frontierClarity={currentSession?.frontierClarity || 0}
-        modelName={settings.strongModel || settings.model || 'Sem modelo'}
-        thinkingLevel={settings.thinkingLevel}
-        isRecording={isRecording}
-        onToggleDictate={handleToggleDictate}
-      />
 
       {/* Settings Modal */}
       <SettingsModal

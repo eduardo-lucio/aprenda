@@ -18,7 +18,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   thinkingLevel = 'High',
   isRecording = false,
   onToggleDictate,
-  tokenCount = 1420,
+  tokenCount = 0,
 }) => {
   return (
     <footer className="flex h-8 w-full select-none items-center justify-between border-t border-[#1e293b] bg-[#0c0c0c] px-4 text-[11px] text-gray-400">

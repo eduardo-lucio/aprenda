@@ -94,134 +94,6 @@ export function sanitizeGraph(rawNodes: any[]): ConceptNode[] {
   });
 }
 
-export function buildContextualFallbackQuestion(node: ConceptNode, goal: string): QuestionData {
-  const correctOptionIndex = Math.floor(Math.random() * 4);
-  const distractors = [
-    `Assumir que ${node.title} prescinde da validação de pré-requisitos sob variação de parâmetros.`,
-    `Considerar que as propriedades de ${node.title} decorrem de escolhas arbitrárias sem base conceitual.`,
-    `Supor que ${node.title} atua independentemente dos invariantes estruturais estabelecidos para ${goal}.`,
-  ];
-  let dIdx = 0;
-  const options: string[] = [];
-  for (let i = 0; i < 4; i++) {
-    if (i === correctOptionIndex) {
-      options.push(node.unconditionalTruth);
-    } else {
-      options.push(distractors[dIdx++]);
-    }
-  }
-
-  return {
-    id: `q-${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    nodeId: node.id,
-    questionText: `Considerando o papel de "${node.title}" (${node.summary.toLowerCase()}) em ${goal}, como este conceito governa a dinâmica do sistema?`,
-    options,
-    correctOptionIndex,
-    anchorConcept: node.title,
-    difficulty: node.level || 2,
-  };
-}
-
-export function buildFallbackGraphForGoal(goal: string): {
-  discipline: string;
-  nodes: ConceptNode[];
-  firstQuestion: QuestionData;
-} {
-  const topic = goal.trim() || 'Tema de Estudo';
-  const prefix = slugify(topic).slice(0, 20) || 'topico';
-  const nodes: ConceptNode[] = [
-    {
-      id: `${prefix}-l1-definicoes`,
-      title: `Definições Essenciais de ${topic}`,
-      summary: `Vocabulário fundamental e premissas de base de ${topic}.`,
-      level: 1,
-      prerequisites: [],
-      unconditionalTruth: `O domínio de ${topic} requer clareza inequívoca em suas definições primitivas.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l1-premissas`,
-      title: `Premissas e Condições de Validade`,
-      summary: `Condições de contorno nas quais ${topic} opera.`,
-      level: 1,
-      prerequisites: [],
-      unconditionalTruth: `Regras teóricas só se sustentam dentro de suas premissas explícitas.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l2-estrutura`,
-      title: `Estrutura e Relações Causais`,
-      summary: `Mecanismo de funcionamento interno de ${topic}.`,
-      level: 2,
-      prerequisites: [`${prefix}-l1-definicoes`],
-      unconditionalTruth: `Relações causais previsíveis ligam as entradas às saídas em ${topic}.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l2-modelagem`,
-      title: `Modelagem e Representação Formal`,
-      summary: `Expressão analítica e representação formal de ${topic}.`,
-      level: 2,
-      prerequisites: [`${prefix}-l1-premissas`],
-      unconditionalTruth: `A modelagem precisa elimina intuições vagas e inconsistências.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l3-aplicacao`,
-      title: `Aplicação Prática em ${topic}`,
-      summary: `Resolução de casos práticos e resolução de problemas.`,
-      level: 3,
-      prerequisites: [`${prefix}-l2-estrutura`],
-      unconditionalTruth: `A aplicação correta preserva os invariantes do sistema sob variação de parâmetros.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l3-casos-limite`,
-      title: `Casos Limite e Análise Crítica`,
-      summary: `Comportamento sob condições extremas e armadilhas comuns.`,
-      level: 3,
-      prerequisites: [`${prefix}-l2-modelagem`],
-      unconditionalTruth: `Casos extremos desmascaram premissas falsas e atalhos heurísticos errôneos.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l4-sintese`,
-      title: `Síntese e Domínio Integrado de ${topic}`,
-      summary: `Tomada de decisão avançada e articulação de múltiplos conceitos.`,
-      level: 4,
-      prerequisites: [`${prefix}-l3-aplicacao`, `${prefix}-l3-casos-limite`],
-      unconditionalTruth: `O domínio pleno unifica fundamentos, mecanismos e limites em síntese coerente.`,
-      status: 'untested',
-    },
-    {
-      id: `${prefix}-l4-avaliacao`,
-      title: `Avaliação Crítica e Resolução Inovadora`,
-      summary: `Julgamento e generalização conceitual sob incerteza em ${topic}.`,
-      level: 4,
-      prerequisites: [`${prefix}-l4-sintese`],
-      unconditionalTruth: `A maestria se manifesta na capacidade de diagnosticar falhas sutis e formular soluções robustas.`,
-      status: 'untested',
-    },
-  ];
-
-  const firstQuestion: QuestionData = {
-    id: `q-${prefix}-l1-1`,
-    nodeId: `${prefix}-l1-definicoes`,
-    questionText: `Para construir uma base sólida em "${topic}", qual é o papel das definições fundamentais e premissas iniciais do tema?`,
-    options: [
-      `Estabelecer os conceitos primitivos e invariantes sobre os quais mecanismos mais complexos se apoiam.`,
-      `Ignorar restrições básicas caso o resultado final pareça intuitivo.`,
-      `Substituir a compreensão conceitual pela memorização mecânica de fórmulas avançadas.`,
-      `Aplicar modelos complexos diretamente sem verificar as condições básicas do problema.`,
-    ],
-    correctOptionIndex: 0,
-    anchorConcept: `Definições Essenciais de ${topic}`,
-    difficulty: 1,
-  };
-
-  return { discipline: topic, nodes, firstQuestion };
-}
-
 export interface GeneratedGraphResult {
   discipline: string;
   nodes: ConceptNode[];
@@ -244,88 +116,61 @@ export class CurriculumGenerator {
     return this.lastGoalThinking;
   }
 
-  defaultGoalQuestion(goal: string): string {
-    const clean = goal.trim() || 'o tema';
-    return `O que exatamente você quer aprender sobre ${clean}? Escolha a opção que melhor descreve seu objetivo:`;
-  }
-
-  defaultGoalOptions(goal: string): string[] {
-    const clean = goal.trim() || 'Conceito';
-    return [
-      `Fundamentos da linguagem e premissas primitivas de ${clean}`,
-      `Sintaxe moderna, convenções e construções essenciais de ${clean}`,
-      `Programação assíncrona, concorrência e fluxo de controle em ${clean}`,
-      `Manipulação de estruturas, dados e APIs em ${clean}`,
-      `Mecanismos internos, ciclo de vida e tempo de execução de ${clean}`,
-      `Arquitetura de módulos, ecossistema e ferramentas de ${clean}`,
-      `Modelagem analítica, padrões e boas práticas em ${clean}`,
-      `Testes, validação, benchmarking e depuração em ${clean}`,
-      `Outro / não sei ainda — quero orientação`,
-    ];
-  }
-
   private isFatalProviderError(err: any): boolean {
     const msg = String(err?.message || err || '');
     return /HTTP (401|402|403|429)\b/i.test(msg);
   }
 
   async generateGoalOptions(goal: string): Promise<GoalClarificationResult> {
-    const fallback: GoalClarificationResult = {
-      question: this.defaultGoalQuestion(goal),
-      options: this.defaultGoalOptions(goal),
-    };
+    const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
+    let lastErr: unknown;
 
-    try {
-      const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
-      const raw = await this.llm({
-        systemPrompt,
-        prompt,
-        temperature: 0.3,
-        jsonMode: true,
-        maxTokens: 2048,
-        effortLevel: 'low',
-        timeoutMs: 25000,
-      });
-      const nativeThink = extractLLMThinking(raw);
-      const parsed = parseLLMJson<{ options?: unknown; question?: unknown; agentThinking?: unknown }>(raw);
-      const jsonThink =
-        typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
-          ? parsed.agentThinking.trim()
-          : undefined;
-      this.lastGoalThinking = jsonThink || nativeThink;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const raw = await this.llm({
+          systemPrompt,
+          prompt,
+          temperature: 0.4,
+          jsonMode: true,
+          effortLevel: 'low',
+          timeoutMs: 60000,
+        });
+        const nativeThink = extractLLMThinking(raw);
+        const parsed = parseLLMJson<{ options?: unknown; question?: unknown; agentThinking?: unknown }>(raw);
+        const jsonThink =
+          typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
+            ? parsed.agentThinking.trim()
+            : undefined;
+        this.lastGoalThinking = jsonThink || nativeThink;
 
-      const rawOpts = Array.isArray(parsed.options)
-        ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 9)
-        : [];
+        const rawOpts = Array.isArray(parsed.options)
+          ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 9)
+          : [];
+        const question =
+          typeof parsed.question === 'string' && parsed.question.trim() ? parsed.question.trim() : '';
 
-      let options = rawOpts.length >= 6 ? rawOpts : fallback.options;
-      if (!options.some((o) => o.toLowerCase().includes('outro') || o.toLowerCase().includes('não sei'))) {
-        options = [...options.slice(0, 8), 'Outro / não sei ainda — quero orientação'];
-      }
-
-      const question =
-        typeof parsed.question === 'string' && parsed.question.trim()
-          ? parsed.question.trim()
-          : this.defaultGoalQuestion(goal);
-
-      return {
-        question,
-        options,
-        agentThinking: this.lastGoalThinking,
-      };
-    } catch (err) {
-      console.error('[CurriculumGenerator] Falha ao gerar opções de escopo via IA:', err);
-      if (this.isFatalProviderError(err)) {
-        throw err;
+        if (rawOpts.length >= 5 && question) {
+          let options = rawOpts;
+          if (!options.some((o) => /outro|não sei/i.test(o))) {
+            options = [...options.slice(0, 8), 'Outro / não sei ainda — quero orientação'];
+          }
+          return { question, options, agentThinking: this.lastGoalThinking };
+        }
+        lastErr = new Error('A IA não retornou opções de escopo válidas.');
+      } catch (err) {
+        console.error(`[CurriculumGenerator] Falha ao gerar opções de escopo via IA (tentativa ${attempt + 1}):`, err);
+        lastErr = err;
+        if (this.isFatalProviderError(err)) throw err;
       }
     }
-    return {
-      ...fallback,
-      agentThinking: this.lastGoalThinking,
-    };
+    throw new Error(
+      `Não foi possível gerar as opções de escopo com a IA: ${String((lastErr as any)?.message || lastErr)}`
+    );
   }
 
   async generateGraph(goal: string): Promise<GeneratedGraphResult> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { systemPrompt, prompt } = buildGraphPrompt(goal);
       const raw = await this.llm({
@@ -388,13 +233,18 @@ export class CurriculumGenerator {
           agentThinking: graphThinking,
         };
       }
+      lastErr = new Error('A IA retornou um grafo conceitual inválido.');
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
+      lastErr = err;
       if (this.isFatalProviderError(err)) {
         throw err;
       }
     }
-    return buildFallbackGraphForGoal(goal);
+    }
+    throw new Error(
+      `Não foi possível gerar o grafo de conceitos com a IA: ${String((lastErr as any)?.message || lastErr)}`
+    );
   }
 
   async generateQuestion(
@@ -450,7 +300,7 @@ export class CurriculumGenerator {
       }
     }
 
-    return buildContextualFallbackQuestion(node, goal);
+    throw new Error(`Não foi possível gerar a questão com a IA para "${node.title}".`);
   }
 
   async generatePredict(

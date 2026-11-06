@@ -7,11 +7,13 @@ export function buildGoalOptionsPrompt(goal: string): { systemPrompt: string; pr
   const systemPrompt = `Você é o Orientador Pedagógico e Investigador de Fronteira do APRENDA.
 ${shared}
 
-O estudante definiu o seguinte objetivo inicial de estudo: "${goal}".
+O estudante escreveu o seguinte pedido inicial (texto bruto, pode ser uma frase completa): "${goal}".
+PRIMEIRO identifique o TEMA central do pedido (ex.: "eu quero aprender sobre tcp/udp" → "TCP e UDP"). NUNCA copie a frase do estudante dentro da pergunta ou das opções; use apenas o nome limpo do tema.
 Como o objetivo é amplo ou pode abranger diferentes recortes, sua tarefa é formular uma pergunta direta de clarificação E propor exatamente 9 alternativas técnicas, concretas e distintas para delimitar com precisão o objetivo de aprendizagem.
 
 DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES (LEARNHARNESS ASK_USER_QUESTION):
-1. A pergunta ("question") deve seguir o padrão: "O que exatamente você quer aprender sobre ${goal}? Escolha a opção que melhor descreve seu objetivo:" (ou adaptação equivalente com o tema).
+1. A pergunta ("question") deve seguir o padrão: "O que exatamente você quer aprender sobre <TEMA>? Escolha a opção que melhor descreve seu objetivo:", onde <TEMA> é o tema limpo que você identificou.
+1b. TODAS as opções devem ser geradas por você, específicas e tecnicamente corretas para o tema real (nada genérico; não assuma que o tema é uma linguagem de programação).
 2. As 8 primeiras opções devem mapear recortes concretos e técnicos indispensáveis do tema, cobrindo desde os fundamentos primitivos, passando pelos mecanismos estruturais, até aplicações, ecossistemas ou tópicos avançados.
 3. Cada opção deve ter entre 4 e 16 palavras, especificando subtópicos concretos entre parênteses quando relevante (ex: "Fundamentos da linguagem (variáveis, funções, controle de fluxo, objetos, arrays)").
 4. A 9ª opção DEVE ser exatamente: "Outro / não sei ainda — quero orientação".
@@ -20,7 +22,7 @@ DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES (LEARNHARNESS ASK_USER_QUESTION):
 Responda EXCLUSIVAMENTE em formato JSON:
 {
   "agentThinking": "Monólogo interno do tutor em primeira pessoa analisando o tema e a delimitação das 9 áreas...",
-  "question": "O que exatamente você quer aprender sobre ${goal}? Escolha a opção que melhor descreve seu objetivo:",
+  "question": "O que exatamente você quer aprender sobre <TEMA>? Escolha a opção que melhor descreve seu objetivo:",
   "options": [
     "Recorte 1 (subtópicos essenciais...)",
     "Recorte 2 (subtópicos essenciais...)",
@@ -61,8 +63,8 @@ Regras da Estrutura do Grafo (DAG):
 
 Regras da Primeira Questão ("firstQuestion"):
 - Alvo: o nó raiz de NÍVEL 1 (base fundamental) para verificar se o estudante possui o chão sólido antes de avançar na árvore.
-- "questionText": enunciado prático contextualizado com um problema real sobre o fundamento de base (NÃO use perguntas teóricas genéricas como "qual é o princípio correto").
-- "options": 4 alternativas homogêneas elaboradas estritamente sob o OPTION CRAFT (afirmações diretas, zero justificativa embutida, mesmo registro, distratores representando erros críveis).
+- "questionText": enunciado prático contextualizado com um problema real sobre o fundamento de base (NÃO use perguntas teóricas genéricas como "qual é o princípio correto"). Quando o tema envolver código, comandos ou sintaxe técnica, inclua trechos de código formatados em blocos Markdown com crases triplas (\`\`\`linguagem ... \`\`\`) e envolva identificadores, valores, tipos ou erros inline entre crases simples (\`codigo\`).
+- "options": 4 alternativas homogêneas elaboradas estritamente sob o OPTION CRAFT (afirmações diretas, zero justificativa embutida, mesmo registro, distratores representando erros críveis). Quando as alternativas contiverem valores de retorno, saídas, comandos ou erros de código, envolva-os entre crases simples (\`...\`).
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
 - "difficulty": 1.
@@ -88,8 +90,7 @@ Responda SOMENTE em JSON no formato:
     "options": ["Afirmação A", "Afirmação B", "Afirmação C", "Afirmação D"],
     "correctOptionIndex": 0,
     "anchorConcept": "Título do Conceito",
-    "difficulty": 1,
-    "agentThinking": "Monólogo interno sobre a hipótese testada nesta primeira questão..."
+    "difficulty": 1
   }
 }`;
 
@@ -111,6 +112,7 @@ Crie UMA questão diagnóstica contextualizada e profunda focada no conceito "${
 
 Diretrizes da Questão Diagnóstica (Option Craft):
 - O enunciado deve apresentar um problema prático, cenário de aplicação real ou análise de caso que exija dedução a partir do princípio fundamental (não uma pergunta mecânica ou memorização de rótulos).
+- Quando a questão envolver programação, comandos ou sintaxe técnica, formate os trechos de código em blocos Markdown (\`\`\`linguagem\\n...\\n\`\`\`) e envolva expressões, identificadores, saídas ou erros inline em crases simples (\`...\`), tanto no enunciado quanto nas alternativas.
 - 4 alternativas homogêneas, mesmo esqueleto, mesmo tom e afirmações diretas sem justificativa embutida.
 - Distratores devem capturar atalhos heurísticos falhos ou modelos mentais equivocados comuns em estudantes universitários.
 - Não repita formulações de questões anteriores.

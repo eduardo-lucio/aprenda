@@ -76,8 +76,10 @@ export interface ProbingSession {
   currentQuestion?: QuestionData;
   goalClarificationQuestion?: string;
   goalClarificationOptions?: string[];
+  goalThinking?: string;
   agentThinking?: string;
   chatHistory?: ChatTurnMessage[];
+  tokensUsed?: number;
 }
 
 export interface JudgeEvaluationResult {
@@ -155,4 +157,5 @@ export interface ElectronAPI {
   validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
   onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
+  onTokensUpdate?: (callback: (payload: { tokensUsed: number }) => void) => () => void;
 }

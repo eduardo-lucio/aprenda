@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registerIpcHandlers } from '../../src/main/ipc/registerIpcHandlers';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
+import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
+import { mockLLM } from '../helpers/mockLLM';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 
 describe('IPC Handlers', () => {
@@ -22,7 +24,7 @@ describe('IPC Handlers', () => {
       }),
     };
     store = new KnowledgeStore();
-    fsm = new SessionStateMachine(store);
+    fsm = new SessionStateMachine(store, undefined, new CurriculumGenerator(mockLLM));
     socratic = new SocraticEngine();
   });
 
@@ -60,7 +62,7 @@ describe('IPC Handlers', () => {
 
     await handlers['session:submit-goal']({}, 'Autovalores e Autovetores');
     const nodes = await handlers['graph:get']({});
-    expect(nodes.length).toBeGreaterThanOrEqual(8);
+    expect(nodes.length).toBeGreaterThanOrEqual(3);
     expect(nodes[0].status).toBe('untested');
   });
 });

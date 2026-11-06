@@ -2,134 +2,92 @@ import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QuestionCard } from '../../src/renderer/components/QuestionCard';
-import { QuestionData } from '../../src/shared/types';
 
-describe('QuestionCard Component', () => {
-  const sampleQuestion: QuestionData = {
-    id: 'q-test-1',
-    nodeId: 'osi-l3-ttl',
+describe('QuestionCard (presentational, docked above the chat)', () => {
+  const baseProps = {
+    label: 'PROBE #2',
+    anchor: 'TTL',
     questionText: 'O que acontece quando o TTL atinge 0?',
-    options: [
-      'O pacote é descartado e é gerado ICMP Time Exceeded',
-      'O pacote é retransmitido em loop',
-      'O pacote é convertido para broadcast',
-      'O cabeçalho IP é ignorado',
-    ],
-    correctOptionIndex: 0,
-    anchorConcept: 'TTL e Prevenção de Loops',
-    difficulty: 3,
+    options: ['Descarta o pacote', 'Retransmite em loop', 'Converte em broadcast', 'Ignora o cabeçalho'],
+    selectedIndex: null as number | null,
+    onSelect: vi.fn(),
   };
 
-  it('blocks submission and displays friendly prompt when thinkingText is blank', () => {
-    const onSubmit = vi.fn();
-    render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
-
-    // Select an option
-    const option = screen.getByText('O pacote é descartado e é gerado ICMP Time Exceeded');
-    fireEvent.click(option);
-
-    // Click submit with empty thinking
-    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
-    fireEvent.click(submitBtn);
-
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(/explique seu raciocínio com pelo menos algumas palavras/i)
-    ).toBeDefined();
+  it('renders label, question, anchor and options without any text field of its own', () => {
+    render(<QuestionCard {...baseProps} />);
+    expect(screen.getByText('PROBE #2')).toBeDefined();
+    expect(screen.getByText('TTL')).toBeDefined();
+    expect(screen.getByText('O que acontece quando o TTL atinge 0?')).toBeDefined();
+    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText(/your thinking/i)).toBeNull();
   });
 
-  it('emits selected option, confidence percentage, and thinking text on submit', () => {
-    const onSubmit = vi.fn();
-    render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
+  it('reports the selected option index and marks it as checked', () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<QuestionCard {...baseProps} onSelect={onSelect} />);
+    fireEvent.click(screen.getByText('Retransmite em loop'));
+    expect(onSelect).toHaveBeenCalledWith(1);
 
-    // Select option 0
-    fireEvent.click(screen.getByText('O pacote é descartado e é gerado ICMP Time Exceeded'));
-
-    // Fill thinking text
-    const textarea = screen.getByPlaceholderText(/escreva ou dite seu raciocínio/i);
-    fireEvent.change(textarea, {
-      target: { value: 'Cada roteador decrementa 1 no TTL. Ao chegar a 0, descarta.' },
-    });
-
-    // Adjust confidence slider to 85%
-    const slider = screen.getByRole('slider');
-    fireEvent.change(slider, { target: { value: '85' } });
-
-    // Submit
-    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
-    fireEvent.click(submitBtn);
-
-    expect(onSubmit).toHaveBeenCalledWith({
-      selectedOptionIndex: 0,
-      confidence: 85,
-      thinkingText: 'Cada roteador decrementa 1 no TTL. Ao chegar a 0, descarta.',
-    });
+    rerender(<QuestionCard {...baseProps} onSelect={onSelect} selectedIndex={1} />);
+    expect(screen.getAllByRole('radio')[1].getAttribute('aria-checked')).toBe('true');
   });
 
-  it('toggles voice dictation button safely without crashing', () => {
-    const onSubmit = vi.fn();
-    render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
-
-    const micBtn = screen.getByTitle(/ditar raciocínio por voz/i);
-    expect(micBtn).toBeDefined();
-    fireEvent.click(micBtn);
-    // Button state should toggle without crashing even if Web Speech API is absent in test
-    expect(micBtn).toBeDefined();
+  it('renders the dashed option and calls its handler', () => {
+    const onDashed = vi.fn();
+    render(
+      <QuestionCard
+        {...baseProps}
+        dashedOption={{ label: 'Não sei / Ainda não domino este conceito', selected: false, onSelect: onDashed, tone: 'amber' }}
+      />
+    );
+    fireEvent.click(screen.getByText('Não sei / Ainda não domino este conceito'));
+    expect(onDashed).toHaveBeenCalled();
   });
 
-  it('resets selected option, custom input, and thinking text when question changes', () => {
-    const onSubmit = vi.fn();
-    const { rerender } = render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
+  it('formats fenced code blocks with line numbers and inline code chips inside questionText and options', () => {
+    render(
+      <QuestionCard
+        {...baseProps}
+        questionText={'Considere este código:\n\n```js\nvar x = 10;\nlet y = 20;\n```\n\nQual é o resultado de `y`?'}
+        options={[
+          '`10` e `20`',
+          '`10` e `ReferenceError: y is not defined`',
+          '`undefined` e `undefined`',
+          '`ReferenceError: x is not defined`',
+        ]}
+      />
+    );
 
-    // Select option 0
-    const option0 = screen.getByText('O pacote é descartado e é gerado ICMP Time Exceeded');
-    fireEvent.click(option0);
+    const codeBlock = screen.getByTestId('code-block');
+    expect(codeBlock).toBeDefined();
+    expect(codeBlock.textContent).toContain('1');
+    expect(codeBlock.textContent).toContain('2');
+    expect(codeBlock.textContent).toContain('var x = 10;');
+    expect(codeBlock.textContent).toContain('let y = 20;');
 
-    // Fill thinking text
-    const textarea = screen.getByPlaceholderText(/escreva ou dite seu raciocínio/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: 'Minha justificativa anterior' } });
-    expect(textarea.value).toBe('Minha justificativa anterior');
-
-    // Rerender with next question
-    const nextQuestion: QuestionData = {
-      id: 'q-test-2',
-      nodeId: 'osi-l3-ip-packets',
-      questionText: 'Qual o campo do cabeçalho IPv4 que impede loops infinitos?',
-      options: ['TTL', 'Checksum', 'Protocol', 'Fragment Offset'],
-      correctOptionIndex: 0,
-      anchorConcept: 'Pacotes IP',
-      difficulty: 2,
-    };
-
-    rerender(<QuestionCard question={nextQuestion} onSubmit={onSubmit} />);
-
-    // Thinking text must be completely cleared
-    const updatedTextarea = screen.getByPlaceholderText(/escreva ou dite seu raciocínio/i) as HTMLTextAreaElement;
-    expect(updatedTextarea.value).toBe('');
-
-    // Clicking submit must fail because no option is selected
-    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
-    fireEvent.click(submitBtn);
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/selecione uma alternativa ou clique em "não sei"/i)).toBeDefined();
+    const inlineChips = screen.getAllByTestId('inline-code');
+    expect(inlineChips.length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByText('ReferenceError: y is not defined')).toBeDefined();
   });
 
-  it('allows selecting "Não sei" and submitting with default frontier thinking', () => {
-    const onSubmit = vi.fn();
-    render(<QuestionCard question={sampleQuestion} onSubmit={onSubmit} />);
+  it('also formats unfenced code blocks that start with a language header line (e.g. js\\nconst a = 42;)', () => {
+    render(
+      <QuestionCard
+        {...baseProps}
+        questionText={'Considere o trecho abaixo executado no console do navegador:\n\njs\nconst a = 42;\nconst b = "42";\nconst c = a + b;\nconst d = a - b;\n\nApós a execução, quais são os valores e tipos de `c` e `d`?'}
+        options={[
+          '`c` é `"4242"` (string) e `d` é `0` (number)',
+          '`c` é `84` (number) e `d` é `0` (number)',
+          '`c` é `"4242"` (string) e `d` é `NaN` (number)',
+          '`c` é `4242` (number) e `d` é `0` (number)',
+        ]}
+      />
+    );
 
-    // Click "Não sei"
-    const dontKnowOption = screen.getByText(/não sei \/ ainda não domino este conceito/i);
-    fireEvent.click(dontKnowOption);
-
-    // Submit directly without typing custom thinking
-    const submitBtn = screen.getByRole('button', { name: /enviar resposta|submit answer/i });
-    fireEvent.click(submitBtn);
-
-    expect(onSubmit).toHaveBeenCalledWith({
-      selectedOptionIndex: -1,
-      confidence: 0,
-      thinkingText: expect.stringMatching(/não sei responder/i),
-    });
+    const codeBlock = screen.getByTestId('code-block');
+    expect(codeBlock).toBeDefined();
+    expect(codeBlock.textContent).toContain('const a = 42;');
+    expect(codeBlock.textContent).toContain('const d = a - b;');
   });
 });

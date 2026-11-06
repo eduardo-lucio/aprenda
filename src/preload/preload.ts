@@ -56,6 +56,16 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('llm:thinking-stream', handler);
     };
   },
+
+  onTokensUpdate: (callback: (payload: { tokensUsed: number }) => void) => {
+    const handler = (_event: any, payload: { tokensUsed: number }) => {
+      callback(payload);
+    };
+    ipcRenderer.on('session:tokens-update', handler);
+    return () => {
+      ipcRenderer.removeListener('session:tokens-update', handler);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

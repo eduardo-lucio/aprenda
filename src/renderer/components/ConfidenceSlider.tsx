@@ -7,7 +7,7 @@ interface ConfidenceSliderProps {
 
 export const ConfidenceSlider: React.FC<ConfidenceSliderProps> = ({ value, onChange }) => {
   return (
-    <div className="flex items-center space-x-4 border-t border-[#262626] pt-3.5 text-xs">
+    <div className="flex items-center space-x-4 border-y border-[#262626] px-4 py-2.5 text-xs">
       <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400 shrink-0">
         CONFIDENCE
       </span>
@@ -18,6 +18,7 @@ export const ConfidenceSlider: React.FC<ConfidenceSliderProps> = ({ value, onCha
         max="100"
         step="5"
         role="slider"
+        aria-label="Confiança"
         aria-valuenow={value}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}

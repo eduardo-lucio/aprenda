@@ -9,6 +9,7 @@ import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
 import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
+import { addGlobalTokenListener } from '../services/llmClient';
 
 export const MIN_PROBE_QUESTIONS = 8;
 
@@ -22,6 +23,7 @@ export class SessionStateMachine {
   private candidateQueue: string[] = [];
   private askedQuestions: string[] = [];
   private questionCache: Map<string, QuestionData> = new Map();
+  private sessionTokensUsed = 0;
 
   constructor(
     store?: KnowledgeStore,
@@ -33,6 +35,13 @@ export class SessionStateMachine {
     this.judge = judge || new CognitiveJudgeService();
     this.generator = generator || new CurriculumGenerator();
     this.orchestrator = orchestrator || new AgentOrchestrator(this.generator, this.store);
+
+    addGlobalTokenListener((usage) => {
+      if (this.session) {
+        this.sessionTokensUsed += usage.totalTokens;
+        this.session.tokensUsed = this.sessionTokensUsed;
+      }
+    });
   }
 
   setSocraticEngine(socratic: SocraticEngine): void {
@@ -47,6 +56,10 @@ export class SessionStateMachine {
     return Boolean(this.session);
   }
 
+  getTokensUsed(): number {
+    return this.sessionTokensUsed;
+  }
+
   getState(): ProbingSession {
     if (!this.session) {
       throw new Error('Nenhuma sessão ativa.');
@@ -55,6 +68,7 @@ export class SessionStateMachine {
       ...this.session,
       attempts: [...this.session.attempts],
       nodesState: { ...this.session.nodesState },
+      tokensUsed: this.sessionTokensUsed,
     };
   }
 
@@ -66,15 +80,13 @@ export class SessionStateMachine {
     this.candidateQueue = [];
     this.askedQuestions = [];
     this.questionCache.clear();
+    this.sessionTokensUsed = 0;
 
     const existingNodes = this.store.getNodes();
     const initialNodesState: Record<string, ConceptNode['status']> = {};
     for (const node of existingNodes) {
       initialNodesState[node.id] = 'untested';
     }
-
-    const defaultOptions = this.generator.defaultGoalOptions(goal);
-    const defaultQuestion = this.generator.defaultGoalQuestion(goal);
 
     this.session = {
       id: `session-${Date.now()}`,
@@ -87,8 +99,8 @@ export class SessionStateMachine {
       attempts: [],
       socraticSteps: [],
       nodesState: initialNodesState,
-      goalClarificationQuestion: defaultQuestion,
-      goalClarificationOptions: defaultOptions,
+      goalClarificationOptions: [],
+      tokensUsed: 0,
     };
 
     const currentSession = this.session;
@@ -97,10 +109,14 @@ export class SessionStateMachine {
         currentSession.goalClarificationQuestion = res.question;
         currentSession.goalClarificationOptions = res.options;
         if (res.agentThinking) {
+          currentSession.goalThinking = res.agentThinking;
           currentSession.agentThinking = res.agentThinking;
         }
       }
       return this.getState();
+    }).catch((err) => {
+      if (this.session === currentSession) this.session = undefined;
+      throw err;
     });
   }
 
@@ -257,12 +273,9 @@ export class SessionStateMachine {
     // Pick next node and retrieve pre-cached question instantly (0ms)
     const nextNodeId = this.pickNextNode();
     const rawNextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
-    const combinedNextThinking = [evaluation.agentThinking, rawNextQuestion.agentThinking]
-      .filter((t): t is string => Boolean(t && t.trim()))
-      .join('\n\n');
     const nextQuestion: QuestionData = {
       ...rawNextQuestion,
-      agentThinking: combinedNextThinking || rawNextQuestion.agentThinking,
+      agentThinking: rawNextQuestion.agentThinking || evaluation.agentThinking,
     };
     this.askedQuestions.push(nextQuestion.questionText);
 
