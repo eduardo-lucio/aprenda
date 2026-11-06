@@ -2,7 +2,13 @@ import { BrowserWindow, IpcMain } from 'electron';
 import { SessionStateMachine } from '../fsm/SessionStateMachine';
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { SocraticEngine } from '../socratic/SocraticEngine';
-import { CheckQuestionData, ConceptNode, SettingsUpdatePayload } from '../../shared/types';
+import {
+  CheckQuestionData,
+  ConceptNode,
+  PersistedUi,
+  ProbeAnswerKind,
+  SettingsUpdatePayload,
+} from '../../shared/types';
 import { validateAndFetchModels } from '../services/providerValidationService';
 import {
   resolveChatBaseUrl,
@@ -10,6 +16,7 @@ import {
   updateDefaultLLMConfig,
   addGlobalTokenListener,
 } from '../services/llmClient';
+import { SessionRepository } from '../persistence/SessionRepository';
 import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
 export interface IpcDependencies {
@@ -17,11 +24,13 @@ export interface IpcDependencies {
   store: KnowledgeStore;
   socratic: SocraticEngine;
   getMainWindow?: () => BrowserWindow | null;
+  repository?: SessionRepository;
 }
 
 export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): void {
-  const { fsm, store, socratic, getMainWindow } = deps;
+  const { fsm, store, socratic, getMainWindow, repository } = deps;
   fsm.setSocraticEngine(socratic);
+  if (repository) fsm.setPersistence((snap) => repository.saveSnapshot(snap));
 
   setGlobalThinkingStreamListener((payload) => {
     const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();
@@ -47,6 +56,25 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     return await fsm.startSession(mode, goal);
   });
 
+  ipcMain.handle('session:list', async () => (repository ? repository.list() : []));
+
+  ipcMain.handle('session:load', async (_event, id: string) => {
+    const rec = repository?.get(id);
+    if (!rec) throw new Error('Sessão salva não encontrada.');
+    fsm.restoreSnapshot(rec.snapshot);
+    currentSocraticNode = undefined;
+    currentCheckData = undefined;
+    return { session: fsm.getState(), ui: rec.ui };
+  });
+
+  ipcMain.handle('session:delete', async (_event, id: string) => {
+    repository?.delete(id);
+  });
+
+  ipcMain.handle('session:save-ui', async (_event, id: string, ui: PersistedUi) => {
+    repository?.saveUi(id, ui);
+  });
+
   ipcMain.handle('session:submit-goal', async (_event, option: string, thinkingText?: string) => {
     return await fsm.submitGoalClarification(option, thinkingText);
   });
@@ -55,34 +83,41 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     'session:submit-probe',
     async (
       _event,
-      data: { selectedOptionIndex: number; confidence: number; thinkingText: string }
+      data: {
+        selectedOptionIndex: number;
+        answerKind?: ProbeAnswerKind;
+        confidence?: number;
+        thinkingText: string;
+      }
     ) => {
       const result = await fsm.submitProbeAnswer(data);
       return { ...result, session: fsm.getState() };
     }
   );
 
-  ipcMain.handle('session:advance-diagnosis', async () => {
-    fsm.forceAdvanceToDiagnosis();
+  ipcMain.handle('session:advance-plan', async () => {
+    await fsm.advanceToPlan();
+    return fsm.getState();
+  });
+
+  ipcMain.handle('session:confirm-plan', async () => {
+    fsm.confirmPlan();
     return fsm.getState();
   });
 
   ipcMain.handle('session:socratic-start', async (_event, nodeId?: string) => {
     const state = fsm.getState();
-    let targetNode: ConceptNode | undefined = nodeId ? store.getNodeById(nodeId) : undefined;
+    let targetNode: ConceptNode | undefined;
 
-    if (!targetNode) {
-      const priority: ConceptNode['status'][] = ['false_positive', 'blind_spot', 'frontier'];
-      const nodes = store.getStrand();
-      for (const status of priority) {
-        targetNode = nodes.find((n) => state.nodesState[n.id] === status);
-        if (targetNode) break;
-      }
-      targetNode = targetNode || nodes[0];
-    }
-
-    if (!targetNode) {
-      throw new Error('Ainda não há grafo de conceitos para esta sessão.');
+    if (nodeId) {
+      // Explicit request (e.g. from the concept map): always allowed, even for already-taught concepts
+      targetNode = store.getNodeById(nodeId);
+      if (!targetNode) throw new Error('Conceito não encontrado no grafo desta sessão.');
+    } else {
+      const nextId = fsm.nextTeachingNodeId();
+      targetNode = nextId ? store.getNodeById(nextId) : undefined;
+      // Nothing left in this pass (every concept mastered or already taught once)
+      if (!targetNode) return null;
     }
 
     currentSocraticNode = targetNode;
@@ -103,14 +138,20 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     return { teachProse: teachResult.teachProse, checkQuestion };
   });
 
-  ipcMain.handle('session:submit-check', async (_event, selectedIndex: number) => {
+  ipcMain.handle(
+    'session:submit-check',
+    async (_event, selectedIndex: number, confidence?: number, thinkingText?: string) => {
     if (!currentCheckData) {
-      throw new Error('No active check question');
+      throw new Error('Nenhuma pergunta de verificação ativa. Reinicie a etapa socrática deste conceito.');
     }
 
     const evalResult = socratic.evaluateCheck(selectedIndex, currentCheckData);
-    if (currentSocraticNode && evalResult.isPassed) {
-      fsm.markNodeStatus(currentSocraticNode.id, 'mastered');
+    if (currentSocraticNode) {
+      await fsm.recordCheckVerdict(currentSocraticNode.id, currentCheckData, {
+        selectedOptionIndex: selectedIndex,
+        confidence,
+        thinkingText,
+      });
     }
 
     return { ...evalResult, session: fsm.getState() };
@@ -151,6 +192,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     }
     if (payload.deepgramApiKey !== undefined) speechConfig.deepgramApiKey = payload.deepgramApiKey;
     if (payload.voiceLanguage) speechConfig.voiceLanguage = payload.voiceLanguage;
+    if (payload.minProbeQuestions !== undefined) fsm.setMinProbeQuestions(payload.minProbeQuestions);
     return { success: true };
   });
 

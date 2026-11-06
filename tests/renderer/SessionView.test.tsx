@@ -66,9 +66,10 @@ describe('SessionView Integration', () => {
           nodesState: { 'osi-l3-ttl': 'false_positive' },
         },
       }),
-      advanceToDiagnosis: vi.fn().mockResolvedValue({
+      advanceToPlan: vi.fn().mockResolvedValue({
         id: 'sess-1',
-        phase: 'frontier_diagnosis',
+        phase: 'plan_review',
+        plan: 'Plano de teste.',
         questionCount: 8,
         frontierClarity: 100,
         nodesState: { 'osi-l3-ttl': 'false_positive' },
@@ -91,7 +92,7 @@ describe('SessionView Integration', () => {
         isPassed: true,
         session: {
           id: 'sess-1',
-          phase: 'completed',
+          phase: 'teaching',
           nodesState: { 'osi-l3-ttl': 'mastered' },
         },
       }),
@@ -139,7 +140,7 @@ describe('SessionView Integration', () => {
 
     // Select clarification option and submit
     fireEvent.click(screen.getByText('Aprofundar em TTL e Prevenção de Loops'));
-    fireEvent.click(screen.getByRole('button', { name: /^enviar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
     await waitFor(() => {
       expect((window as any).api.submitGoalClarification).toHaveBeenCalled();
@@ -147,13 +148,14 @@ describe('SessionView Integration', () => {
     });
   });
 
-  it('renders comprehensive frontier diagnosis metrics when phase is frontier_diagnosis', () => {
-    const diagnosisSession: ProbingSession = {
-      id: 'sess-diag',
+  it('renders the plan review screen with the plan text and a start-teaching button, without diagnosis', () => {
+    const planSession: ProbingSession = {
+      id: 'sess-plan',
       mode: 'teaching',
       disciplineId: 'osi-layer3',
-      phase: 'frontier_diagnosis',
+      phase: 'plan_review',
       goal: 'Camada 3 e TTL',
+      plan: 'Começaremos pelo TTL, que a sondagem mostrou frágil.',
       questionCount: 8,
       frontierClarity: 100,
       attempts: [],
@@ -161,28 +163,17 @@ describe('SessionView Integration', () => {
       nodesState: { 'osi-l3-ttl': 'false_positive' },
     };
 
-    render(
-      <SessionView
-        initialNodes={[
-          {
-            id: 'osi-l3-ttl',
-            title: 'Time To Live (TTL)',
-            summary: 'Decremento a cada salto.',
-            level: 3,
-            prerequisites: [],
-            unconditionalTruth: 'Ao atingir 0 o pacote é descartado.',
-            status: 'false_positive',
-          },
-        ]}
-        currentSession={diagnosisSession}
-      />
-    );
+    render(<SessionView initialNodes={initialNodes} currentSession={planSession} />);
 
-    // Header and metrics should be rendered in the Chat tab
-    expect(screen.getByText(/diagnóstico da fronteira cognitiva concluído/i)).toBeDefined();
-    expect(screen.getAllByText(/falsos positivos/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /explorar no grafo dag/i })).toBeDefined();
-    expect(screen.getByRole('button', { name: /iniciar ensino socrático cirúrgico/i })).toBeDefined();
+    expect(screen.getByText(/começaremos pelo ttl/i)).toBeDefined();
+    expect(screen.getByRole('button', { name: /começar ensino/i })).toBeDefined();
+    expect(screen.queryByText(/diagnóstico da fronteira/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /iniciar ensino socrático/i })).toBeNull();
+
+    // No tiny embedded graph: a button opens the concept map tab instead
+    expect(screen.queryByRole('img', { name: /mapa de conceitos/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /ver mapa de conceitos/i }));
+    expect(screen.getByRole('img', { name: /mapa de conceitos/i })).toBeDefined();
   });
 
   it('renders vertical chat feed with previous answered questions, collapsible AGENT THINKING blocks, and bottom chat input', () => {
@@ -360,7 +351,7 @@ describe('SessionView Integration', () => {
     },
   };
 
-  it('docks the probe question with confidence slider and uses the chat field as the only reasoning input', async () => {
+  it('renders the probe question as a single card with confidence slider and one reasoning field', async () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
 
     // Single text field + confidence slider above it; no separate "Your thinking" field
@@ -370,7 +361,7 @@ describe('SessionView Integration', () => {
     expect(screen.getByText('Não sei / Ainda não domino este conceito')).toBeDefined();
 
     // Nothing chosen yet: send is disabled and placeholder invites own answer / thinking
-    const send = screen.getByRole('button', { name: /^enviar$/i }) as HTMLButtonElement;
+    const send = screen.getByRole('button', { name: /^enviar resposta$/i }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
     expect(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)).toBeDefined();
 
@@ -379,13 +370,13 @@ describe('SessionView Integration', () => {
     expect(send.disabled).toBe(false);
     expect(screen.getByPlaceholderText(/explique seu raciocínio \(opcional\)/i)).toBeDefined();
 
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '80' } });
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '4' } });
     fireEvent.click(send);
 
     await waitFor(() => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
         selectedOptionIndex: 0,
-        confidence: 80,
+        confidence: 90,
         thinkingText: '(O aluno não explicou o raciocínio.)',
       });
     });
@@ -397,7 +388,7 @@ describe('SessionView Integration', () => {
     fireEvent.change(screen.getByPlaceholderText(/explique seu raciocínio/i), {
       target: { value: 'Porque o roteador reenvia sempre.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /^enviar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
     await waitFor(() => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
@@ -408,23 +399,37 @@ describe('SessionView Integration', () => {
     });
   });
 
+  it('does not send confidence when the student answers "Não sei"', async () => {
+    render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
+    fireEvent.click(screen.getByText('Não sei / Ainda não domino este conceito'));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
+
+    await waitFor(() => {
+      const arg = (window as any).api.submitProbeAnswer.mock.calls[0][0];
+      expect(arg.selectedOptionIndex).toBe(-1);
+      expect(arg.confidence).toBeUndefined();
+      expect(arg.answerKind).toBeUndefined();
+    });
+  });
+
   it('treats text typed without choosing an alternative as the student\'s own answer', async () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
     fireEvent.change(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i), {
       target: { value: 'O pacote some e o roteador avisa a origem.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /^enviar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
     await waitFor(() => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
         selectedOptionIndex: -1,
+        answerKind: 'own_answer',
         confidence: 50,
         thinkingText: '[Resposta própria] O pacote some e o roteador avisa a origem.',
       });
     });
   });
 
-  it('docks the scope question and asks for a custom scope in the chat field (no confidence slider)', async () => {
+  it('renders the scope question as a single card and asks for a custom scope in its field (no confidence slider)', async () => {
     render(<SessionView initialNodes={initialNodes} />);
     fireEvent.change(screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i), {
       target: { value: 'Camada 3 e TTL' },
@@ -440,62 +445,32 @@ describe('SessionView Integration', () => {
     // Free-text custom scope typed in the chat field
     const input = screen.getByPlaceholderText(/insira um escopo personalizado/i);
     fireEvent.change(input, { target: { value: 'Só o ICMP' } });
-    fireEvent.click(screen.getByRole('button', { name: /^enviar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
     await waitFor(() => {
       expect((window as any).api.submitGoalClarification).toHaveBeenCalledWith('Só o ICMP', '');
     });
   });
 
-  it('collapses the docked question into a compact pill on scroll up and re-expands when clicking the pill', () => {
+  it('keeps the active question, confidence, reasoning field and submit button in ONE in-flow card inside the feed', () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
 
     const feed = screen.getByTestId('chat-feed-scroll');
-    const activeDock = screen.getByTestId('active-question-dock');
+    const card = screen.getByTestId('probe-card');
 
-    // Question lives inside the chat feed with zero internal scroll
-    expect(feed.contains(activeDock)).toBe(true);
-    expect(activeDock.querySelector('.overflow-y-auto')).toBeNull();
-    expect(activeDock.getAttribute('aria-hidden')).toBe('false');
-    expect(activeDock.className).toContain('grid-rows-[1fr]');
-
-    // Initially expanded: full question options and chat input are visible
-    expect(screen.getByText('Descarta o pacote')).toBeDefined();
-    expect(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)).toBeDefined();
+    // The card is part of the scrolling feed (no floating dock, no collapsed pill)
+    expect(feed.contains(card)).toBe(true);
     expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
+    expect(screen.queryByTestId('active-question-dock')).toBeNull();
 
-    // Simulate a tall scrollable feed where user scrolled up from bottom
-    Object.defineProperty(feed, 'scrollHeight', { value: 1200, configurable: true });
-    Object.defineProperty(feed, 'clientHeight', { value: 400, configurable: true });
-    Object.defineProperty(feed, 'scrollTop', { value: 780, configurable: true, writable: true });
-    fireEvent.scroll(feed);
-
-    // User scrolls up significantly
-    feed.scrollTop = 300;
-    fireEvent.scroll(feed);
-
-    // Full question card smoothly animates to 0fr (collapsed), compact pill replaces input field
-    expect(activeDock.getAttribute('aria-hidden')).toBe('true');
-    expect(activeDock.className).toContain('grid-rows-[0fr]');
-    const pill = screen.getByTestId('collapsed-question-pill');
-    expect(pill).toBeDefined();
-    expect(pill.textContent).toContain('O que acontece quando o TTL chega a 0?');
-    expect(pill.textContent).toContain('Answer');
-
-    // Chat input field is NOT visible while the question is collapsed
-    expect(screen.queryByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)).toBeNull();
-
-    // Clicking the collapsed question pill scrolls to bottom and re-expands the question and its input
-    fireEvent.click(pill);
-
-    expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
-    expect(activeDock.getAttribute('aria-hidden')).toBe('false');
-    expect(activeDock.className).toContain('grid-rows-[1fr]');
-    expect(screen.getByText('Descarta o pacote')).toBeDefined();
-    expect(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)).toBeDefined();
+    expect(card.textContent).toContain('Descarta o pacote');
+    expect(card.textContent).toContain('CONFIDENCE');
+    expect(card.querySelector('textarea')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^enviar resposta$/i })).toBeDefined();
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
   });
 
-  it('shrinks on wheel-up even at scrollTop=0, hides chat input while collapsed, and hides the question immediately when answered', async () => {
+  it('turns the question into an answered card (no feedback banner) while the AI is thinking', async () => {
     let resolveProbe!: (val: any) => void;
     (window as any).api.submitProbeAnswer = vi.fn().mockImplementation(
       () => new Promise((r) => { resolveProbe = r; })
@@ -503,25 +478,18 @@ describe('SessionView Integration', () => {
 
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
 
-    const feed = screen.getByTestId('chat-feed-scroll');
     // Only 1 AGENT'S THINKING block for the single active probe turn
     expect(screen.getAllByText(/agent's thinking/i)).toHaveLength(1);
 
-    // Even when scrollTop is 0 (like Turn 0), wheeling up shrinks the question; question bar replaces chat input
-    fireEvent.wheel(feed, { deltaY: -80 });
-    expect(screen.getByTestId('collapsed-question-pill')).toBeDefined();
-    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
-
-    // Click the collapsed question bar to re-open the question, choose an option and submit
-    fireEvent.click(screen.getByTestId('collapsed-question-pill'));
-    expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
-    expect(screen.getAllByRole('textbox')).toHaveLength(1);
-
     fireEvent.click(screen.getByText('Descarta o pacote'));
-    fireEvent.click(screen.getByRole('button', { name: /^enviar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
-    // While the AI is thinking (isSubmitting), the answered question immediately disappears from the bottom dock
-    expect(screen.queryByText('Descarta o pacote')).toBeNull();
+    // While the AI is thinking (isSubmitting), the answered question immediately disappears
+    expect(screen.queryByRole('button', { name: /^enviar resposta$/i })).toBeNull();
+    expect(screen.queryByTestId('probe-card')).toBeNull();
+    expect(screen.getByText('Descarta o pacote')).toBeDefined();
+    expect(screen.getByText('CORRECT')).toBeDefined();
+    expect(screen.queryByText(/você (acertou|errou)/i)).toBeNull();
     expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
 
     resolveProbe({
@@ -531,17 +499,44 @@ describe('SessionView Integration', () => {
         verdict: 'mastered',
         judgeReasoning: 'Correto.',
       },
-      nextAction: 'transition_diagnosis',
+      nextAction: 'transition_plan',
       session: {
         ...probingSession,
-        phase: 'frontier_diagnosis',
+        phase: 'plan_review',
+        plan: 'Plano gerado.',
         questionCount: 8,
         frontierClarity: 100,
       },
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/diagnóstico da fronteira cognitiva concluído/i)).toBeDefined();
+      expect(screen.getByRole('button', { name: /começar ensino/i })).toBeDefined();
     });
+  });
+  it('ends the teaching pass with a summary card (instead of looping) when no concept is left to teach', async () => {
+    (window as any).api.startSocraticStep = vi.fn().mockResolvedValue(null);
+    const teachingSession: ProbingSession = {
+      id: 'sess-teach',
+      mode: 'teaching',
+      disciplineId: 'osi-layer3',
+      phase: 'teaching',
+      goal: 'Camada 3 e TTL',
+      questionCount: 8,
+      frontierClarity: 100,
+      attempts: [],
+      socraticSteps: [],
+      nodesState: { 'osi-l3-ttl': 'frontier', 'osi-l3-ip': 'mastered' },
+    };
+
+    render(<SessionView initialNodes={initialNodes} currentSession={teachingSession} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('teaching-finished')).toBeDefined();
+    });
+    expect(screen.getByText(/passada de ensino concluída/i)).toBeDefined();
+    expect(screen.getByText(/1 conceito ainda não está dominado/i)).toBeDefined();
+    expect(screen.getByRole('button', { name: /abrir mapa de conceitos/i })).toBeDefined();
+    // No new socratic step was opened
+    expect(screen.queryByTestId('probe-card')).toBeNull();
   });
 });

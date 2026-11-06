@@ -3,9 +3,11 @@ import path from 'path';
 import { KnowledgeStore } from './knowledge/KnowledgeStore';
 import { SessionStateMachine } from './fsm/SessionStateMachine';
 import { SocraticEngine } from './socratic/SocraticEngine';
+import { SessionRepository } from './persistence/SessionRepository';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
 
 let mainWindow: BrowserWindow | null = null;
+let repository: SessionRepository | null = null;
 
 const store = new KnowledgeStore();
 const fsm = new SessionStateMachine(store);
@@ -29,6 +31,7 @@ function createWindow(): void {
     fsm,
     store,
     socratic,
+    repository: repository || undefined,
     getMainWindow: () => mainWindow,
   });
 
@@ -51,6 +54,7 @@ app.whenReady().then(() => {
   });
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
 
+  repository = new SessionRepository(path.join(app.getPath('userData'), 'sessions.json'));
   createWindow();
 
   app.on('activate', () => {
@@ -59,6 +63,8 @@ app.whenReady().then(() => {
     }
   });
 });
+
+app.on('before-quit', () => repository?.flush());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

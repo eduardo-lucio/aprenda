@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { ElectronAPI } from '../shared/types';
+import type { ElectronAPI, ProbeAnswerKind } from '../shared/types';
 
 const api: ElectronAPI = {
   startSession: (mode: 'teaching' | 'practice', goal: string) =>
@@ -10,12 +10,16 @@ const api: ElectronAPI = {
 
   submitProbeAnswer: (data: {
     selectedOptionIndex: number;
-    confidence: number;
+    answerKind?: ProbeAnswerKind;
+    confidence?: number;
     thinkingText: string;
   }) => ipcRenderer.invoke('session:submit-probe', data),
 
-  advanceToDiagnosis: () =>
-    ipcRenderer.invoke('session:advance-diagnosis'),
+  advanceToPlan: () =>
+    ipcRenderer.invoke('session:advance-plan'),
+
+  confirmPlan: () =>
+    ipcRenderer.invoke('session:confirm-plan'),
 
   startSocraticStep: (nodeId?: string) =>
     ipcRenderer.invoke('session:socratic-start', nodeId),
@@ -23,8 +27,16 @@ const api: ElectronAPI = {
   submitPrediction: (text: string) =>
     ipcRenderer.invoke('session:submit-prediction', text),
 
-  submitCheckAnswer: (selectedIndex: number) =>
-    ipcRenderer.invoke('session:submit-check', selectedIndex),
+  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) =>
+    ipcRenderer.invoke('session:submit-check', selectedIndex, confidence, thinkingText),
+
+  listSessions: () => ipcRenderer.invoke('session:list'),
+
+  loadSession: (id: string) => ipcRenderer.invoke('session:load', id),
+
+  deleteSession: (id: string) => ipcRenderer.invoke('session:delete', id),
+
+  saveSessionUi: (id: string, ui: any) => ipcRenderer.invoke('session:save-ui', id, ui),
 
   getGraphState: () =>
     ipcRenderer.invoke('graph:get'),

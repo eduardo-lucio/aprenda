@@ -2,10 +2,11 @@ import { ConceptNode, QuestionData } from '../../shared/types';
 import {
   buildGoalOptionsPrompt,
   buildGraphPrompt,
+  buildPlanPrompt,
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, extractLLMThinking, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, isProviderLimitError, LLMCaller, parseLLMJson } from './llmClient';
 
 function slugify(text: string): string {
   return (
@@ -107,6 +108,15 @@ export interface GoalClarificationResult {
   agentThinking?: string;
 }
 
+/** Short, human reason for a failed generation attempt. */
+function describeGenerationFailure(err: unknown): string {
+  const msg = String((err as any)?.message || err || '');
+  if (/Tempo limite|timeout|aborted/i.test(msg)) return 'o modelo demorou demais para responder (tempo limite)';
+  if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return 'falha de conexão com o provedor de IA';
+  if (/JSON|Unexpected token|parse/i.test(msg)) return 'a IA não devolveu um JSON válido';
+  return msg ? `erro do provedor de IA (${msg.slice(0, 120)})` : 'erro desconhecido do provedor de IA';
+}
+
 export class CurriculumGenerator {
   private lastGoalThinking?: string;
 
@@ -117,8 +127,7 @@ export class CurriculumGenerator {
   }
 
   private isFatalProviderError(err: any): boolean {
-    const msg = String(err?.message || err || '');
-    return /HTTP (401|402|403|429)\b/i.test(msg);
+    return isProviderLimitError(err);
   }
 
   async generateGoalOptions(goal: string): Promise<GoalClarificationResult> {
@@ -255,7 +264,8 @@ export class CurriculumGenerator {
   ): Promise<QuestionData> {
     const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let lastReason = 'a resposta da IA veio vazia ou fora do formato esperado';
+    for (let attempt = 0; attempt < 3; attempt++) {
       if (callOpts?.signal?.aborted) {
         throw new Error('Operação cancelada pelo orquestrador.');
       }
@@ -267,7 +277,7 @@ export class CurriculumGenerator {
           jsonMode: true,
           maxTokens: 2048,
           effortLevel: 'low',
-          timeoutMs: 30000,
+          timeoutMs: 60000,
           signal: callOpts?.signal,
           isBackground: Boolean(callOpts?.signal || callOpts?.isBackground),
         });
@@ -277,7 +287,7 @@ export class CurriculumGenerator {
           ? parsed.options.map((o: unknown) => String(o)).filter((o: string) => o.trim())
           : [];
         const correct = Number(parsed.correctOptionIndex);
-        if (parsed.questionText && options.length === 4 && correct >= 0 && correct < 4) {
+        if (parsed.questionText && options.length >= 2 && options.length <= 6 && correct >= 0 && correct < options.length) {
           const qThink =
             (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) ||
             nativeThink;
@@ -292,15 +302,22 @@ export class CurriculumGenerator {
             agentThinking: qThink,
           };
         }
+        lastReason = 'a IA devolveu uma questão incompleta (faltam enunciado, alternativas ou gabarito)';
+        console.error(`[CurriculumGenerator] Questão inválida (tentativa ${attempt + 1}):`, raw.slice(0, 300));
       } catch (err) {
         console.error(`[CurriculumGenerator] Falha ao gerar questão via IA (tentativa ${attempt + 1}):`, err);
         if (this.isFatalProviderError(err)) {
           throw err;
         }
+        lastReason = describeGenerationFailure(err);
       }
     }
 
-    throw new Error(`Não foi possível gerar a questão com a IA para "${node.title}".`);
+    throw new Error(
+      `Não foi possível gerar a próxima questão ("${node.title}"): ${lastReason}. ` +
+        'Sua resposta NÃO foi registrada — clique em "Enviar resposta" para tentar de novo. ' +
+        'Se continuar falhando, troque o modelo em Configurações → Agent (modelos mais rápidos ou sem raciocínio longo costumam resolver) ou verifique sua conexão.'
+    );
   }
 
   async generatePredict(
@@ -330,12 +347,52 @@ export class CurriculumGenerator {
           promptGoal: String(parsed.promptGoal || 'Preveja o resultado antes de vermos a teoria formal.'),
         };
       }
-    } catch {
+    } catch (err) {
+      if (this.isFatalProviderError(err)) throw err;
       // Fallback
     }
     return {
       questionText: `Antes de estudarmos formalmente "${node.title}": ${node.summary} Com base na sua intuição, o que você espera que aconteça e por quê?`,
       promptGoal: 'Preveja o resultado antes de vermos a teoria formal.',
+    };
+  }
+
+  /** Short teaching plan + suggested node order, derived from what probing revealed. */
+  async generatePlan(params: {
+    goal: string;
+    nodes: ConceptNode[];
+    attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
+  }): Promise<{ plan: string; order: string[] }> {
+    try {
+      const { systemPrompt, prompt } = buildPlanPrompt(params);
+      const raw = await this.llm({
+        systemPrompt,
+        prompt,
+        temperature: 0.3,
+        jsonMode: true,
+        maxTokens: 800,
+        effortLevel: 'low',
+        timeoutMs: 30000,
+      });
+      const parsed = parseLLMJson<any>(raw);
+      if (typeof parsed?.plan === 'string' && parsed.plan.trim()) {
+        const known = new Set(params.nodes.map((n) => n.id));
+        const order = Array.isArray(parsed.order)
+          ? parsed.order.map(String).filter((id: string) => known.has(id))
+          : [];
+        return { plan: parsed.plan.trim(), order };
+      }
+    } catch (err) {
+      console.error('[CurriculumGenerator] Falha ao gerar plano via IA:', err);
+      if (this.isFatalProviderError(err)) throw err;
+    }
+    const pending = params.nodes.filter((n) => n.status !== 'mastered').sort((a, b) => a.level - b.level);
+    const list = pending.map((n) => n.title).join(', ');
+    return {
+      plan: pending.length
+        ? `Vamos trabalhar, nesta ordem, os conceitos que a sondagem mostrou frágeis ou ainda não dominados: ${list}.`
+        : 'A sondagem mostrou domínio dos conceitos mapeados. Vamos reforçar os mais avançados.',
+      order: pending.map((n) => n.id),
     };
   }
 }

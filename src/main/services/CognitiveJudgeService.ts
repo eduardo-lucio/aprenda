@@ -1,8 +1,30 @@
-import { ConceptNode, JudgeEvaluationResult } from '../../shared/types';
+import {
+  ConceptNode,
+  JudgeEvaluationResult,
+  ProbeAnswerKind,
+  resolveAnswerKind,
+} from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM, extractLLMThinking, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, parseLLMJson } from './llmClient';
 
 const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
+type Verdict = (typeof VERDICTS)[number];
+
+const MAX_TRIES = 2;
+
+/**
+ * The judge could not produce a trustworthy verdict (timeout, bad JSON, provider error).
+ * Never graded "offline": the caller must surface it so the student can simply resubmit.
+ */
+export class JudgeUnavailableError extends Error {
+  constructor(reason: string) {
+    super(
+      `Não foi possível avaliar sua resposta (${reason}). Sua resposta NÃO foi registrada — envie de novo. ` +
+        'Se continuar falhando, troque o modelo em Configurações → Agent ou verifique sua conexão.'
+    );
+    this.name = 'JudgeUnavailableError';
+  }
+}
 
 export class CognitiveJudgeService {
   constructor(private llm: LLMCaller = callLLM) {}
@@ -12,89 +34,112 @@ export class CognitiveJudgeService {
     questionText: string;
     options: string[];
     selectedOptionIndex: number;
+    answerKind?: ProbeAnswerKind;
     correctOptionIndex: number;
-    confidence: number;
+    confidence?: number;
     thinkingText: string;
   }): Promise<JudgeEvaluationResult> {
-    const isCorrectOption = attempt.selectedOptionIndex === attempt.correctOptionIndex;
+    const kind = resolveAnswerKind(attempt.selectedOptionIndex, attempt.answerKind);
+    const isCorrectOption = kind === 'option' && attempt.selectedOptionIndex === attempt.correctOptionIndex;
 
-    try {
-      const { systemPrompt, prompt } = buildCognitiveJudgePrompt(attempt);
-      const rawResponse = await this.llm({
-        systemPrompt,
-        prompt,
-        temperature: 0.1,
-        jsonMode: true,
-        maxTokens: 1024,
-        effortLevel: 'minimal',
-        timeoutMs: 18000,
-      });
+    let lastErr: unknown;
+    let incoherent: { parsed: any; nativeThink?: string } | undefined;
 
-      const nativeThink = extractLLMThinking(rawResponse);
-      const parsed = parseLLMJson<any>(rawResponse);
-      if (parsed.verdict && (VERDICTS as readonly string[]).includes(parsed.verdict)) {
-        const agentThinking =
-          (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) ||
-          nativeThink ||
-          parsed.reasoningDiagnosis;
+    for (let tryNo = 0; tryNo < MAX_TRIES; tryNo++) {
+      try {
+        const { systemPrompt, prompt } = buildCognitiveJudgePrompt({ ...attempt, answerKind: kind });
+        const rawResponse = await this.llm({
+          systemPrompt,
+          prompt,
+          temperature: 0.1,
+          jsonMode: true,
+          maxTokens: 1024,
+          effortLevel: 'minimal',
+          timeoutMs: 30000,
+        });
+
+        const nativeThink = extractLLMThinking(rawResponse);
+        const parsed = parseLLMJson<any>(rawResponse);
+
+        if (!parsed?.verdict || !(VERDICTS as readonly string[]).includes(parsed.verdict)) {
+          lastErr = new Error('veredito ausente ou inválido na resposta do modelo');
+          continue;
+        }
+        if (!this.isCoherent(parsed.verdict, kind, isCorrectOption)) {
+          incoherent = { parsed, nativeThink };
+          continue;
+        }
+
         return {
           verdict: parsed.verdict,
           isCorrectOption,
           confidenceLevel: attempt.confidence,
           reasoningDiagnosis: parsed.reasoningDiagnosis || 'Avaliação cognitiva gerada pelo modelo.',
           identifiedMisconception: parsed.identifiedMisconception || undefined,
-          agentThinking,
+          agentThinking: this.pickThinking(parsed, nativeThink),
         };
+      } catch (err) {
+        // Quota/credit/key failures and missing configuration must reach the user right away
+        if (isFatalLLMError(err)) throw err;
+        lastErr = err;
       }
-    } catch (_err) {
-      // Heuristic fallback for offline / network timeout / demo resiliency
     }
 
-    return this.evaluateHeuristic(attempt, isCorrectOption);
+    // The model kept contradicting the answer key: keep the objective bit, never inflate mastery.
+    if (incoherent) return this.conservativeVerdict(attempt, kind, isCorrectOption, incoherent);
+
+    throw new JudgeUnavailableError(this.describeFailure(lastErr));
   }
 
-  /** Domain-agnostic fallback based on correctness, confidence and reasoning depth. */
-  private evaluateHeuristic(
-    attempt: { confidence: number; thinkingText: string },
-    isCorrectOption: boolean
+  /**
+   * A verdict must agree with correctness: right answers are mastered/false_positive, wrong ones
+   * blind_spot/frontier, "não sei" is always frontier. A written (own) answer has no answer key,
+   * so the judge's reading of the text decides.
+   */
+  private isCoherent(verdict: string, kind: ProbeAnswerKind, isCorrectOption: boolean): boolean {
+    if (kind === 'own_answer') return true;
+    if (kind === 'dont_know') return verdict === 'frontier';
+    return isCorrectOption
+      ? verdict === 'mastered' || verdict === 'false_positive'
+      : verdict === 'blind_spot' || verdict === 'frontier';
+  }
+
+  /** Used only when the model contradicts the answer key twice: never grants "mastered". */
+  private conservativeVerdict(
+    attempt: { confidence?: number },
+    kind: ProbeAnswerKind,
+    isCorrectOption: boolean,
+    source: { parsed: any; nativeThink?: string }
   ): JudgeEvaluationResult {
-    const text = (attempt.thinkingText || '').toLowerCase().trim();
-    const isGuess =
-      text.includes('chute') ||
-      text.includes('eliminação') ||
-      text.includes('não sei') ||
-      text.includes('acho que') ||
-      text.includes('talvez') ||
-      text.split(/\s+/).filter(Boolean).length < 4;
-
-    let verdict: JudgeEvaluationResult['verdict'];
-    let reasoningDiagnosis: string;
-
-    if (isCorrectOption) {
-      if (isGuess || attempt.confidence < 50) {
-        verdict = 'false_positive';
-        reasoningDiagnosis =
-          'Falso Positivo (avaliação heurística offline): alternativa correta, mas o raciocínio foi superficial, por eliminação ou com baixa confiança.';
-      } else {
-        verdict = 'mastered';
-        reasoningDiagnosis =
-          'Domínio (avaliação heurística offline): resposta correta sustentada por justificativa e confiança consistentes.';
-      }
-    } else if (attempt.confidence >= 60) {
-      verdict = 'blind_spot';
-      reasoningDiagnosis =
-        'Ponto Cego (avaliação heurística offline): erro cometido com alta convicção, sugerindo um modelo mental distorcido.';
-    } else {
-      verdict = 'frontier';
-      reasoningDiagnosis =
-        'Fronteira (avaliação heurística offline): erro com dúvida declarada, marcando o limite atual da compreensão.';
-    }
-
+    const verdict: Verdict = kind === 'option' && isCorrectOption ? 'false_positive' : 'frontier';
+    const note =
+      verdict === 'false_positive'
+        ? 'Acerto não confirmado: o modelo avaliador se contradisse com o gabarito, então tratamos o domínio como não verificado.'
+        : 'Resposta não validada: o modelo avaliador se contradisse com o gabarito.';
     return {
       verdict,
       isCorrectOption,
       confidenceLevel: attempt.confidence,
-      reasoningDiagnosis,
+      reasoningDiagnosis: [source.parsed?.reasoningDiagnosis, note].filter(Boolean).join(' '),
+      identifiedMisconception: source.parsed?.identifiedMisconception || undefined,
+      agentThinking: this.pickThinking(source.parsed, source.nativeThink),
     };
+  }
+
+  private pickThinking(parsed: any, nativeThink?: string): string | undefined {
+    return (
+      (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) ||
+      nativeThink ||
+      parsed?.reasoningDiagnosis ||
+      undefined
+    );
+  }
+
+  private describeFailure(err: unknown): string {
+    const msg = String((err as any)?.message || err || '');
+    if (/Tempo limite|timeout|aborted/i.test(msg)) return 'o modelo demorou demais para responder';
+    if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return 'falha de conexão com o provedor de IA';
+    if (/JSON|Unexpected token|parse/i.test(msg)) return 'a IA não devolveu um JSON válido';
+    return msg ? msg.slice(0, 120) : 'erro desconhecido do provedor de IA';
   }
 }

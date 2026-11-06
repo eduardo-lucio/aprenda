@@ -357,4 +357,19 @@ describe('SettingsModal Functional Component', () => {
       })
     );
   });
+
+  it('lets the user set the minimum probe questions between 3 and 20 in the Agent tab', () => {
+    const onSave = vi.fn();
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} onSave={onSave} initialSettings={DEFAULT_SETTINGS} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+
+    const slider = screen.getByRole('slider', { name: /mínimo de questões da sondagem/i }) as HTMLInputElement;
+    expect(slider.min).toBe('3');
+    expect(slider.max).toBe('20');
+    expect(screen.getByTestId('min-questions-value').textContent).toBe('8');
+
+    fireEvent.change(slider, { target: { value: '12' } });
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ minQuestions: 12 }));
+    expect(screen.getByTestId('min-questions-value').textContent).toBe('12');
+  });
 });

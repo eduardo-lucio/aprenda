@@ -33,11 +33,11 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   onFinishStep,
 }) => {
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-[#1e293b] bg-[#111111] p-6 shadow-2xl text-gray-200">
-      <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
+    <div className="flex flex-col gap-4 rounded-lg border border-ink-700 bg-ink-900 p-6 shadow-2xl text-gray-200">
+      <div className="flex items-center justify-between border-b border-ink-700 pb-3">
         <div className="flex items-center space-x-2">
-          <Sparkles className="h-4 w-4 text-emerald-400" />
-          <span className="font-semibold text-xs tracking-wider uppercase text-emerald-400">
+          <Sparkles className="h-4 w-4 text-gray-300" />
+          <span className="font-semibold font-mono text-[10px] tracking-widest uppercase text-gray-300">
             Ciclo Socrático: {node.title}
           </span>
         </div>
@@ -76,7 +76,7 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
           <div className="flex justify-end">
             <button
               onClick={onAdvanceToCheck}
-              className="flex items-center space-x-2 rounded bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-md"
+              className="flex items-center space-x-2 rounded bg-gray-200 px-4 py-2 text-xs font-semibold text-ink-950 hover:bg-white transition-colors shadow-md"
             >
               <span>Check Your Understanding</span>
               <ArrowRight className="h-3.5 w-3.5" />

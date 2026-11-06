@@ -6,20 +6,22 @@ import {
   ProbingSession,
   QuestionData,
   ModelOption,
+  ProbeAttempt,
+  ProbeAnswerKind,
 } from '../../shared/types';
 import { AgentThinkingBlock } from '../components/AgentThinkingBlock';
 import { QuestionCard } from '../components/QuestionCard';
 import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
 import { SocraticCard, SocraticStep } from '../components/SocraticCard';
-import { RichText, toPlainPreview } from '../components/RichText';
-import { ConfidenceSlider } from '../components/ConfidenceSlider';
+import { RichText } from '../components/RichText';
+import { ProbeCard } from '../components/ProbeCard';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
+import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions } from '../../shared/types';
 import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
-  ArrowDown,
   Sparkles,
   BarChart3,
   BookOpen,
@@ -32,11 +34,13 @@ import {
   Mic,
   ChevronDown,
   Check,
+  X,
 } from 'lucide-react';
 
 interface SessionViewProps {
   initialNodes?: ConceptNode[];
   currentSession?: ProbingSession | null;
+  restoredUi?: PersistedUi | null;
   pendingMode?: 'teaching' | 'practice' | null;
   onSessionUpdate?: (session: ProbingSession) => void;
   onSessionCreated?: (session: ProbingSession) => void;
@@ -44,6 +48,7 @@ interface SessionViewProps {
   thinkingLevel?: string;
   tokenCount?: number;
   questionCount?: number;
+  minQuestions?: number;
   isRecording?: boolean;
   onToggleDictate?: () => void;
   onOpenSettings?: () => void;
@@ -55,6 +60,7 @@ interface SessionViewProps {
 export const SessionView: React.FC<SessionViewProps> = ({
   initialNodes = [],
   currentSession = null,
+  restoredUi = null,
   pendingMode = 'teaching',
   onSessionUpdate,
   onSessionCreated,
@@ -62,6 +68,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   thinkingLevel = 'High',
   tokenCount = 0,
   questionCount,
+  minQuestions: minQuestionsProp,
   isRecording = false,
   onToggleDictate,
   onOpenSettings,
@@ -85,21 +92,19 @@ export const SessionView: React.FC<SessionViewProps> = ({
     promptGoal?: string;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingAttempt, setPendingAttempt] = useState<ProbeAttempt | null>(null);
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
   const [customScopeInput, setCustomScopeInput] = useState('');
   const [bottomChatInput, setBottomChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>([]);
   const [streamingThinking, setStreamingThinking] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
-  const [dockCollapsed, setDockCollapsed] = useState(false);
   const [answeredScope, setAnsweredScope] = useState<{
     questionText: string;
     options: string[];
     selectedOption: string;
     thinkingText?: string;
   } | null>(null);
-  const lastScrollTopRef = useRef(0);
-  const autoScrollingRef = useRef(false);
 
   // States for Image 3 inspired Model & Thinking popovers
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -152,7 +157,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // Shared answer state for the question docked above the chat field
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [isDontKnow, setIsDontKnow] = useState(false);
-  const [confidence, setConfidence] = useState<number>(50);
+  const [confidence, setConfidence] = useState<number>(DEFAULT_CONFIDENCE);
 
   // Socratic cycle state (lifted out of the card: inputs live in the chat field)
   const [socraticStep, setSocraticStep] = useState<SocraticStep>('predict');
@@ -160,6 +165,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [checkQuestion, setCheckQuestion] = useState<CheckQuestionData | null>(null);
   const [checkResult, setCheckResult] = useState<{ isPassed: boolean; repairExplanation?: string } | null>(null);
   const [socraticLoading, setSocraticLoading] = useState(false);
+  // True once the teaching pass has gone through every concept that was still pending
+  const [teachingFinished, setTeachingFinished] = useState(false);
+  useEffect(() => {
+    setTeachingFinished(false);
+  }, [session?.id]);
 
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const hasSessionRef = useRef(false);
@@ -181,17 +191,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
     return () => window.removeEventListener('toggle-dictate', handleGlobalDictate);
   }, [toggleListening]);
 
+  const minQuestions = minQuestionsProp === undefined ? MIN_PROBE_QUESTIONS : clampProbeQuestions(minQuestionsProp);
   const feedContainerRef = useRef<HTMLDivElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
-  const activeDockRef = useRef<HTMLDivElement | null>(null);
-  const collapseTimestampRef = useRef<number>(0);
-
-  const collapseDock = () => {
-    setDockCollapsed((prev) => {
-      if (!prev) collapseTimestampRef.current = Date.now();
-      return true;
-    });
-  };
+  const activeCardRef = useRef<HTMLDivElement | null>(null);
 
   const appendUserChatMessage = (text: string, afterAttemptCount = session?.attempts?.length || 0) => {
     const clean = text.trim();
@@ -226,8 +229,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   useEffect(() => {
     setSelectedIdx(null);
     setIsDontKnow(false);
-    setConfidence(50);
-    setDockCollapsed(false);
+    setConfidence(DEFAULT_CONFIDENCE);
   }, [currentQuestion?.id, session?.id, socraticStep, checkQuestion?.questionText]);
 
   useEffect(() => {
@@ -237,27 +239,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setCheckResult(null);
   }, [socraticNode?.id]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     const el = feedContainerRef.current;
     if (el && typeof el.scrollTo === 'function') {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      el.scrollTo({ top: el.scrollHeight, behavior });
     } else if (feedEndRef.current && typeof feedEndRef.current.scrollIntoView === 'function') {
-      feedEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      feedEndRef.current.scrollIntoView({ behavior, block: 'nearest' });
     }
-  };
-
-  /** Re-opens the docked question and brings the feed back to the bottom. */
-  const expandDock = () => {
-    autoScrollingRef.current = true;
-    setDockCollapsed(false);
-    requestAnimationFrame(() => {
-      scrollToBottom();
-    });
-    setTimeout(() => {
-      autoScrollingRef.current = false;
-      const el = feedContainerRef.current;
-      if (el) lastScrollTopRef.current = el.scrollTop;
-    }, 700);
   };
 
   useEffect(() => {
@@ -281,6 +269,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setSocraticNode(null);
         setSocraticPredictData(null);
         setGoalInput('');
+        uiOwnerRef.current = null;
         setChatMessages([]);
         setAnsweredScope(null);
         setStreamingThinking('');
@@ -292,11 +281,52 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   }, [currentSession, initialNodes.length]);
 
-  // Auto-scroll feed down only when a new turn/question/attempt arrives (NEVER on streamingThinking chunks)
+  // Restore chat messages of a session loaded from disk
+  const uiOwnerRef = useRef<string | null>(null);
   useEffect(() => {
-    if (dockCollapsed) return;
+    if (!restoredUi || !currentSession) return;
+    uiOwnerRef.current = currentSession.id;
+    setChatMessages(restoredUi.chatMessages || []);
+    setAnsweredScope(restoredUi.answeredScope || null);
+  }, [restoredUi, currentSession?.id]);
+
+  // Persist chat messages (debounced; the timer of a stale render is cancelled by the next one)
+  useEffect(() => {
+    if (!session || !window.api?.saveSessionUi) return;
+    if (uiOwnerRef.current && uiOwnerRef.current !== session.id) return;
+    if (chatMessages.length === 0 && !answeredScope) return;
+    const id = session.id;
     const timer = setTimeout(() => {
-      scrollToBottom();
+      uiOwnerRef.current = id;
+      window.api.saveSessionUi(id, { chatMessages, answeredScope });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [session?.id, chatMessages, answeredScope]);
+
+  // Resume teaching of a session restored from disk
+  const resumedTeachingRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      session?.phase === 'teaching' &&
+      !socraticNode &&
+      !isSubmitting &&
+      resumedTeachingRef.current !== session.id
+    ) {
+      resumedTeachingRef.current = session.id;
+      void handleStartSocraticCycle();
+    }
+  }, [session?.id, session?.phase, socraticNode, isSubmitting]);
+
+  // New turn/question/attempt: bring the active question card to its top, otherwise follow the bottom
+  // (NEVER on streamingThinking chunks)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const card = activeCardRef.current;
+      if (card && typeof card.scrollIntoView === 'function') {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        scrollToBottom();
+      }
     }, 60);
     return () => clearTimeout(timer);
   }, [
@@ -306,68 +336,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     socraticNode?.id,
     chatMessages.length,
     isSubmitting,
-    dockCollapsed,
   ]);
-
-  const handleFeedScroll = () => {
-    const el = feedContainerRef.current;
-    if (!el) return;
-    const previousTop = lastScrollTopRef.current;
-    lastScrollTopRef.current = el.scrollTop;
-    if (autoScrollingRef.current) return;
-
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (el.scrollTop < previousTop) {
-      const dockEl = activeDockRef.current;
-      if (dockEl && el.clientHeight > 0) {
-        const containerRect = el.getBoundingClientRect();
-        const dockRect = dockEl.getBoundingClientRect();
-        if (containerRect.height > 0 && dockRect.height > 0) {
-          // Only collapse once the user scrolls up past the top of the question (or reaches top of page)
-          if ((dockRect.top > containerRect.top + 48 && distanceFromBottom > 12) || el.scrollTop <= 4) {
-            collapseDock();
-          }
-          return;
-        }
-      }
-      if (distanceFromBottom > 12) {
-        collapseDock();
-      }
-    } else if (
-      el.scrollTop > previousTop + 4 &&
-      distanceFromBottom < 20 &&
-      Date.now() - collapseTimestampRef.current > 350
-    ) {
-      setDockCollapsed(false);
-    }
-  };
-
-  const handleFeedWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (autoScrollingRef.current) return;
-    const el = feedContainerRef.current;
-    if (e.deltaY < -4) {
-      const dockEl = activeDockRef.current;
-      if (dockEl && el && el.clientHeight > 0) {
-        const containerRect = el.getBoundingClientRect();
-        const dockRect = dockEl.getBoundingClientRect();
-        if (containerRect.height > 0 && dockRect.height > 0) {
-          if (dockRect.top >= containerRect.top - 16 || el.scrollTop <= 8) {
-            collapseDock();
-          }
-          return;
-        }
-      }
-      collapseDock();
-    } else if (
-      e.deltaY > 10 &&
-      dockCollapsed &&
-      el &&
-      el.scrollHeight - el.scrollTop - el.clientHeight < 24 &&
-      Date.now() - collapseTimestampRef.current > 350
-    ) {
-      expandDock();
-    }
-  };
 
   const refreshGraph = async () => {
     if (window.api?.getGraphState) {
@@ -474,10 +443,30 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const handleProbeSubmit = async (data: {
     selectedOptionIndex: number;
-    confidence: number;
+    answerKind?: ProbeAnswerKind;
+    confidence?: number;
     thinkingText: string;
   }) => {
     setStreamingThinking('');
+    // Show the full answered question right away (before the AI starts thinking)
+    if (currentQuestion) {
+      const correct = data.selectedOptionIndex === currentQuestion.correctOptionIndex;
+      setPendingAttempt({
+        questionId: currentQuestion.id,
+        nodeId: currentQuestion.nodeId,
+        questionText: currentQuestion.questionText,
+        options: currentQuestion.options,
+        correctOptionIndex: currentQuestion.correctOptionIndex,
+        selectedOptionIndex: data.selectedOptionIndex,
+        ...(data.answerKind === 'own_answer' ? { answerKind: data.answerKind } : {}),
+        confidence: data.confidence,
+        thinkingText: data.thinkingText,
+        verdict: correct ? 'mastered' : 'frontier',
+        judgeReasoning: '',
+      } as ProbeAttempt);
+    } else {
+      setPendingAttempt(null);
+    }
     setSubmittingLabel('O Juiz Cognitivo está analisando seu raciocínio em tempo real...');
     setAgentThinking('Avaliando a resposta do estudante em tempo real...');
     setIsSubmitting(true);
@@ -488,12 +477,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setSession(result.session);
       if (onSessionUpdate) onSessionUpdate(result.session);
 
-      if (result.nextAction === 'transition_diagnosis') {
+      if (result.nextAction === 'transition_plan') {
         setCurrentQuestion(null);
         setActiveTab('session');
         setAgentThinking(
           result.session.agentThinking ||
-            `Sondagem concluída (${result.session.questionCount} questões avaliadas). Consolidando o mapa completo da fronteira cognitiva com nós dominados, falsos positivos e pontos cegos.`
+            `Sondagem concluída (${result.session.questionCount} questões avaliadas). Montei um plano de ensino a partir do que a sondagem mostrou.`
         );
       } else if (result.nextQuestion) {
         setCurrentQuestion(result.nextQuestion);
@@ -507,25 +496,42 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setActionError(cleanError(err));
     } finally {
       setIsSubmitting(false);
+      setPendingAttempt(null);
     }
   };
 
-  const handleForceAdvanceDiagnosis = async () => {
-    setSubmittingLabel('Finalizando diagnóstico da fronteira...');
+  const handleAdvanceToPlan = async () => {
+    setSubmittingLabel('Montando o plano de ensino...');
     setIsSubmitting(true);
     setActionError(null);
     try {
-      const sess = await window.api.advanceToDiagnosis();
+      const sess = await window.api.advanceToPlan();
       setSession(sess);
       if (onSessionUpdate) onSessionUpdate(sess);
       setCurrentQuestion(null);
       setActiveTab('session');
       setAgentThinking(
-        'Sondagem concluída (piso de 8 questões atingido). Diagnóstico completo da fronteira de conhecimento exibido abaixo.'
+        'Sondagem concluída. Plano de ensino pronto para sua revisão.'
       );
     } catch (err: any) {
       setActionError(cleanError(err));
     } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmPlan = async () => {
+    setSubmittingLabel('Preparando o primeiro conceito...');
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      const sess = await window.api.confirmPlan();
+      setSession(sess);
+      if (onSessionUpdate) onSessionUpdate(sess);
+      setIsSubmitting(false);
+      // teaching starts via the phase effect below
+    } catch (err: any) {
+      setActionError(cleanError(err));
       setIsSubmitting(false);
     }
   };
@@ -535,14 +541,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setIsSubmitting(true);
     setActionError(null);
     try {
-      const targetId =
-        nodeId ||
-        nodes.find((n) => n.status === 'false_positive')?.id ||
-        nodes.find((n) => n.status === 'frontier')?.id ||
-        nodes.find((n) => n.status === 'blind_spot')?.id ||
-        nodes[0]?.id;
-
-      const data = await window.api.startSocraticStep(targetId);
+      setSocraticStep('predict');
+      setCheckResult(null);
+      setCheckQuestion(null);
+      setTeachProse('');
+      const data = await window.api.startSocraticStep(nodeId);
+      if (!data) {
+        // Every pending concept already had its turn: end the pass instead of looping on a failed one
+        setSocraticNode(null);
+        setSocraticPredictData(null);
+        setTeachingFinished(true);
+        setActiveTab('session');
+        return;
+      }
+      setTeachingFinished(false);
       setSocraticNode(data.node);
       setSocraticPredictData({
         questionText: data.questionText,
@@ -571,11 +583,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   };
 
-  const handleCheckSubmit = async (index: number) => {
+  const handleCheckSubmit = async (index: number, conf?: number, reasoning?: string) => {
     setSocraticLoading(true);
     setActionError(null);
     try {
-      const res = await window.api.submitCheckAnswer(index);
+      const res = await window.api.submitCheckAnswer(index, conf, reasoning);
       await refreshGraph();
       if (res.session) setSession(res.session);
       setCheckResult({ isPassed: res.isPassed, repairExplanation: res.repairExplanation });
@@ -587,21 +599,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const phase = session?.phase || 'goal_orientation';
+  const pendingConceptCount = Object.values(session?.nodesState || {}).filter((st) => st !== 'mastered').length;
   const modeLabel = (session?.mode || pendingMode || 'teaching').toUpperCase();
   const phaseDividerLabel = !session
     ? modeLabel
-    : socraticNode || phase === 'socratic_teach'
+    : socraticNode || phase === 'teaching'
     ? 'TEACHING'
     : phase === 'probing'
     ? 'PROBING'
-    : phase === 'frontier_diagnosis'
-    ? 'DIAGNOSIS'
-    : phase === 'completed'
-    ? 'COMPLETED'
+    : phase === 'plan_review'
+    ? 'PLAN'
     : 'ORIENTATION';
 
-  // ---- Docked question + shared chat field ----
-  // Hide the docked question immediately while isSubmitting is true so answered questions never linger
+  // ---- Active question card (in-flow) + shared chat field ----
+  // Hide the active question immediately while isSubmitting is true so answered questions never linger
   const scopeOptions =
     !isSubmitting && !answeredScope && session && phase === 'goal_orientation' && !currentQuestion
       ? session.goalClarificationOptions || []
@@ -613,15 +624,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     !isSubmitting && !socraticLoading && socraticNode && socraticStep === 'check' && checkQuestion && !checkResult
   );
   const hasDock = isScopeMode || isProbeMode || isSocraticCheck;
-  const dockIsCollapsed = hasDock && dockCollapsed;
-  const collapsedLabel = isScopeMode ? 'QUESTION' : isSocraticCheck ? 'CHECK' : 'PROBE';
-  const collapsedText = toPlainPreview(
-    isScopeMode
-      ? session?.goalClarificationQuestion || ''
-      : isSocraticCheck
-      ? checkQuestion?.questionText || ''
-      : currentQuestion?.questionText || ''
-  );
 
   const inputValue = !session ? goalInput : bottomChatInput;
   const setInputValue = !session ? setGoalInput : setBottomChatInput;
@@ -683,7 +685,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setBottomChatInput('');
       handleProbeSubmit({
         selectedOptionIndex: selectedIdx !== null ? selectedIdx : -1,
-        confidence: isDontKnow ? Math.min(confidence, 30) : confidence,
+        // -1 alone is ambiguous: tell the judge the student wrote their own answer (vs. "não sei")
+        ...(isOwnAnswer ? { answerKind: 'own_answer' as const } : {}),
+        confidence: isDontKnow ? undefined : confidence,
         thinkingText: isOwnAnswer
           ? `[Resposta própria] ${text}`
           : text ||
@@ -704,7 +708,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     if (isSocraticCheck && selectedIdx !== null) {
       setBottomChatInput('');
       if (text) appendUserChatMessage(text);
-      handleCheckSubmit(selectedIdx);
+      handleCheckSubmit(selectedIdx, confidence, text);
       return;
     }
 
@@ -729,9 +733,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const hasScopeMsg = scopeTurnMessages.length > 0 || Boolean(answeredScope);
 
   const chatInputBox = (
-    <div className={hasDock && !dockIsCollapsed ? 'p-2.5' : ''}>
+    <div>
       {/* Input Box with Paperclip and Enter button */}
-      <div className="relative flex items-start rounded-xl border border-[#262626] bg-[#141414] px-3.5 py-2.5 shadow-sm focus-within:border-[#383838] transition-colors">
+      <div className="relative flex items-start rounded-xl border border-ink-600 bg-ink-850 px-3.5 py-2.5 shadow-sm focus-within:border-ink-400 transition-colors">
         <textarea
           ref={chatInputRef}
           value={inputValue}
@@ -743,13 +747,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
             }
           }}
           placeholder={inputPlaceholder}
-          onClick={() => {
-            if (dockIsCollapsed) expandDock();
-          }}
           disabled={isSubmitting || socraticLoading}
-          rows={(hasDock && !dockIsCollapsed) || isSocraticPredict ? 2 : 1}
+          rows={isSocraticPredict ? 2 : 1}
           className="flex-1 resize-none bg-transparent text-xs text-gray-200 outline-none placeholder:text-gray-500 font-sans"
-          autoFocus={!dockIsCollapsed}
+          autoFocus
         />
 
         <div className="flex items-center space-x-2 ml-2 shrink-0">
@@ -765,7 +766,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             type="button"
             onClick={handleDockSubmit}
             disabled={!canSend}
-            className="flex items-center justify-center rounded-lg bg-[#262626] hover:bg-[#383838] p-1.5 text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+            className="flex items-center justify-center rounded-lg bg-ink-600 hover:bg-ink-400 p-1.5 text-gray-300 hover:text-white transition-colors disabled:opacity-40"
             title={
               !session
                 ? (pendingMode === 'practice' ? 'Iniciar Prática' : 'Iniciar Diagnóstico')
@@ -786,12 +787,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
           </button>
         </div>
       </div>
-      {hasDock && !dockIsCollapsed && (
-        <div className="mt-1.5 flex items-center space-x-3 px-1 font-mono text-[10px] text-gray-500">
-          <span>↵ envia</span>
-          <span>⇧↵ nova linha</span>
-        </div>
-      )}
     </div>
   );
 
@@ -802,9 +797,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
         <span className="font-mono text-[11px] text-gray-500">
           {tokenCount.toLocaleString()} tok
           {session
-            ? ` · Q: ${session.questionCount || 0}/8+`
+            ? ` · Q: ${session.questionCount || 0}/${minQuestions}+`
             : questionCount !== undefined
-            ? ` · Q: ${questionCount}/8+`
+            ? ` · Q: ${questionCount}/${minQuestions}+`
             : ''}
         </span>
 
@@ -815,7 +810,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           className={`flex items-center space-x-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-mono transition-colors ${
             isListening
               ? 'border-red-600 bg-red-950/60 text-red-400 animate-pulse'
-              : 'border-[#262626] bg-[#141414] text-gray-400 hover:border-gray-500 hover:text-gray-200'
+              : 'border-ink-600 bg-ink-850 text-gray-400 hover:border-gray-500 hover:text-gray-200'
           }`}
           title="Ativar/Desativar Ditado por Voz"
           aria-label={isListening ? 'Ouvindo...' : isTranscribing ? 'Transcrevendo...' : 'Dictate'}
@@ -832,7 +827,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           <button
             type="button"
             onClick={() => setShowModelMenu((prev) => !prev)}
-            className="flex items-center space-x-1.5 rounded-full border border-[#262626] bg-[#141414] px-3 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
+            className="flex items-center space-x-1.5 rounded-full border border-ink-600 bg-ink-850 px-3 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
             title={`Modelo: ${modelName}. Clique para alterar.`}
           >
             <span className="truncate max-w-[160px]">{modelName}</span>
@@ -841,7 +836,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
           {showModelMenu && (
             <div
-              className="absolute right-0 bottom-full mb-2 w-80 rounded-xl border border-[#2e2e2e] bg-[#141414] p-2.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100"
+              className="absolute right-0 bottom-full mb-2 w-80 rounded-xl border border-ink-500 bg-ink-850 p-2.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="relative mb-2">
@@ -851,7 +846,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   value={modelSearchQuery}
                   onChange={(e) => setModelSearchQuery(e.target.value)}
                   autoFocus
-                  className="w-full rounded-lg border border-[#333333] bg-[#0c0c0c] px-3 py-1.5 text-xs font-sans text-white placeholder-gray-500 outline-none focus:border-gray-400"
+                  className="w-full rounded-lg border border-ink-500 bg-ink-950 px-3 py-1.5 text-xs font-sans text-white placeholder-gray-500 outline-none focus:border-gray-400"
                 />
               </div>
 
@@ -873,8 +868,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         }}
                         className={`flex cursor-pointer flex-col rounded p-2 text-xs font-sans transition-colors ${
                           isSelected
-                            ? 'bg-[#252525] text-white border-l-2 border-emerald-500 pl-2'
-                            : 'hover:bg-[#1e1e1e] text-gray-300 hover:text-white'
+                            ? 'bg-ink-600 text-white border-l-2 border-emerald-500 pl-2'
+                            : 'hover:bg-ink-700 text-gray-300 hover:text-white'
                         }`}
                       >
                         <div className="flex items-center justify-between font-medium">
@@ -896,7 +891,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               </div>
 
               {onOpenSettings && (
-                <div className="border-t border-[#262626] mt-2 pt-1.5">
+                <div className="border-t border-ink-600 mt-2 pt-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -904,7 +899,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       setModelSearchQuery('');
                       onOpenSettings();
                     }}
-                    className="flex items-center space-x-1.5 w-full text-left px-2 py-1.5 text-[11px] font-mono text-gray-400 hover:text-emerald-400 hover:bg-[#1e1e1e] rounded-lg transition-colors"
+                    className="flex items-center space-x-1.5 w-full text-left px-2 py-1.5 text-[11px] font-mono text-gray-400 hover:text-gray-100 hover:bg-ink-700 rounded-lg transition-colors"
                   >
                     <span>⚙ Configurar modelos...</span>
                   </button>
@@ -919,7 +914,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           <button
             type="button"
             onClick={() => setShowThinkingMenu((prev) => !prev)}
-            className="flex items-center space-x-1.5 rounded-full border border-[#262626] bg-[#141414] px-2.5 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
+            className="flex items-center space-x-1.5 rounded-full border border-ink-600 bg-ink-850 px-2.5 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
             title={`Thinking: ${thinkingLevel}. Clique para alterar.`}
           >
             <span>{(thinkingLevel || 'high').toLowerCase()}</span>
@@ -927,7 +922,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           </button>
 
           {showThinkingMenu && (
-            <div className="absolute right-0 bottom-full mb-1.5 w-32 rounded-xl border border-[#2a2a2a] bg-[#161616] p-1.5 shadow-2xl z-30 font-mono text-xs">
+            <div className="absolute right-0 bottom-full mb-1.5 w-32 rounded-xl border border-ink-600 bg-ink-850 p-1.5 shadow-2xl z-30 font-mono text-xs">
               <div className="px-2 py-1 text-[10px] uppercase font-bold text-gray-500">
                 Thinking
               </div>
@@ -942,7 +937,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   className={`flex w-full items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-[11px] transition-colors ${
                     (thinkingLevel || '').toLowerCase() === lvl
                       ? 'bg-emerald-950/80 text-emerald-300 font-bold'
-                      : 'text-gray-300 hover:bg-[#222]'
+                      : 'text-gray-300 hover:bg-ink-700'
                   }`}
                 >
                   <span>{lvl}</span>
@@ -959,26 +954,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
   );
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#0a0a0a] text-gray-200 relative">
+    <div className="flex h-full w-full flex-col bg-ink-950 text-gray-200 relative">
       {/* Top Session Nav Tabs */}
-      <div className="flex items-center justify-between border-b border-[#1a1a1a] px-6 py-2 bg-[#0e0e0e]">
-        <div className="flex items-center space-x-3">
-          <span className="font-serif text-sm font-semibold text-gray-200 truncate max-w-md">
-            {session?.goal || (pendingMode === 'practice' ? 'Nova Prática Rápida' : 'Nova Trilha Socrática')}
-          </span>
-          {session && (
-            <span className="rounded bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-mono text-emerald-400 border border-emerald-900/40 uppercase">
-              Fase: {session.phase}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-between border-b border-ink-700 px-6 py-1.5 bg-ink-950">
+        <span className="label-mono">Sessão</span>
 
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setActiveTab('session')}
             className={`flex items-center space-x-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${
               activeTab === 'session'
-                ? 'bg-[#1f1f1f] text-white shadow-sm'
+                ? 'bg-ink-700 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
@@ -993,43 +979,44 @@ export const SessionView: React.FC<SessionViewProps> = ({
             }}
             className={`flex items-center space-x-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${
               activeTab === 'dag'
-                ? 'bg-[#1f1f1f] text-white shadow-sm'
+                ? 'bg-ink-700 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
             <BarChart3 className="h-3.5 w-3.5" />
-            <span>Grafo DAG ({nodes.length} nós)</span>
+            <span>Mapa de conceitos ({nodes.length})</span>
           </button>
         </div>
       </div>
 
       {/* Main Content Area */}
       {activeTab === 'dag' ? (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="flex h-full flex-col space-y-4">
-            <div className="flex items-center justify-between bg-[#111111] p-3 rounded-lg border border-[#1e293b]">
+        <div className="flex-1 min-h-0 overflow-hidden p-4">
+          <div className="flex h-full min-h-0 flex-col space-y-3">
+            <div className="flex items-center justify-between bg-ink-900 p-3 rounded-lg border border-ink-700">
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">
-                  Mapeamento da Fronteira Cognitiva
+                  Mapa de conceitos
                 </h4>
                 <p className="text-[11px] text-gray-400">
-                  Clique em qualquer nó amarelo (Falso Positivo) ou azul (Fronteira) para iniciar o ensino socrático cirúrgico.
+                  Clique em um conceito para ver os detalhes e iniciar o ensino socrático. Falso positivo e fronteira são os melhores pontos de partida.
                 </p>
               </div>
 
               <button
                 onClick={() => handleStartSocraticCycle()}
                 disabled={nodes.length === 0}
-                className="flex items-center space-x-1.5 rounded bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 shadow-sm transition-colors disabled:opacity-40"
+                className="flex items-center space-x-1.5 rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>Iniciar Ensino Socrático</span>
               </button>
             </div>
 
-            <div className="flex-1 rounded-lg border border-[#1e293b] overflow-hidden">
+            <div className="flex-1 min-h-0 rounded-lg border border-ink-700 overflow-hidden">
               <KnowledgeGraph
                 nodes={nodes}
+                goal={session?.goal}
                 onStartSocratic={(id) => handleStartSocraticCycle(id)}
               />
             </div>
@@ -1041,15 +1028,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
           <div
             ref={feedContainerRef}
             data-testid="chat-feed-scroll"
-            onScroll={handleFeedScroll}
-            onWheel={handleFeedWheel}
             className="flex-1 overflow-y-auto px-6 py-5"
           >
             <div className="mx-auto max-w-3xl space-y-6 pb-8">
               {/* Top Phase Pill Divider (Coherent with active phase: PROBING / TEACHING / etc.) */}
               <div className="relative flex items-center justify-center py-1">
-                <div className="absolute inset-x-0 border-t border-[#1f1f1f]" />
-                <span className="relative rounded-full border border-[#2a2a2a] bg-[#0a0a0a] px-3.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gray-400">
+                <div className="absolute inset-x-0 border-t border-ink-700" />
+                <span className="relative rounded-full border border-ink-600 bg-ink-950 px-3.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gray-400">
                   {phaseDividerLabel}
                 </span>
               </div>
@@ -1058,7 +1043,16 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {actionError && (
                 <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3.5 text-xs text-red-200 flex items-start space-x-2">
                   <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                  <span>{actionError}</span>
+                  <div className="space-y-1">
+                    {/HTTP (401|402|403|429)\b/.test(actionError) && (
+                      <span className="block font-semibold text-red-100">
+                        {/HTTP (402|429)\b/.test(actionError)
+                          ? 'Limite ou créditos do provedor de IA esgotados'
+                          : 'Problema com a chave do provedor de IA'}
+                      </span>
+                    )}
+                    <span className="block">{actionError}</span>
+                  </div>
                 </div>
               )}
 
@@ -1069,7 +1063,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {goalTurnMessages.map((msg) => (
                     <div
                       key={msg.id}
-                      className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
                         YOU
@@ -1104,7 +1098,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {goalTurnMessages.map((msg) => (
                     <div
                       key={msg.id}
-                      className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
                         YOU
@@ -1127,7 +1121,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
                   {/* 3. Answered scope card or custom scope message placed AFTER Turn 0 thinking */}
                   {answeredScope && (
-                    <div className="rounded-xl border border-[#242424] bg-[#141414] p-5 shadow-lg space-y-3">
+                    <div className="rounded-xl border border-ink-600 bg-ink-850 p-5 shadow-lg space-y-3">
                       <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                         QUESTION
                       </span>
@@ -1146,7 +1140,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                               className={`flex items-center space-x-3 rounded-lg border px-4 py-2 text-xs ${
                                 isChosen
                                   ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-100'
-                                  : 'border-[#262626] bg-[#181818]/60 text-gray-400'
+                                  : 'border-ink-600 bg-ink-800/60 text-gray-400'
                               }`}
                             >
                               {isChosen ? (
@@ -1166,7 +1160,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         )}
                       </div>
                       {answeredScope.thinkingText && (
-                        <div className="border-l-2 border-[#2e2e2e] pl-3 pt-0.5">
+                        <div className="border-l-2 border-ink-500 pl-3 pt-0.5">
                           <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
                             YOUR THINKING
                           </span>
@@ -1182,7 +1176,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {scopeTurnMessages.map((msg) => (
                     <div
                       key={msg.id}
-                      className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
                         YOU
@@ -1193,7 +1187,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
                   {/* 4. Streaming thinking while building DAG & 1st question after scope selection */}
                   {phase === 'goal_orientation' && !currentQuestion && isSubmitting && hasScopeMsg && (
-                    <div className="border-t border-[#1f1f1f] pt-5 space-y-4">
+                    <div className="border-t border-ink-700 pt-5 space-y-4">
                       <AgentThinkingBlock
                         thinkingText={streamingThinking || agentThinking}
                         defaultExpanded={true}
@@ -1214,7 +1208,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   const turnMessages = chatMessages.filter((m) => m.afterAttemptCount === idx + 1);
 
                   return (
-                    <div key={`${attempt.questionId}-${idx}`} className="space-y-3 border-t border-[#1f1f1f] pt-4">
+                    <div key={`${attempt.questionId}-${idx}`} className="space-y-3 border-t border-ink-700 pt-4">
                       {turnThinking && (
                         <AgentThinkingBlock thinkingText={turnThinking} defaultExpanded={false} />
                       )}
@@ -1222,7 +1216,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       {turnMessages.map((msg) => (
                         <div
                           key={msg.id}
-                          className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                          className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                         >
                           <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
                             YOU
@@ -1242,7 +1236,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   .map((msg) => (
                     <div
                       key={msg.id}
-                      className="rounded-r-md border-l-2 border-[#3a3a3a] bg-[#141414]/90 px-4 py-2.5 space-y-1"
+                      className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
                         YOU
@@ -1253,7 +1247,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
               {/* ACTIVE QUESTION TURN (Probing Phase) */}
               {phase === 'probing' && currentQuestion && !socraticNode && (
-                <div className="space-y-4 border-t border-[#1f1f1f] pt-4">
+                <div className="space-y-4 border-t border-ink-700 pt-4">
+                  {isSubmitting && pendingAttempt && (
+                    <AnsweredQuestionCard attempt={pendingAttempt} index={session?.attempts?.length || 0} />
+                  )}
                   <AgentThinkingBlock
                     thinkingText={
                       isSubmitting
@@ -1267,148 +1264,50 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     statusLabel={submittingLabel}
                   />
 
-                  {session && session.questionCount >= 8 && (
+                  {session && session.questionCount >= minQuestions && (
                     <div className="mx-auto max-w-2xl flex items-center justify-between rounded-lg border border-blue-900/60 bg-blue-950/20 p-3.5 text-xs text-blue-300 shadow-sm">
                       <span>
-                        Você atingiu o piso de <strong>{session.questionCount} questões</strong>. Deseja avançar para o diagnóstico do grafo?
+                        Você atingiu o piso de <strong>{session.questionCount} questões</strong>. Deseja avançar para o plano de ensino?
                       </span>
                       <button
-                        onClick={handleForceAdvanceDiagnosis}
-                        className="rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 shadow-sm transition-colors"
+                        onClick={handleAdvanceToPlan}
+                        className="rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors"
                       >
-                        Avançar para Diagnóstico
+                        Ver Plano de Ensino
                       </button>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* FRONTIER DIAGNOSIS TURN */}
-              {phase === 'frontier_diagnosis' && !socraticNode && (
-                <div className="space-y-4 border-t border-[#1f1f1f] pt-4">
-                  <AgentThinkingBlock
-                    thinkingText={agentThinking}
-                    defaultExpanded={false}
-                  />
-
-                  <div className="flex flex-col gap-5 rounded-xl border border-[#262626] bg-[#141414] p-6 shadow-xl">
-                    <div className="flex items-center justify-between border-b border-[#242424] pb-4">
-                      <div className="flex items-center space-x-2.5">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                        <div>
-                          <h2 className="text-base font-bold text-white font-serif">
-                            Diagnóstico da Fronteira Cognitiva Concluído
-                          </h2>
-                          <p className="text-xs text-gray-400">
-                            {session?.questionCount || 8} questões avaliadas com calibração de certeza e autoexplicação.
-                          </p>
-                        </div>
-                      </div>
-
-                      <span className="rounded bg-[#1e293b] px-2.5 py-1 text-xs font-mono font-bold text-emerald-400 border border-emerald-900/60">
-                        Clareza: 100%
-                      </span>
+              {/* PLAN REVIEW */}
+              {phase === 'plan_review' && !socraticNode && (
+                <div className="space-y-4 border-t border-ink-700 pt-4">
+                  <AgentThinkingBlock thinkingText={agentThinking} defaultExpanded={false} />
+                  <div className="flex flex-col gap-5 rounded-xl border border-ink-600 bg-ink-850 p-6 shadow-xl">
+                    <div className="flex items-center space-x-2.5 border-b border-ink-600 pb-4">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                      <h2 className="text-base font-bold text-white font-serif">Plano de Ensino</h2>
                     </div>
-
-                    {/* Cognitive Metrics Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="rounded border border-emerald-900/60 bg-emerald-950/20 p-3 text-center">
-                        <span className="text-xl font-bold font-mono text-emerald-400">{masteredCount}</span>
-                        <span className="block text-[11px] font-semibold text-gray-300 mt-0.5">🟢 Domínio Sólido</span>
-                      </div>
-
-                      <div className="rounded border border-amber-900/60 bg-amber-950/20 p-3 text-center ring-1 ring-amber-500/30">
-                        <span className="text-xl font-bold font-mono text-amber-300">{falsePositiveCount}</span>
-                        <span className="block text-[11px] font-semibold text-amber-300 mt-0.5">🟡 Falsos Positivos</span>
-                      </div>
-
-                      <div className="rounded border border-red-900/60 bg-red-950/20 p-3 text-center">
-                        <span className="text-xl font-bold font-mono text-red-400">{blindSpotCount}</span>
-                        <span className="block text-[11px] font-semibold text-gray-300 mt-0.5">🔴 Pontos Cegos</span>
-                      </div>
-
-                      <div className="rounded border border-blue-900/60 bg-blue-950/20 p-3 text-center">
-                        <span className="text-xl font-bold font-mono text-blue-400">{frontierCount}</span>
-                        <span className="block text-[11px] font-semibold text-gray-300 mt-0.5">🔵 Fronteira Ativa</span>
-                      </div>
-                    </div>
-
-                    {falsePositiveCount > 0 && (
-                      <div className="rounded border border-amber-800/80 bg-amber-950/30 p-4 text-xs text-amber-200 space-y-1.5">
-                        <div className="flex items-center space-x-2 font-bold text-amber-300">
-                          <AlertTriangle className="h-4 w-4" />
-                          <span>Falsos Positivos Detectados pelo Juiz Cognitivo</span>
-                        </div>
-                        <p className="text-[11px] text-gray-300 leading-relaxed">
-                          Você acertou a alternativa correta em alguns nós, porém sua autoexplicação indicou conceitos imprecisos ou dedução por eliminação. O ensino socrático cirúrgico irá ancorar os princípios incondicionais antes de avançar.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <RichText text={session?.plan || ''} className="text-sm text-gray-200 leading-relaxed" />
+                    <div className="flex items-center justify-between gap-3 pt-2">
                       <button
+                        type="button"
                         onClick={() => {
                           refreshGraph();
                           setActiveTab('dag');
                         }}
-                        className="flex w-full sm:w-auto items-center justify-center space-x-2 rounded border border-[#2a2a2a] bg-[#0a0a0a] px-4 py-2.5 text-xs font-semibold text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
+                        className="flex items-center space-x-2 rounded border border-ink-500 px-4 py-2.5 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
                       >
-                        <BarChart3 className="h-4 w-4 text-emerald-400" />
-                        <span>Explorar no Grafo DAG</span>
+                        <BarChart3 className="h-4 w-4" />
+                        <span>Ver mapa de conceitos</span>
                       </button>
-
                       <button
-                        onClick={() => handleStartSocraticCycle()}
-                        className="flex w-full sm:w-auto items-center justify-center space-x-2 rounded bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-md"
+                        onClick={handleConfirmPlan}
+                        className="flex items-center space-x-2 rounded bg-gray-200 px-5 py-2.5 text-xs font-semibold text-ink-950 hover:bg-white transition-colors shadow-md"
                       >
                         <Sparkles className="h-4 w-4" />
-                        <span>Iniciar Ensino Socrático Cirúrgico</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* COMPLETED STAGE */}
-              {phase === 'completed' && !socraticNode && (
-                <div className="border-t border-[#1f1f1f] pt-4">
-                  <div className="flex flex-col gap-5 rounded-xl border border-emerald-900/60 bg-[#141414] p-6 shadow-xl text-center items-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700/60">
-                      <Award className="h-6 w-6" />
-                    </div>
-
-                    <div className="space-y-1">
-                      <h2 className="text-lg font-bold font-serif text-white">
-                        Parabéns! Ciclo Socrático Concluído
-                      </h2>
-                      <p className="text-xs text-gray-400 max-w-md mx-auto">
-                        Você validou seu entendimento cirúrgico e eliminou equívocos na árvore de dependências conceituais.
-                      </p>
-                    </div>
-
-                    <div className="flex items-center space-x-3 pt-2">
-                      <button
-                        onClick={() => {
-                          refreshGraph();
-                          setActiveTab('dag');
-                        }}
-                        className="flex items-center space-x-2 rounded border border-[#2a2a2a] bg-[#0a0a0a] px-4 py-2 text-xs font-semibold text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
-                      >
-                        <BarChart3 className="h-4 w-4 text-emerald-400" />
-                        <span>Ver Grafo Atualizado</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSession(null);
-                          setGoalInput('');
-                          setCurrentQuestion(null);
-                          setSocraticNode(null);
-                        }}
-                        className="flex items-center space-x-2 rounded bg-emerald-600 px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-sm"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        <span>Nova Trilha de Aprendizado</span>
+                        <span>Começar ensino</span>
                       </button>
                     </div>
                   </div>
@@ -1417,7 +1316,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
               {/* SOCRATIC TEACHING PHASE */}
               {socraticNode && socraticPredictData && (
-                <div className="space-y-4 border-t border-[#1f1f1f] pt-4">
+                <div className="space-y-4 border-t border-ink-700 pt-4">
                   <AgentThinkingBlock
                     thinkingText={`Iniciando intervenção socrática cirúrgica no conceito "${socraticNode.title}". Primeiro passo: solicitar que o estudante faça uma predição intuitiva antes da formalização teórica.`}
                     defaultExpanded={true}
@@ -1432,141 +1331,123 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     checkResult={checkResult}
                     isLoading={socraticLoading}
                     onAdvanceToCheck={() => setSocraticStep('check')}
-                    onFinishStep={() => {
+                    onFinishStep={async () => {
                       setSocraticNode(null);
                       setSocraticPredictData(null);
-                      setActiveTab('dag');
+                      await refreshGraph();
+                      // The main process picks the next pending concept (or reports that the pass is over)
+                      await handleStartSocraticCycle();
                     }}
                   />
                 </div>
               )}
 
-              {/* ACTIVE QUESTION INSIDE THE CHAT FLOW (grows vertically with zero internal scroll; animates smoothly on shrink) */}
-              {hasDock && (
+              {/* End of the teaching pass */}
+              {phase === 'teaching' && teachingFinished && !socraticNode && !isSubmitting && (
                 <div
-                  ref={activeDockRef}
-                  data-testid="active-question-dock"
-                  aria-hidden={dockIsCollapsed}
-                  className={`mx-auto w-full max-w-2xl grid transition-[grid-template-rows,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] origin-bottom ${
-                    dockIsCollapsed
-                      ? 'grid-rows-[0fr] opacity-0 scale-95 translate-y-4 pointer-events-none select-none'
-                      : 'grid-rows-[1fr] opacity-100 scale-100 translate-y-0'
-                  }`}
+                  data-testid="teaching-finished"
+                  className="space-y-3 rounded-xl border border-ink-600 bg-ink-850 p-5 shadow-lg"
                 >
-                  <div className="overflow-hidden">
-                    <div className="flex flex-col gap-2 pt-2">
-                      <div className="overflow-hidden rounded-2xl border border-[#262626] bg-[#141414] shadow-2xl">
-                        <div className="p-5">
-                          {isScopeMode && session && (
-                            <QuestionCard
-                              label="QUESTION"
-                              questionText={session.goalClarificationQuestion || ''}
-                              options={scopeOptions}
-                              selectedIndex={selectedIdx}
-                              onSelect={setSelectedIdx}
-                              dashedOption={{
-                                label: 'Insira um escopo personalizado...',
-                                selected: selectedIdx === null && Boolean(bottomChatInput.trim()),
-                                onSelect: () => {
-                                  setSelectedIdx(null);
-                                  chatInputRef.current?.focus();
-                                },
-                              }}
-                            />
-                          )}
-                          {isProbeMode && currentQuestion && (
-                            <QuestionCard
-                              label={`PROBE #${session?.questionCount || 1}`}
-                              anchor={currentQuestion.anchorConcept}
-                              questionText={currentQuestion.questionText}
-                              options={currentQuestion.options}
-                              selectedIndex={selectedIdx}
-                              onSelect={(idx) => {
-                                setSelectedIdx(idx);
-                                setIsDontKnow(false);
-                              }}
-                              dashedOption={{
-                                label: 'Não sei / Ainda não domino este conceito',
-                                selected: isDontKnow,
-                                tone: 'amber',
-                                onSelect: () => {
-                                  setIsDontKnow(true);
-                                  setSelectedIdx(null);
-                                  setConfidence(0);
-                                },
-                              }}
-                            />
-                          )}
-                          {isSocraticCheck && checkQuestion && (
-                            <QuestionCard
-                              label="CHECK"
-                              questionText={checkQuestion.questionText}
-                              options={checkQuestion.options}
-                              selectedIndex={selectedIdx}
-                              onSelect={setSelectedIdx}
-                            />
-                          )}
-                        </div>
-
-                        {isProbeMode && (
-                          <ConfidenceSlider value={confidence} onChange={setConfidence} />
-                        )}
-
-                        {!dockIsCollapsed && chatInputBox}
-                      </div>
-
-                      {!dockIsCollapsed && statusSubBar}
-                    </div>
+                  <div className="flex items-center space-x-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-white font-serif">Passada de ensino concluída</h3>
                   </div>
+                  <p className="text-xs leading-relaxed text-gray-300">
+                    {pendingConceptCount === 0
+                      ? 'Todos os conceitos do mapa foram dominados.'
+                      : `${pendingConceptCount} ${
+                          pendingConceptCount === 1 ? 'conceito ainda não está dominado' : 'conceitos ainda não estão dominados'
+                        }. Abra o mapa de conceitos e escolha um para revisar quando quiser.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      refreshGraph();
+                      setActiveTab('dag');
+                    }}
+                    className="flex items-center space-x-2 rounded border border-ink-500 px-4 py-2 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    <span>Abrir mapa de conceitos</span>
+                  </button>
                 </div>
               )}
 
-              <div ref={feedEndRef} className={!hasDock || dockIsCollapsed ? 'h-28' : 'h-2'} />
+              {hasDock && (
+                <div ref={activeCardRef} className="scroll-mt-4">
+                  <ProbeCard
+                    confidence={(isProbeMode && !isDontKnow) || isSocraticCheck ? confidence : undefined}
+                    onConfidenceChange={setConfidence}
+                    reasoning={inputValue}
+                    onReasoningChange={setInputValue}
+                    placeholder={inputPlaceholder}
+                    canSend={canSend}
+                    disabled={isSubmitting || socraticLoading}
+                    onSubmit={handleDockSubmit}
+                    textareaRef={chatInputRef}
+                  >
+                    {isScopeMode && session && (
+                      <QuestionCard
+                        label="QUESTION"
+                        questionText={session.goalClarificationQuestion || ''}
+                        options={scopeOptions}
+                        selectedIndex={selectedIdx}
+                        onSelect={setSelectedIdx}
+                        dashedOption={{
+                          label: 'Insira um escopo personalizado...',
+                          selected: selectedIdx === null && Boolean(bottomChatInput.trim()),
+                          onSelect: () => {
+                            setSelectedIdx(null);
+                            chatInputRef.current?.focus();
+                          },
+                        }}
+                      />
+                    )}
+                    {isProbeMode && currentQuestion && (
+                      <QuestionCard
+                        label={`PROBE #${session?.questionCount || 1}`}
+                        anchor={currentQuestion.anchorConcept}
+                        questionText={currentQuestion.questionText}
+                        options={currentQuestion.options}
+                        selectedIndex={selectedIdx}
+                        onSelect={(idx) => {
+                          setSelectedIdx(idx);
+                          setIsDontKnow(false);
+                        }}
+                        dashedOption={{
+                          label: 'Não sei / Ainda não domino este conceito',
+                          selected: isDontKnow,
+                          tone: 'amber',
+                          onSelect: () => {
+                            setIsDontKnow(true);
+                            setSelectedIdx(null);
+                            setConfidence(0);
+                          },
+                        }}
+                      />
+                    )}
+                    {isSocraticCheck && checkQuestion && (
+                      <QuestionCard
+                        label="CHECK"
+                        questionText={checkQuestion.questionText}
+                        options={checkQuestion.options}
+                        selectedIndex={selectedIdx}
+                        onSelect={setSelectedIdx}
+                      />
+                    )}
+                  </ProbeCard>
+                </div>
+              )}
+
+              <div ref={feedEndRef} aria-hidden />
             </div>
           </div>
 
-          {/* Floating Bottom Bar: overlays the bottom without shortening the full-page scrollbar; animates in when question shrinks */}
-          <div
-            className={`absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent px-6 pb-3 pt-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              !hasDock || dockIsCollapsed
-                ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto'
-                : 'translate-y-6 opacity-0 scale-95 pointer-events-none'
-            }`}
-          >
-            <div className="mx-auto flex max-w-2xl flex-col gap-2">
-              {dockIsCollapsed && (
-                <div className="flex flex-col items-center gap-2 transition-all duration-300 ease-out">
-                  <button
-                    type="button"
-                    onClick={expandDock}
-                    className="flex h-7 w-7 items-center justify-center rounded-full border border-[#333333] bg-[#141414]/95 text-gray-300 shadow-lg hover:border-gray-400 hover:text-white transition-all hover:scale-105"
-                    title="Descer para a questão atual"
-                    aria-label="Descer para a questão atual"
-                  >
-                    <ArrowDown className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="collapsed-question-pill"
-                    onClick={expandDock}
-                    className="flex w-full items-center space-x-3 rounded-xl border border-[#2e2e2e] bg-[#141414]/95 px-4 py-2.5 text-left text-xs text-gray-300 shadow-2xl hover:border-gray-500 hover:bg-[#181818] transition-all cursor-pointer group"
-                  >
-                    <span className="font-mono text-[10px] uppercase tracking-wider text-gray-400 group-hover:text-gray-300 font-semibold shrink-0">
-                      {collapsedLabel}
-                    </span>
-                    <span className="flex-1 truncate text-gray-200 group-hover:text-white font-medium">
-                      {collapsedText}
-                    </span>
-                    <span className="font-semibold text-blue-400 group-hover:text-blue-300 shrink-0 flex items-center space-x-1">
-                      <span>Answer</span>
-                      <ArrowDown className="h-3 w-3" />
-                    </span>
-                  </button>
-                </div>
-              )}
-
+          {/* Bottom bar: shared chat field (when no question card is open) + status footer */}
+          <div className="shrink-0 bg-ink-950 px-6 pb-3 pt-2">
+            <div className="mx-auto flex max-w-3xl flex-col gap-2">
               {!hasDock && chatInputBox}
-              {(!hasDock || dockIsCollapsed) && statusSubBar}
+              {statusSubBar}
             </div>
           </div>
         </>

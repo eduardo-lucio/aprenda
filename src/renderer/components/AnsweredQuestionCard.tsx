@@ -12,13 +12,14 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
   const [showUserThinking, setShowUserThinking] = useState(true);
 
   const isCorrectOption = attempt.selectedOptionIndex === attempt.correctOptionIndex;
-  const isDontKnow = attempt.selectedOptionIndex === -1;
+  const isOwnAnswer = attempt.selectedOptionIndex === -1 && attempt.answerKind === 'own_answer';
+  const isDontKnow = attempt.selectedOptionIndex === -1 && !isOwnAnswer;
 
   const getBadgeConfig = () => {
     if (isDontKnow) {
       return {
         label: "DIDN'T KNOW",
-        className: 'bg-[#262626] text-gray-300 border border-[#383838]',
+        className: 'bg-ink-600 text-gray-300 border border-ink-400',
       };
     }
     if (attempt.verdict === 'mastered') {
@@ -34,7 +35,8 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       };
     }
     return {
-      label: isCorrectOption ? 'PARTIAL' : 'INCORRECT',
+      // A written answer has no answer-key bit: anything short of mastery is only partial
+      label: isCorrectOption || (isOwnAnswer && attempt.verdict === 'frontier') ? 'PARTIAL' : 'INCORRECT',
       className: 'bg-red-950/90 text-red-400 border border-red-800/50',
     };
   };
@@ -42,7 +44,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
   const badge = getBadgeConfig();
 
   return (
-    <div className="rounded-xl border border-[#242424] bg-[#141414] p-5 shadow-lg space-y-4">
+    <div className="card p-5 space-y-4">
       {/* Header: PROBE + Badge */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
@@ -66,7 +68,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
           const isSelected = attempt.selectedOptionIndex === idx;
           const isCorrect = attempt.correctOptionIndex === idx;
 
-          let boxStyle = 'border-[#262626] bg-[#181818]/60 text-gray-400';
+          let boxStyle = 'border-ink-600 bg-ink-800/60 text-gray-400';
           if (isCorrect) {
             boxStyle = 'border-emerald-700/60 bg-emerald-950/30 text-emerald-100';
           } else if (isSelected && !isCorrect) {
@@ -76,7 +78,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
           return (
             <div
               key={idx}
-              className={`flex items-center space-x-3 rounded-lg border px-4 py-2.5 text-xs transition-colors ${boxStyle}`}
+              className={`flex items-center space-x-3 rounded-xl border px-4 py-3 text-[13px] transition-colors ${boxStyle}`}
             >
               {isCorrect ? (
                 <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
@@ -96,9 +98,9 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
         <div className="text-xs text-gray-400 pt-0.5">
           Answered &quot;I don&apos;t know&quot;.
         </div>
-      ) : (
+      ) : attempt.confidence === undefined ? null : (
         <div className="flex items-center space-x-3 pt-1">
-          <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#262626]">
+          <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-ink-600">
             <div
               className={`h-full rounded-full transition-all ${
                 attempt.verdict === 'mastered'
@@ -117,7 +119,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       )}
 
       {/* Collapsible YOUR THINKING */}
-      <div className="border-l-2 border-[#2e2e2e] pl-3 pt-0.5">
+      <div className="border-l-2 border-ink-500 pl-3 pt-0.5">
         <button
           type="button"
           onClick={() => setShowUserThinking(!showUserThinking)}

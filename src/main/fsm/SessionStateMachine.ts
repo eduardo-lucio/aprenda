@@ -1,8 +1,14 @@
 import {
+  CheckQuestionData,
   ConceptNode,
+  MIN_PROBE_QUESTIONS,
+  clampProbeQuestions,
+  SessionSnapshot,
+  ProbeAnswerKind,
   ProbeAttempt,
   ProbingSession,
   QuestionData,
+  resolveAnswerKind,
 } from '../../shared/types';
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
@@ -11,7 +17,7 @@ import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import { addGlobalTokenListener } from '../services/llmClient';
 
-export const MIN_PROBE_QUESTIONS = 8;
+export { MIN_PROBE_QUESTIONS };
 
 export class SessionStateMachine {
   private store: KnowledgeStore;
@@ -20,10 +26,14 @@ export class SessionStateMachine {
   private orchestrator: AgentOrchestrator;
   private session?: ProbingSession;
   private strandNodes: ConceptNode[] = [];
+  private minProbeQuestions: number = MIN_PROBE_QUESTIONS;
   private candidateQueue: string[] = [];
   private askedQuestions: string[] = [];
   private questionCache: Map<string, QuestionData> = new Map();
   private sessionTokensUsed = 0;
+  private teachingOrder: string[] = [];
+  private teachingDone = new Set<string>();
+  private onPersist?: (snapshot: SessionSnapshot) => void;
 
   constructor(
     store?: KnowledgeStore,
@@ -42,6 +52,63 @@ export class SessionStateMachine {
         this.session.tokensUsed = this.sessionTokensUsed;
       }
     });
+  }
+
+  /** Registers a listener that receives a snapshot after every state change. */
+  setPersistence(listener: (snapshot: SessionSnapshot) => void): void {
+    this.onPersist = listener;
+  }
+
+  getSnapshot(): SessionSnapshot {
+    return {
+      session: this.getState(),
+      nodes: this.store.getNodes(),
+      candidateQueue: [...this.candidateQueue],
+      askedQuestions: [...this.askedQuestions],
+      teachingOrder: [...this.teachingOrder],
+      teachingDone: [...this.teachingDone],
+      tokensUsed: this.sessionTokensUsed,
+    };
+  }
+
+  /** Resumes a previously saved session (replaces the active one). */
+  restoreSnapshot(snapshot: SessionSnapshot): void {
+    this.orchestrator.clear();
+    this.store.setNodes(snapshot.nodes);
+    this.strandNodes = this.store.getStrand();
+    this.candidateQueue = [...snapshot.candidateQueue];
+    this.askedQuestions = [...snapshot.askedQuestions];
+    this.teachingOrder = [...snapshot.teachingOrder];
+    this.teachingDone = new Set(snapshot.teachingDone || []);
+    this.sessionTokensUsed = snapshot.tokensUsed || 0;
+    this.questionCache.clear();
+    this.session = {
+      ...snapshot.session,
+      attempts: [...snapshot.session.attempts],
+      nodesState: { ...snapshot.session.nodesState },
+      tokensUsed: this.sessionTokensUsed,
+    };
+    const q = this.session.currentQuestion;
+    if (q) this.questionCache.set(q.nodeId, q);
+  }
+
+  private persist(): void {
+    if (this.session && this.onPersist) {
+      try {
+        this.onPersist(this.getSnapshot());
+      } catch (err) {
+        console.error('[SessionStateMachine] Falha ao persistir sessão:', err);
+      }
+    }
+  }
+
+  /** Minimum number of probe questions before the plan can be built (user setting, 3–20). */
+  setMinProbeQuestions(n: number): void {
+    this.minProbeQuestions = clampProbeQuestions(n);
+  }
+
+  getMinProbeQuestions(): number {
+    return this.minProbeQuestions;
   }
 
   setSocraticEngine(socratic: SocraticEngine): void {
@@ -80,6 +147,8 @@ export class SessionStateMachine {
     this.candidateQueue = [];
     this.askedQuestions = [];
     this.questionCache.clear();
+    this.teachingOrder = [];
+    this.teachingDone = new Set();
     this.sessionTokensUsed = 0;
 
     const existingNodes = this.store.getNodes();
@@ -113,6 +182,7 @@ export class SessionStateMachine {
           currentSession.agentThinking = res.agentThinking;
         }
       }
+      this.persist();
       return this.getState();
     }).catch((err) => {
       if (this.session === currentSession) this.session = undefined;
@@ -174,16 +244,60 @@ export class SessionStateMachine {
       goal: session.goal,
     });
 
+    this.persist();
     return firstQuestion;
   }
 
+  /**
+   * Transactional: if anything fails after the judge ran (e.g. the next question cannot be generated),
+   * the attempt, node states and candidate queue are rolled back so the student can simply resubmit.
+   */
   async submitProbeAnswer(data: {
     selectedOptionIndex: number;
-    confidence: number;
+    answerKind?: ProbeAnswerKind;
+    confidence?: number;
     thinkingText: string;
   }): Promise<{
     attempt: ProbeAttempt;
-    nextAction: 'next_question' | 'transition_diagnosis';
+    nextAction: 'next_question' | 'transition_plan';
+    nextQuestion?: QuestionData;
+  }> {
+    const session = this.requireSession();
+    const snapshot = {
+      attempts: [...session.attempts],
+      nodesState: { ...session.nodesState },
+      frontierClarity: session.frontierClarity,
+      questionCount: session.questionCount,
+      agentThinking: session.agentThinking,
+      currentQuestion: session.currentQuestion,
+      phase: session.phase,
+      candidateQueue: [...this.candidateQueue],
+    };
+    try {
+      return await this.processProbeAnswer(data);
+    } catch (err) {
+      if (this.session === session) {
+        session.attempts = snapshot.attempts;
+        session.nodesState = snapshot.nodesState;
+        session.frontierClarity = snapshot.frontierClarity;
+        session.questionCount = snapshot.questionCount;
+        session.agentThinking = snapshot.agentThinking;
+        session.currentQuestion = snapshot.currentQuestion;
+        session.phase = snapshot.phase;
+        this.candidateQueue = snapshot.candidateQueue;
+      }
+      throw err;
+    }
+  }
+
+  private async processProbeAnswer(data: {
+    selectedOptionIndex: number;
+    answerKind?: ProbeAnswerKind;
+    confidence?: number;
+    thinkingText: string;
+  }): Promise<{
+    attempt: ProbeAttempt;
+    nextAction: 'next_question' | 'transition_plan';
     nextQuestion?: QuestionData;
   }> {
     const session = this.requireSession();
@@ -211,11 +325,13 @@ export class SessionStateMachine {
       questionText: currentQ.questionText,
       options: currentQ.options,
       selectedOptionIndex: data.selectedOptionIndex,
+      answerKind: data.answerKind,
       correctOptionIndex: currentQ.correctOptionIndex,
       confidence: data.confidence,
       thinkingText: data.thinkingText,
     });
 
+    const answerKind = resolveAnswerKind(data.selectedOptionIndex, data.answerKind);
     const attempt: ProbeAttempt = {
       questionId: currentQ.id,
       nodeId: currentNode.id,
@@ -223,6 +339,7 @@ export class SessionStateMachine {
       options: currentQ.options,
       correctOptionIndex: currentQ.correctOptionIndex,
       selectedOptionIndex: data.selectedOptionIndex,
+      ...(answerKind === 'own_answer' ? { answerKind } : {}),
       confidence: data.confidence,
       thinkingText: data.thinkingText,
       verdict: evaluation.verdict,
@@ -233,15 +350,6 @@ export class SessionStateMachine {
 
     session.attempts.push(attempt);
     session.nodesState[currentNode.id] = evaluation.verdict;
-
-    // If a cognitive boundary or misconception is diagnosed, pre-bake the Socratic lesson in background
-    if (
-      evaluation.verdict === 'false_positive' ||
-      evaluation.verdict === 'blind_spot' ||
-      evaluation.verdict === 'frontier'
-    ) {
-      this.orchestrator.prebakeSocraticLesson(currentNode, session.goal);
-    }
 
     const prereqs = this.store.getPrerequisites(currentNode.id);
     if (evaluation.verdict === 'mastered') {
@@ -261,13 +369,13 @@ export class SessionStateMachine {
 
     session.frontierClarity = this.calculateFrontierClarity();
 
-    if (session.questionCount >= MIN_PROBE_QUESTIONS && session.frontierClarity >= 100) {
-      session.phase = 'frontier_diagnosis';
-      session.currentQuestion = undefined;
+    if (session.questionCount >= this.minProbeQuestions && session.frontierClarity >= 100) {
+      await this.enterPlanReview();
       if (evaluation.agentThinking) {
         session.agentThinking = evaluation.agentThinking;
       }
-      return { attempt, nextAction: 'transition_diagnosis' };
+      this.persist();
+      return { attempt, nextAction: 'transition_plan' };
     }
 
     // Pick next node and retrieve pre-cached question instantly (0ms)
@@ -295,22 +403,74 @@ export class SessionStateMachine {
       goal: session.goal,
     });
 
+    this.persist();
     return { attempt, nextAction: 'next_question', nextQuestion };
   }
 
-  forceAdvanceToDiagnosis(): void {
+  async advanceToPlan(): Promise<void> {
     const session = this.requireSession();
-    if (session.questionCount < MIN_PROBE_QUESTIONS) {
-      throw new Error(`Avanço manual para diagnóstico requer o piso mínimo de ${MIN_PROBE_QUESTIONS} questões.`);
+    if (session.phase !== 'probing') {
+      throw new Error(`Não é possível gerar o plano na fase: ${session.phase}`);
     }
-    session.phase = 'frontier_diagnosis';
-    session.currentQuestion = undefined;
+    if (session.questionCount < this.minProbeQuestions) {
+      throw new Error(`Avanço manual para o plano requer o piso mínimo de ${this.minProbeQuestions} questões.`);
+    }
+    await this.enterPlanReview();
+    this.persist();
+  }
+
+  confirmPlan(): void {
+    const session = this.requireSession();
+    if (session.phase !== 'plan_review') {
+      throw new Error(`Não há plano a confirmar na fase: ${session.phase}`);
+    }
+    session.phase = 'teaching';
+    this.teachingDone = new Set();
+    const first = this.nextTeachingNodeId();
+    const node = first ? this.store.getNodeById(first) : undefined;
+    if (node) this.orchestrator.prebakeSocraticLesson(node, session.goal);
+    this.persist();
+  }
+
+  /** Teaching order proposed by the plan (falls back to level order over non-mastered nodes). */
+  getTeachingOrder(): string[] {
+    return [...this.teachingOrder];
+  }
+
+  /**
+   * Teaching-phase check: the judge reads the answer (correctness, confidence, reasoning)
+   * and the verdict is recorded in nodesState regardless of pass/fail.
+   */
+  async recordCheckVerdict(
+    nodeId: string,
+    check: CheckQuestionData,
+    data: { selectedOptionIndex: number; confidence?: number; thinkingText?: string }
+  ): Promise<ProbeAttempt['verdict']> {
+    const session = this.requireSession();
+    const node = this.store.getNodeById(nodeId);
+    if (!node) throw new Error('Conceito do check não encontrado no grafo.');
+    const evaluation = await this.judge.evaluate({
+      node,
+      questionText: check.questionText,
+      options: check.options,
+      selectedOptionIndex: data.selectedOptionIndex,
+      correctOptionIndex: check.correctOptionIndex,
+      confidence: data.confidence,
+      thinkingText: data.thinkingText || '(O aluno não explicou o raciocínio.)',
+    });
+    session.nodesState[nodeId] = evaluation.verdict;
+    // Pass or fail, the concept has had its turn: the pass moves on instead of looping on it
+    this.teachingDone.add(nodeId);
+    session.frontierClarity = this.calculateFrontierClarity();
+    this.persist();
+    return evaluation.verdict;
   }
 
   markNodeStatus(nodeId: string, status: ConceptNode['status']): void {
     const session = this.requireSession();
     if (nodeId in session.nodesState) {
       session.nodesState[nodeId] = status;
+      this.persist();
     }
   }
 
@@ -320,18 +480,49 @@ export class SessionStateMachine {
     return Math.round((tested.length / this.strandNodes.length) * 100);
   }
 
+  private async enterPlanReview(): Promise<void> {
+    const session = this.requireSession();
+    session.currentQuestion = undefined;
+    const nodes = this.strandNodes.map((n) => ({ ...n, status: session.nodesState[n.id] || n.status }));
+    const { plan, order } = await this.generator.generatePlan({
+      goal: session.goal,
+      nodes,
+      attempts: session.attempts.map((a) => ({
+        nodeId: a.nodeId,
+        verdict: a.verdict,
+        judgeReasoning: a.judgeReasoning,
+      })),
+    });
+    const rest = nodes
+      .filter((n) => !order.includes(n.id) && n.status !== 'mastered')
+      .sort((a, b) => a.level - b.level)
+      .map((n) => n.id);
+    this.teachingOrder = [...order, ...rest];
+    session.plan = plan;
+    session.phase = 'plan_review';
+  }
+
+  /** Next concept of the current teaching pass: not mastered yet and not already taught in this pass. */
+  nextTeachingNodeId(): string | undefined {
+    return this.teachingOrder.find(
+      (id) => this.session?.nodesState[id] !== 'mastered' && !this.teachingDone.has(id)
+    );
+  }
+
   private requireSession(): ProbingSession {
     if (!this.session) throw new Error('Nenhuma sessão ativa.');
     return this.session;
   }
 
   /**
-   * Returns pre-cached question if available, otherwise generates and caches it.
+   * Returns the pre-cached question if it is still unseen, otherwise generates a new one.
+   * A cached question that was already asked (re-probing a node) is discarded, never repeated.
    */
   private async getOrGenerateQuestionFor(nodeId: string, goal: string): Promise<QuestionData> {
     const cached = this.questionCache.get(nodeId);
     if (cached) {
-      return cached;
+      if (!this.askedQuestions.includes(cached.questionText)) return cached;
+      this.questionCache.delete(nodeId);
     }
 
     const node = this.store.getNodeById(nodeId);

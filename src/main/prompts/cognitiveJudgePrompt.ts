@@ -1,22 +1,25 @@
-import { ConceptNode } from '../../shared/types';
+import { ConceptNode, ProbeAnswerKind, resolveAnswerKind } from '../../shared/types';
 
 export function buildCognitiveJudgePrompt(params: {
   node: ConceptNode;
   questionText: string;
   options: string[];
   selectedOptionIndex: number;
+  answerKind?: ProbeAnswerKind;
   correctOptionIndex: number;
-  confidence: number;
+  confidence?: number;
   thinkingText: string;
 }): { systemPrompt: string; prompt: string } {
-  const isCorrect =
-    params.selectedOptionIndex >= 0 &&
-    params.selectedOptionIndex === params.correctOptionIndex;
+  const kind = resolveAnswerKind(params.selectedOptionIndex, params.answerKind);
+  const isCorrect = kind === 'option' && params.selectedOptionIndex === params.correctOptionIndex;
 
   const chosenText =
-    params.selectedOptionIndex === -1
+    kind === 'dont_know'
       ? '[Não sei / O aluno declinou explicitamente de chutar]'
+      : kind === 'own_answer'
+      ? '[Resposta própria / O aluno NÃO escolheu nenhuma alternativa e respondeu com as próprias palavras — o texto de autoexplicação abaixo É a resposta]'
       : `[${params.selectedOptionIndex}] ${params.options[params.selectedOptionIndex] || 'N/A'}`;
+  const correctnessText = kind === 'option' ? String(isCorrect) : 'não se aplica (sem alternativa escolhida)';
 
   const systemPrompt = `Você é o Juiz Cognitivo do APRENDA.
 Sua missão é diagnosticar com precisão cirúrgica o estado real do modelo mental do estudante, desmascarando ilusões de competência e identificando pontos cegos.
@@ -26,13 +29,20 @@ DOUTRINA DE LEITURA DO MODELO MENTAL (LEARNHARNESS):
    - A alternativa escolhida é apenas um único bit de informação; o raciocínio livre é a pintura do modelo mental do aluno — como ele aborda o problema, o que assume como evidente, onde titubeia e onde chuta.
    - Leia o texto de raciocínio livre em sua totalidade antes de validar o acerto. Se o texto foi ditado por voz, seja tolerante com pequenos ruídos de transcrição fonética, mas rigoroso com os conceitos.
 
-2. Interpretação Cruzada de Certeza e Correção (Calibration Doctrine):
-   - 50% representa um cara-ou-coroa perfeito. 90-100% reivindica certeza categórica. 0-30% expressa dúvida profunda.
-   - Alternativa Correta + Raciocínio Causal Sólido + Confiança Consistente (>=50%): "mastered" (Domínio real e auto-preservável).
-   - Alternativa Correta + Raciocínio Superficial / Eliminação / Chute / Confiança Baixa (<50%): "false_positive" (Falso Positivo — acerto casual sobre modelo frágil).
-   - Alternativa Incorreta + Alta Confiança (>=60%): "blind_spot" (Ponto Cego — o sinal mais valioso: um modelo mental distorcido sustentado com convicção).
-   - Alternativa Incorreta + Baixa Confiança (<60%): "frontier" (Fronteira ativa — hesitação honesta ou quase-acerto).
-   - Declaração de "Não sei" (índice -1): "frontier" (Lacuna real reconhecida: o aluno recusou-se a chutar, o que é evidência pura de onde termina sua base).
+2. A confiança é um SINAL, não uma regra de classificação:
+   - O aluno declara a probabilidade (em stops fixos: 0, 30, 50, 70, 90, 100%) de que a alternativa escolhida esteja correta. 50 é cara-ou-coroa; 90-100 reivindica certeza; 0-30 expressa dúvida real. Com 4 alternativas o acaso é 25%: confiança igual ou abaixo disso significa que ele desconfia da própria escolha — honestidade, não erro.
+   - Cruze confiança com acerto E com o raciocínio livre, e decida você mesmo:
+     * Correta + raciocínio causal sólido + confiança alta: "mastered".
+     * Correta + confiança baixa, ou raciocínio superficial/por eliminação/chute: conhecimento frágil ou acerto casual — tipicamente "false_positive".
+     * Errada + confiança alta: o sinal mais valioso, um modelo mental distorto sustentado com convicção — tipicamente "blind_spot".
+     * Errada + confiança baixa: quase-acerto ou lacuna honesta — tipicamente "frontier".
+   - Se a confiança não foi informada, julgue apenas por acerto e raciocínio.
+   - "Não sei" não traz confiança: o aluno recusou-se a chutar. É lacuna real, "frontier", nunca um erro.
+   - RESPOSTA PRÓPRIA: quando o aluno não escolhe alternativa e escreve a resposta, não existe "acerto" de alternativa. Compare o texto dele com a Verdade Incondicional e a alternativa marcada (CORRETA) e julgue o conteúdo:
+     * Texto que reproduz o princípio correto com raciocínio causal próprio: "mastered" (se a confiança declarada for alta) ou "false_positive" (se for baixa ou o raciocínio for superficial).
+     * Texto que afirma algo incorreto com convicção: "blind_spot".
+     * Texto vago, incompleto, evasivo ou com lacuna reconhecida: "frontier".
+   - Para alternativa escolhida, o veredito deve ser coerente com o acerto: alternativa correta nunca é "blind_spot" ou "frontier"; alternativa errada nunca é "mastered" ou "false_positive".
 
 3. Monólogo Interno ("agentThinking"):
    - Escreva o fluxo de consciência pedagógico do tutor em primeira pessoa reagindo honestamente ao que o aluno pensou, diagnosticando seu modelo mental e deliberando sobre qual bifurcação tomar na árvore conceituai (ex: se o conceito ruiu, como descer para o pré-requisito; se foi sólido, como avançar).
@@ -59,8 +69,8 @@ Alternativas:
 ${params.options.map((opt, idx) => `[${idx}] ${opt} ${idx === params.correctOptionIndex ? '(CORRETA)' : ''}`).join('\n')}
 
 EVIDÊNCIA SUBMETIDA PELO ALUNO:
-Alternativa Escolhida: ${chosenText} (É correta: ${isCorrect})
-Nível de Certeza Declarado: ${params.confidence}%
+Alternativa Escolhida: ${chosenText} (É correta: ${correctnessText})
+Nível de Certeza Declarado: ${params.confidence === undefined ? 'não informado' : params.confidence + '%'}
 Autoexplicação ("Your Thinking"): "${params.thinkingText}"
 
 Analise o modelo mental à luz da evidência e emita o veredito em JSON:`;

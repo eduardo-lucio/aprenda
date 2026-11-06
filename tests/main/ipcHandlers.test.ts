@@ -3,7 +3,7 @@ import { registerIpcHandlers } from '../../src/main/ipc/registerIpcHandlers';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
-import { mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM } from '../helpers/mockLLM';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 
 describe('IPC Handlers', () => {
@@ -24,7 +24,7 @@ describe('IPC Handlers', () => {
       }),
     };
     store = new KnowledgeStore();
-    fsm = new SessionStateMachine(store, undefined, new CurriculumGenerator(mockLLM));
+    fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
     socratic = new SocraticEngine();
   });
 
@@ -34,7 +34,8 @@ describe('IPC Handlers', () => {
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:start', expect.any(Function));
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:submit-goal', expect.any(Function));
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:submit-probe', expect.any(Function));
-    expect(mockIpcMain.handle).toHaveBeenCalledWith('session:advance-diagnosis', expect.any(Function));
+    expect(mockIpcMain.handle).toHaveBeenCalledWith('session:advance-plan', expect.any(Function));
+    expect(mockIpcMain.handle).toHaveBeenCalledWith('session:confirm-plan', expect.any(Function));
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:socratic-start', expect.any(Function));
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:submit-prediction', expect.any(Function));
     expect(mockIpcMain.handle).toHaveBeenCalledWith('session:submit-check', expect.any(Function));
@@ -64,5 +65,43 @@ describe('IPC Handlers', () => {
     const nodes = await handlers['graph:get']({});
     expect(nodes.length).toBeGreaterThanOrEqual(3);
     expect(nodes[0].status).toBe('untested');
+  });
+  it('walks every pending concept once (even after wrong checks) and then reports the end of the pass', async () => {
+    registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
+    await handlers['session:start']({}, 'teaching', 'Redes');
+    await handlers['session:submit-goal']({}, 'TCP e UDP');
+    for (let i = 0; i < 8; i++) {
+      const res = await handlers['session:submit-probe']({}, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+      if (res.nextAction === 'transition_plan') break;
+    }
+    if (fsm.getState().phase === 'probing') await handlers['session:advance-plan']({});
+    await handlers['session:confirm-plan']({});
+
+    const pending = Object.values(fsm.getState().nodesState).filter((st) => st !== 'mastered').length;
+    const taught: string[] = [];
+    for (let guard = 0; guard < 30; guard++) {
+      const step = await handlers['session:socratic-start']({});
+      if (step === null) break;
+      taught.push(step.node.id);
+      await handlers['session:submit-prediction']({}, 'minha previsão');
+      // Always the wrong alternative: the old behaviour kept serving this same concept forever
+      const res = await handlers['session:submit-check']({}, 3, 80, 'palpite');
+      expect(res.isPassed).toBe(false);
+    }
+
+    expect(taught).toHaveLength(pending);
+    expect(new Set(taught).size).toBe(taught.length);
+    expect(await handlers['session:socratic-start']({})).toBeNull();
+  });
+
+  it('still lets the student re-open a specific concept explicitly', async () => {
+    registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
+    await handlers['session:start']({}, 'teaching', 'Redes');
+    await handlers['session:submit-goal']({}, 'TCP e UDP');
+    const nodeId = store.getNodes()[0].id;
+
+    const step = await handlers['session:socratic-start']({}, nodeId);
+    expect(step.node.id).toBe(nodeId);
+    await expect(handlers['session:socratic-start']({}, 'nao-existe')).rejects.toThrow(/não encontrado/i);
   });
 });

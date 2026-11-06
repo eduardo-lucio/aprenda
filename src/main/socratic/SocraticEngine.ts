@@ -1,6 +1,6 @@
 import { CheckQuestionData, ConceptNode } from '../../shared/types';
 import { buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
-import { callLLM, LLMCaller, parseLLMJson } from '../services/llmClient';
+import { callLLM, isProviderLimitError, LLMCaller, parseLLMJson } from '../services/llmClient';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
 
 export class SocraticEngine {
@@ -70,7 +70,8 @@ export class SocraticEngine {
             : undefined,
         };
       }
-    } catch (_err) {
+    } catch (err) {
+      if (isProviderLimitError(err)) throw err;
       // Offline fallback below
     }
 

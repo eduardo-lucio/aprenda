@@ -1,404 +1,352 @@
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { ConceptNode } from '../../shared/types';
-import { NodeDetailModal } from './NodeDetailModal';
-import { ZoomIn, ZoomOut, RotateCcw, Hand } from 'lucide-react';
+import { NodeDetailPanel } from './NodeDetailPanel';
+import { CENTER_RADIUS, PILL_H, PILL_W, collectRelations, layoutRadial, ringRx, wrapTitle } from '../graph/radialLayout';
+import { STATUS_META, STATUS_ORDER } from '../graph/statusMeta';
 
 interface KnowledgeGraphProps {
   nodes: ConceptNode[];
+  /** Learning goal, drawn at the centre of the map. */
+  goal?: string;
   activeNodeId?: string;
   onNodeSelect?: (id: string) => void;
   onStartSocratic?: (nodeId: string) => void;
 }
 
-export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
-  nodes,
-  activeNodeId,
-  onNodeSelect,
-  onStartSocratic,
-}) => {
-  const [selectedNode, setSelectedNode] = useState<ConceptNode | null>(null);
-  const [scale, setScale] = useState<number>(1);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+interface View {
+  tx: number;
+  ty: number;
+  k: number;
+}
 
-  // Group nodes by levels 1 to 4
-  const levels = [1, 2, 3, 4];
-  const nodesByLevel: Record<number, ConceptNode[]> = {
-    1: [],
-    2: [],
-    3: [],
-    4: [],
+const MIN_K = 0.2;
+const MAX_K = 2.5;
+const FIT_PADDING = 48;
+const DRAG_THRESHOLD = 4;
+/** Space kept free for the legend (top) and the zoom controls (bottom) when fitting. */
+const INSET_TOP = 76;
+const INSET_BOTTOM = 56;
+
+export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, activeNodeId, onNodeSelect, onStartSocratic }) => {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [view, setView] = useState<View>({ tx: 0, ty: 0, k: 1 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const sizeRef = useRef({ w: 0, h: 0 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const userMovedRef = useRef(false);
+  const pointerRef = useRef<{ id: number; x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
+  const draggedRef = useRef(false);
+
+  const layout = useMemo(() => layoutRadial(nodes), [nodes]);
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const selected = selectedId ? byId.get(selectedId) ?? null : null;
+  const focusId = hoverId ?? selectedId ?? activeNodeId ?? null;
+  const relations = useMemo(
+    () => (focusId && byId.has(focusId) ? collectRelations(nodes, focusId) : null),
+    [nodes, byId, focusId]
+  );
+
+  const fit = useCallback(() => {
+    const { w, h } = sizeRef.current;
+    if (w <= 0 || h <= 0) return;
+    const b = layout.bounds;
+    const bw = b.maxX - b.minX + FIT_PADDING * 2;
+    const bh = b.maxY - b.minY + FIT_PADDING * 2;
+    const availH = Math.max(120, h - INSET_TOP - INSET_BOTTOM);
+    const k = Math.min(1.25, Math.max(MIN_K, Math.min(w / bw, availH / bh)));
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    setView({ k, tx: w / 2 - cx * k, ty: INSET_TOP + availH / 2 - cy * k });
+  }, [layout]);
+
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+
+  // Track the canvas size; keep the whole map in view until the user starts navigating
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const measure = () => {
+      sizeRef.current = { w: el.clientWidth, h: el.clientHeight };
+      if (!userMovedRef.current) fitRef.current();
     };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-  for (const n of nodes) {
-    const lvl = n.level || 2;
-    if (!nodesByLevel[lvl]) nodesByLevel[lvl] = [];
-    nodesByLevel[lvl].push(n);
-  }
+  // A different set of concepts means a different map: fit again
+  const nodesKey = nodes.map((n) => n.id).join('|');
+  useEffect(() => {
+    userMovedRef.current = false;
+    fit();
+  }, [nodesKey, fit]);
 
-  // Calculate coordinates for SVG layout
-  // Column width 260px, card width 200px (x: -100 to +100), height 56px (y: -28 to +28)
-  const colWidth = 260;
-  const colStartX = 140;
-  const rowHeight = 95;
-  const rowStartY = 70;
+  const zoomAt = useCallback((px: number, py: number, factor: number) => {
+    const v = viewRef.current;
+    const k = Math.min(MAX_K, Math.max(MIN_K, v.k * factor));
+    userMovedRef.current = true;
+    setView({ k, tx: px - ((px - v.tx) * k) / v.k, ty: py - ((py - v.ty) * k) / v.k });
+  }, []);
 
-  const nodeCoords: Record<string, { x: number; y: number }> = {};
+  // Wheel zoom around the cursor (native listener: React's synthetic wheel is passive)
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, [zoomAt]);
 
-  levels.forEach((lvl, colIdx) => {
-    const colNodes = nodesByLevel[lvl] || [];
-    colNodes.forEach((node, rowIdx) => {
-      nodeCoords[node.id] = {
-        x: colStartX + colIdx * colWidth,
-        y: rowStartY + rowIdx * rowHeight,
-      };
-    });
-  });
+  const zoomCentre = (factor: number) => zoomAt(sizeRef.current.w / 2, sizeRef.current.h / 2, factor);
 
-  const getNodeColor = (status: ConceptNode['status']) => {
-    switch (status) {
-      case 'mastered':
-        return {
-          stroke: '#22c55e',
-          fill: '#052e16',
-          text: 'text-emerald-400',
-          dot: '#22c55e',
-          pulse: false,
-        };
-      case 'false_positive':
-        return {
-          stroke: '#facc15',
-          fill: '#451a03',
-          text: 'text-amber-300',
-          dot: '#facc15',
-          pulse: true,
-        };
-      case 'blind_spot':
-        return {
-          stroke: '#ef4444',
-          fill: '#450a0a',
-          text: 'text-red-400',
-          dot: '#ef4444',
-          pulse: false,
-        };
-      case 'frontier':
-        return {
-          stroke: '#3b82f6',
-          fill: '#172554',
-          text: 'text-blue-400',
-          dot: '#3b82f6',
-          pulse: false,
-        };
-      default:
-        return {
-          stroke: '#334155',
-          fill: '#0f172a',
-          text: 'text-gray-400',
-          dot: '#64748b',
-          pulse: false,
-        };
-    }
+  const select = (id: string) => {
+    setSelectedId(id);
+    onNodeSelect?.(id);
   };
 
-  const handleNodeClick = (node: ConceptNode) => {
-    setSelectedNode(node);
-    if (onNodeSelect) {
-      onNodeSelect(node.id);
-    }
+  // Pan: capture the pointer only after a real drag so plain clicks still reach the pills
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    draggedRef.current = false;
+    pointerRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty, moved: false };
   };
-
-  // Pan handlers
-  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (e.button === 0) {
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const p = pointerRef.current;
+    if (!p || p.id !== e.pointerId) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (!p.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!p.moved) {
+      p.moved = true;
+      draggedRef.current = true;
+      userMovedRef.current = true;
       setIsDragging(true);
-      dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      svgRef.current?.setPointerCapture?.(e.pointerId);
+    }
+    setView((v) => ({ ...v, tx: p.tx + dx, ty: p.ty + dy }));
+  };
+  const endPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (pointerRef.current?.id === e.pointerId) {
+      pointerRef.current = null;
+      setIsDragging(false);
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (isDragging) {
-      setPan({
-        x: e.clientX - dragStartRef.current.x,
-        y: e.clientY - dragStartRef.current.y,
-      });
+  const edges = useMemo(() => {
+    const list: { id: string; from: string; to: string; d: string }[] = [];
+    for (const n of nodes) {
+      const to = layout.positions.get(n.id);
+      if (!to) continue;
+      for (const pid of n.prerequisites) {
+        const from = layout.positions.get(pid);
+        if (!from) continue;
+        // Curve bowed towards the centre so links hug the rings instead of cutting across pills
+        const cx = ((from.x + to.x) / 2) * 0.62;
+        const cy = ((from.y + to.y) / 2) * 0.62;
+        list.push({ id: `${pid}->${n.id}`, from: pid, to: n.id, d: `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}` });
+      }
     }
+    return list;
+  }, [nodes, layout]);
+
+  const roots = nodes.filter((n) => !n.prerequisites.some((p) => byId.has(p)) && layout.positions.has(n.id));
+
+  const isRelated = (id: string) =>
+    !relations || id === focusId || relations.ancestors.has(id) || relations.descendants.has(id);
+
+  const edgeStyle = (from: string, to: string) => {
+    if (!relations || !focusId) return { stroke: '#a1a1aa', opacity: 0.16, width: 1.2, dash: undefined as string | undefined };
+    const upChain = (id: string) => id === focusId || relations.ancestors.has(id);
+    const downChain = (id: string) => id === focusId || relations.descendants.has(id);
+    if (upChain(from) && upChain(to)) return { stroke: '#e4e4e7', opacity: 0.95, width: 2, dash: undefined };
+    if (downChain(from) && downChain(to)) return { stroke: '#e4e4e7', opacity: 0.85, width: 2, dash: '6 4' };
+    return { stroke: '#a1a1aa', opacity: 0.05, width: 1.2, dash: undefined };
   };
 
-  const handleMouseUp = () => setIsDragging(false);
-
-  const handleZoomIn = () => setScale((prev) => Math.min(1.8, +(prev + 0.15).toFixed(2)));
-  const handleZoomOut = () => setScale((prev) => Math.max(0.6, +(prev - 0.15).toFixed(2)));
-  const handleResetZoom = () => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  };
+  const goalLines = wrapTitle(goal || 'Objetivo', 15, 3);
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#0a0a0a] text-gray-200 select-none relative overflow-hidden">
-      {/* Legend & Controls Header */}
-      <div className="flex flex-wrap items-center justify-between border-b border-[#1e293b] px-4 py-2 text-xs bg-[#111111]/90 z-10 backdrop-blur-sm">
-        <span className="font-semibold uppercase tracking-wider text-[11px] text-gray-300">
-          Grafo de Dependências Conceituais (DAG)
-        </span>
-
-        {/* Legend Badges */}
-        <div className="flex flex-wrap items-center gap-3 text-[11px]">
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm" />
-            <span className="text-gray-300">Domínio</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse shadow-sm" />
-            <span className="text-amber-300 font-medium">Falso Positivo</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" />
-            <span className="text-red-400">Ponto Cego</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500 shadow-sm" />
-            <span className="text-blue-400">Fronteira</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-gray-600 shadow-sm" />
-            <span className="text-gray-400">Não Testado</span>
-          </span>
-        </div>
-      </div>
-
-      {/* Floating Zoom & Pan Controls */}
-      <div className="absolute right-4 top-14 z-20 flex items-center space-x-1 rounded-lg border border-[#1e293b] bg-[#111111]/90 p-1 shadow-lg backdrop-blur-sm">
-        <button
-          onClick={handleZoomIn}
-          title="Aumentar Zoom"
-          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleZoomOut}
-          title="Diminuir Zoom"
-          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <span className="px-1.5 font-mono text-[10px] text-gray-400">
-          {Math.round(scale * 100)}%
-        </span>
-        <button
-          onClick={handleResetZoom}
-          title="Resetar Zoom (100%)"
-          className="rounded p-1.5 text-gray-400 hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Interactive SVG Canvas */}
-      <div className="relative flex-1 cursor-grab active:cursor-grabbing overflow-hidden">
+    <div className="flex h-full min-h-0 w-full bg-ink-950">
+      <div ref={canvasRef} className="relative min-w-0 flex-1 overflow-hidden">
         <svg
-          className="h-full w-full select-none"
-          viewBox="0 0 1150 560"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          ref={svgRef}
+          role="img"
+          aria-label="Mapa de conceitos"
+          className={`h-full w-full touch-none select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
+          onClick={() => {
+            if (!draggedRef.current) setSelectedId(null);
+          }}
         >
-          <defs>
-            {/* Background Grid Pattern */}
-            <pattern id="dag-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-              <circle cx="2" cy="2" r="1" fill="#334155" opacity="0.3" />
-            </pattern>
+          <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
+            {/* Rings (levels) */}
+            {layout.rings.map((r) => (
+              <ellipse key={r.level} cx={0} cy={0} rx={ringRx(r.radius)} ry={r.radius} fill="none" stroke="#3a3a3a" strokeOpacity={0.35} strokeDasharray="3 7" />
+            ))}
 
-            {/* Directional Arrow Marker */}
-            <marker
-              id="dag-arrow"
-              markerWidth="8"
-              markerHeight="8"
-              refX="7"
-              refY="3.5"
-              orient="auto"
-            >
-              <polygon points="0 0.5, 7 3.5, 0 6.5" fill="#64748b" />
-            </marker>
-
-            {/* Active/Frontier Arrow Marker */}
-            <marker
-              id="dag-arrow-active"
-              markerWidth="8"
-              markerHeight="8"
-              refX="7"
-              refY="3.5"
-              orient="auto"
-            >
-              <polygon points="0 0.5, 7 3.5, 0 6.5" fill="#3b82f6" />
-            </marker>
-          </defs>
-
-          {/* Grid Background */}
-          <rect width="100%" height="100%" fill="url(#dag-grid)" />
-
-          {/* Main Zoomed & Panned Group */}
-          <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-            {/* Level Column Headers */}
-            <text x={colStartX} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 1: FUNDAMENTOS
-            </text>
-            <text x={colStartX + colWidth} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 2: CONCEITOS BASE
-            </text>
-            <text x={colStartX + colWidth * 2} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 3: INTEGRAÇÃO
-            </text>
-            <text x={colStartX + colWidth * 3} y={32} fill="#64748b" fontSize="11" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">
-              NÍVEL 4: SÍNTESE AVANÇADA
-            </text>
-
-            {/* Dependency Edges (Intra & Inter-level routing) */}
-            <g className="edges">
-              {nodes.map((node) => {
-                const target = nodeCoords[node.id];
-                if (!target) return null;
-
-                return node.prerequisites.map((prereqId) => {
-                  const source = nodeCoords[prereqId];
-                  if (!source) return null;
-
-                  let pathData = '';
-                  const cardHalfW = 100;
-                  const cardHalfH = 28;
-
-                  if (Math.abs(source.x - target.x) < 10) {
-                    // Intra-level edge (same column): Vertical routing
-                    if (source.y < target.y) {
-                      // Downward
-                      const startX = source.x;
-                      const startY = source.y + cardHalfH;
-                      const endX = target.x;
-                      const endY = target.y - cardHalfH;
-                      const dy = endY - startY;
-                      pathData = `M ${startX} ${startY} C ${startX} ${startY + dy * 0.4}, ${endX} ${endY - dy * 0.4}, ${endX} ${endY}`;
-                    } else {
-                      // Upward
-                      const startX = source.x;
-                      const startY = source.y - cardHalfH;
-                      const endX = target.x;
-                      const endY = target.y + cardHalfH;
-                      const dy = startY - endY;
-                      pathData = `M ${startX} ${startY} C ${startX} ${startY - dy * 0.4}, ${endX} ${endY + dy * 0.4}, ${endX} ${endY}`;
-                    }
-                  } else if (source.x < target.x) {
-                    // Inter-level edge: Left to right
-                    const startX = source.x + cardHalfW;
-                    const startY = source.y;
-                    const endX = target.x - cardHalfW;
-                    const endY = target.y;
-                    const dx = endX - startX;
-                    pathData = `M ${startX} ${startY} C ${startX + dx * 0.45} ${startY}, ${endX - dx * 0.45} ${endY}, ${endX} ${endY}`;
-                  } else {
-                    // Right to left (fallback)
-                    const startX = source.x - cardHalfW;
-                    const startY = source.y;
-                    const endX = target.x + cardHalfW;
-                    const endY = target.y;
-                    const dx = startX - endX;
-                    pathData = `M ${startX} ${startY} C ${startX - dx * 0.45} ${startY}, ${endX + dx * 0.45} ${endY}, ${endX} ${endY}`;
-                  }
-
-                  const isEdgeActive = node.status === 'frontier' || node.status === 'false_positive';
-
-                  return (
-                    <path
-                      key={`${prereqId}->${node.id}`}
-                      d={pathData}
-                      fill="none"
-                      stroke={isEdgeActive ? '#3b82f6' : '#475569'}
-                      strokeWidth={isEdgeActive ? '2' : '1.5'}
-                      strokeDasharray={isEdgeActive ? 'none' : '4 2'}
-                      strokeOpacity={isEdgeActive ? '0.85' : '0.5'}
-                      markerEnd={isEdgeActive ? 'url(#dag-arrow-active)' : 'url(#dag-arrow)'}
-                    />
-                  );
-                });
+            {/* Links, behind everything else */}
+            <g fill="none" strokeLinecap="round">
+              {roots.map((n) => {
+                const p = layout.positions.get(n.id)!;
+                const dim = relations && !(n.id === focusId || relations.ancestors.has(n.id));
+                return (
+                  <line key={`root-${n.id}`} x1={0} y1={0} x2={p.x} y2={p.y} stroke="#a1a1aa" strokeOpacity={dim ? 0.03 : 0.1} strokeDasharray="2 6" />
+                );
+              })}
+              {edges.map((e) => {
+                const s = edgeStyle(e.from, e.to);
+                return (
+                  <path key={e.id} d={e.d} data-testid="graph-edge" stroke={s.stroke} strokeOpacity={s.opacity} strokeWidth={s.width} strokeDasharray={s.dash} />
+                );
               })}
             </g>
 
-            {/* Nodes */}
+            {/* Goal at the centre */}
+            <g aria-label={`Objetivo: ${goal || ''}`}>
+              <circle r={CENTER_RADIUS} fill="#181818" stroke="#52525b" strokeWidth={1.5} />
+              <text textAnchor="middle" y={-CENTER_RADIUS + 20} fontSize={9} className="font-mono" fill="#71717a" letterSpacing="0.14em">
+                OBJETIVO
+              </text>
+              <text textAnchor="middle" fontSize={12} fontWeight={600} fill="#f4f4f5" className="font-serif">
+                {goalLines.map((line, i) => (
+                  <tspan key={i} x={0} y={-((goalLines.length - 1) * 7) + i * 14 + 8}>
+                    {line}
+                  </tspan>
+                ))}
+              </text>
+            </g>
+
+            {/* Concept pills */}
             {nodes.map((node) => {
-              const coord = nodeCoords[node.id];
-              if (!coord) return null;
-
-              const color = getNodeColor(node.status);
-              const isActive = node.id === activeNodeId;
-
+              const pos = layout.positions.get(node.id);
+              if (!pos) return null;
+              const meta = STATUS_META[node.status];
+              const lines = wrapTitle(node.title, 27, 2);
+              const blockH = lines.length * 14 + 6 + 10;
+              const top = -blockH / 2;
+              const isFocus = node.id === focusId;
+              const open = () => select(node.id);
               return (
                 <g
                   key={node.id}
-                  onClick={() => handleNodeClick(node)}
-                  className="cursor-pointer transition-transform hover:opacity-95"
-                  transform={`translate(${coord.x}, ${coord.y})`}
-                  data-testid={`node-${node.id}`}
+                  transform={`translate(${pos.x} ${pos.y})`}
                   role="button"
                   tabIndex={0}
+                  aria-label={`${node.title} — ${meta.label}`}
+                  aria-pressed={node.id === selectedId}
+                  opacity={isRelated(node.id) ? 1 : 0.3}
+                  className="cursor-pointer outline-none transition-opacity duration-150 [&:focus-visible>rect]:stroke-white"
+                  onMouseEnter={() => setHoverId(node.id)}
+                  onMouseLeave={() => setHoverId((h) => (h === node.id ? null : h))}
+                  onFocus={() => setHoverId(node.id)}
+                  onBlur={() => setHoverId((h) => (h === node.id ? null : h))}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!draggedRef.current) open();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      open();
+                    }
+                  }}
                 >
-                  <title>{node.title} ({node.status})</title>
-
-                  {/* Node Box (Width 200px, Height 56px) */}
+                  <title>{`${node.title} (${meta.label})`}</title>
                   <rect
-                    x="-100"
-                    y="-28"
-                    width="200"
-                    height="56"
-                    rx="8"
-                    fill={color.fill}
-                    stroke={color.stroke}
-                    strokeWidth={isActive ? '2.5' : '1.5'}
-                    className={color.pulse ? 'animate-pulse' : ''}
+                    x={-PILL_W / 2}
+                    y={-PILL_H / 2}
+                    width={PILL_W}
+                    height={PILL_H}
+                    rx={14}
+                    fill={meta.fill}
+                    stroke={meta.stroke}
+                    strokeWidth={isFocus || node.id === selectedId ? 2.5 : 1.25}
                   />
-
-                  {/* Status Indicator Dot */}
-                  <circle cx="-88" cy="0" r="4.5" fill={color.dot} />
-
-                  {/* Title text formatted with native SVG textLength constraint */}
-                  <text
-                    x="-76"
-                    y="2"
-                    fill="#f8fafc"
-                    fontSize={node.title.length > 26 ? '8.5' : '9.5'}
-                    fontWeight="600"
-                    fontFamily="Inter, system-ui, sans-serif"
-                    {...(node.title.length > 26
-                      ? { textLength: 165, lengthAdjust: 'spacingAndGlyphs' }
-                      : {})}
-                  >
-                    {node.title}
-                  </text>
-
-                  {/* Status Label */}
-                  <text
-                    x="-76"
-                    y="21"
-                    fill={color.stroke}
-                    fontSize="8"
-                    fontWeight="600"
-                    fontFamily="monospace"
-                  >
-                    {node.status.toUpperCase()}
+                  {lines.length === 1 ? (
+                    <text x={-PILL_W / 2 + 14} y={top + 12} fontSize={12.5} fontWeight={600} fill="#f4f4f5">
+                      {lines[0]}
+                    </text>
+                  ) : (
+                    <text x={-PILL_W / 2 + 14} fontSize={12.5} fontWeight={600} fill="#f4f4f5">
+                      {lines.map((line, i) => (
+                        <tspan key={i} x={-PILL_W / 2 + 14} y={top + 12 + i * 14}>
+                          {line}
+                        </tspan>
+                      ))}
+                    </text>
+                  )}
+                  <circle cx={-PILL_W / 2 + 18} cy={top + lines.length * 14 + 8} r={3.5} fill={meta.stroke} className={node.status === 'false_positive' ? 'animate-pulse' : undefined} />
+                  <text x={-PILL_W / 2 + 28} y={top + lines.length * 14 + 11.5} fontSize={9} letterSpacing="0.08em" fill={meta.stroke} className="font-mono" style={{ textTransform: 'uppercase' }}>
+                    {meta.label}
                   </text>
                 </g>
               );
             })}
           </g>
         </svg>
+
+        {/* Legend */}
+        <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-8rem)] flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-ink-700 bg-ink-900/90 px-3 py-2 backdrop-blur">
+          {STATUS_ORDER.map((s) => (
+            <span key={s} className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-gray-400">
+              <span className="h-2 w-2 rounded-full" style={{ background: STATUS_META[s].stroke }} />
+              {STATUS_META[s].label}
+            </span>
+          ))}
+          <span className="font-mono text-[10px] tracking-wider text-gray-500">
+            Passe o mouse: linha sólida = pré-requisitos · tracejada = libera
+          </span>
+        </div>
+
+        {/* Zoom controls */}
+        <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-lg border border-ink-700 bg-ink-900/90 p-1">
+          <button type="button" onClick={() => zoomCentre(1.25)} aria-label="Aumentar zoom" title="Aumentar zoom" className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
+            <ZoomIn className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => zoomCentre(0.8)} aria-label="Diminuir zoom" title="Diminuir zoom" className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
+            <ZoomOut className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              userMovedRef.current = false;
+              fit();
+            }}
+            aria-label="Ajustar à tela"
+            title="Ajustar à tela"
+            className="flex h-7 items-center gap-1.5 rounded px-2 font-mono text-[10px] uppercase tracking-wider text-gray-400 hover:bg-ink-700 hover:text-white"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            Ajustar
+          </button>
+        </div>
       </div>
 
-      {/* Node Detail Modal / Popover */}
-      <NodeDetailModal
-        node={selectedNode}
-        onClose={() => setSelectedNode(null)}
-        onStartSocratic={onStartSocratic}
-      />
+      {selected && (
+        <NodeDetailPanel
+          node={selected}
+          nodes={nodes}
+          onClose={() => setSelectedId(null)}
+          onSelect={select}
+          onStartSocratic={onStartSocratic}
+        />
+      )}
     </div>
   );
 };

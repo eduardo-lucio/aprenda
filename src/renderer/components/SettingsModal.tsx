@@ -15,6 +15,7 @@ import {
   ProviderValidationResult,
 } from '../../shared/types';
 import { validateAndFetchModels } from '../../main/services/providerValidationService';
+import { PROBE_QUESTIONS_RANGE, clampProbeQuestions } from '../../shared/types';
 import { validateDeepgramKey, VOICE_LANGUAGES } from '../../main/services/speechService';
 
 export interface AppSettings {
@@ -158,6 +159,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         effortLevel: next.strongThinking,
         deepgramApiKey: next.deepgramApiKey,
         voiceLanguage: next.voiceLanguage,
+        minProbeQuestions: next.minQuestions,
       });
     }
   };
@@ -397,7 +399,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-[#2a2a2a] bg-[#141414] text-gray-200 shadow-2xl overflow-hidden font-sans"
+        className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-ink-600 bg-ink-850 text-gray-200 shadow-2xl overflow-hidden font-sans"
         onClick={(e) => {
           e.stopPropagation();
           if (openModelSelectorSlot) setOpenModelSelectorSlot(null);
@@ -405,11 +407,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }}
       >
         {/* Header */}
-        <div className="flex h-14 items-center justify-between border-b border-[#262626] px-6">
+        <div className="flex h-14 items-center justify-between border-b border-ink-600 px-6">
           <h2 className="text-2xl font-serif text-white tracking-tight font-medium">Settings</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-[#262626] hover:text-white transition-colors"
+            className="rounded p-1 text-gray-400 hover:bg-ink-600 hover:text-white transition-colors"
             aria-label="Fechar"
           >
             <X className="h-4 w-4" />
@@ -419,7 +421,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Main 2-Column Content */}
         <div className="flex flex-1 overflow-hidden">
           {/* Left Navigation Sidebar */}
-          <div className="w-44 border-r border-[#262626] p-3 space-y-1 bg-[#141414]">
+          <div className="w-44 border-r border-ink-600 p-3 space-y-1 bg-ink-850">
             {navTabs.map((tab) => {
               const isActive = activeTab === tab;
               return (
@@ -433,8 +435,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   }}
                   className={`w-full text-left px-3 py-2 rounded-md text-xs font-sans transition-colors ${
                     isActive
-                      ? 'bg-[#282828] text-white font-semibold shadow-sm'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-[#1c1c1c]'
+                      ? 'bg-ink-600 text-white font-semibold shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-ink-800'
                   }`}
                 >
                   {tab}
@@ -444,7 +446,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Right Tab Content */}
-          <div className="flex-1 overflow-y-auto p-6 bg-[#141414] relative">
+          <div className="flex-1 overflow-y-auto p-6 bg-ink-850 relative">
             {/* 1. PROVIDERS TAB */}
             {activeTab === 'Providers' && (
               <div className="space-y-6">
@@ -467,8 +469,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             key={p.id}
                             className={`group flex items-center justify-between py-2 px-2.5 rounded transition-colors text-xs font-sans border ${
                               isCurrentActive
-                                ? 'bg-[#1e1e1e] border-[#333333]'
-                                : 'hover:bg-[#1a1a1a] border-transparent'
+                                ? 'bg-ink-700 border-ink-500'
+                                : 'hover:bg-ink-800 border-transparent'
                             }`}
                           >
                             <div className="flex items-center space-x-2">
@@ -479,7 +481,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               />
                               <span className="text-gray-200 font-medium">{p.name}</span>
                               {isCurrentActive && (
-                                <span className="rounded bg-[#282828] px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
+                                <span className="rounded bg-ink-600 px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
                                   Ativo
                                 </span>
                               )}
@@ -533,7 +535,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="relative">
                     <div
                       onClick={() => setShowProviderDropdown(!showProviderDropdown)}
-                      className="flex items-center justify-between rounded p-2 text-xs font-sans text-gray-300 hover:text-white hover:bg-[#1c1c1c] cursor-pointer transition-colors border border-transparent hover:border-[#2e2e2e]"
+                      className="flex items-center justify-between rounded p-2 text-xs font-sans text-gray-300 hover:text-white hover:bg-ink-800 cursor-pointer transition-colors border border-transparent hover:border-ink-500"
                     >
                       <span className="font-medium">+ Add a provider</span>
                       <span className="text-gray-500 font-mono text-xs">{AVAILABLE_PROVIDERS.length}</span>
@@ -541,7 +543,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* Searchable Dropdown Popover */}
                     {showProviderDropdown && (
-                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-[#333333] bg-[#1a1a1a] p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-ink-500 bg-ink-800 p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
                         <div className="relative mb-2">
                           <input
                             type="text"
@@ -549,7 +551,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             value={providerSearch}
                             onChange={(e) => setProviderSearch(e.target.value)}
                             autoFocus
-                            className="w-full rounded-lg border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
+                            className="w-full rounded-lg border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
                           />
                         </div>
 
@@ -568,7 +570,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 setValidationError(null);
                                 setShowProviderDropdown(false);
                               }}
-                              className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-[#282828] text-gray-200 hover:text-white transition-colors"
+                              className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-ink-600 text-gray-200 hover:text-white transition-colors"
                             >
                               <span>{prov.name}</span>
                               <span className="text-[10px] font-mono text-gray-400">{prov.envKey}</span>
@@ -580,7 +582,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* Modal / Inline form to insert API key with live validation */}
                     {editingProvider && (
-                      <div className="mt-3 rounded-lg border border-[#333333] bg-[#1c1c1c] p-4 space-y-3 animate-in fade-in duration-100">
+                      <div className="mt-3 rounded-lg border border-ink-500 bg-ink-800 p-4 space-y-3 animate-in fade-in duration-100">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-sans text-white font-semibold">
                             Configurar Chave de API: {editingProvider.name}
@@ -623,7 +625,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             }}
                             placeholder="Insira sua chave real (ex: sk-... ou token)"
                             disabled={isValidatingKey}
-                            className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
+                            className="w-full rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !isValidatingKey) {
@@ -644,12 +646,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               }
                               placeholder="http://localhost:11434"
                               disabled={isValidatingKey}
-                              className="w-full rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
+                              className="w-full rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             />
                           </div>
                         )}
 
-                        <div className="flex items-center justify-between pt-2 border-t border-[#2a2a2a]">
+                        <div className="flex items-center justify-between pt-2 border-t border-ink-600">
                           <span className="text-[10px] text-gray-400 font-mono">
                             A chave será validada online via API antes de ser ativada.
                           </span>
@@ -688,7 +690,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#262626]" />
+                <hr className="border-ink-600" />
 
                 {/* VOICE RECOGNITION (DEEPGRAM) & VOICE LANGUAGE */}
                 <div className="space-y-3">
@@ -697,11 +699,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {settings.deepgramValidated && settings.deepgramApiKey && !isEditingDeepgram ? (
-                    <div className="flex items-center justify-between py-2 px-2.5 rounded bg-[#1e1e1e] border border-[#333333] text-xs font-sans">
+                    <div className="flex items-center justify-between py-2 px-2.5 rounded bg-ink-700 border border-ink-500 text-xs font-sans">
                       <div className="flex items-center space-x-2">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
                         <span className="text-gray-200 font-medium">Deepgram (Nova-2)</span>
-                        <span className="rounded bg-[#282828] px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
+                        <span className="rounded bg-ink-600 px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
                           Ativo
                         </span>
                       </div>
@@ -731,7 +733,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-[#333333] bg-[#1c1c1c] p-3.5 space-y-2.5">
+                    <div className="rounded-lg border border-ink-500 bg-ink-800 p-3.5 space-y-2.5">
                       {deepgramError && (
                         <div className="rounded border border-red-900/60 bg-red-950/40 p-2.5 text-xs text-red-200 flex items-start space-x-2">
                           <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
@@ -750,7 +752,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           placeholder="Token Deepgram (DEEPGRAM_API_KEY)"
                           disabled={isValidatingDeepgram}
                           aria-label="Chave de API do Deepgram"
-                          className="flex-1 rounded border border-[#3a3a3a] bg-[#111111] px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
+                          className="flex-1 rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !isValidatingDeepgram) {
                               handleSaveDeepgramKey();
@@ -792,7 +794,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
 
                   {/* Voice Language Selector (Checkbox / Pill Selection + Select Box) */}
-                  <div className="rounded-lg border border-[#2a2a2a] bg-[#181818] p-3 space-y-2.5">
+                  <div className="rounded-lg border border-ink-600 bg-ink-800 p-3 space-y-2.5">
                     <div className="flex items-center justify-between text-xs font-sans">
                       <div>
                         <span className="text-gray-200 font-medium block">Idioma da Voz (Reconhecimento de Fala)</span>
@@ -805,7 +807,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         aria-label="Idioma da Voz"
                         value={settings.voiceLanguage || 'pt-BR'}
                         onChange={(e) => updateSettings({ voiceLanguage: e.target.value })}
-                        className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
+                        className="rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                       >
                         {VOICE_LANGUAGES.map((lang) => (
                           <option key={lang.code} value={lang.code}>
@@ -828,7 +830,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             className={`flex cursor-pointer items-center space-x-1.5 rounded border px-2.5 py-1 text-[11px] font-sans transition-colors ${
                               checked
                                 ? 'border-emerald-500/80 bg-emerald-950/30 text-emerald-300 font-medium'
-                                : 'border-[#333333] bg-[#141414] text-gray-400 hover:text-gray-200'
+                                : 'border-ink-500 bg-ink-850 text-gray-400 hover:text-gray-200'
                             }`}
                           >
                             <input
@@ -845,7 +847,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <hr className="border-[#262626]" />
+                <hr className="border-ink-600" />
 
                 {/* Language Setting */}
                 <div className="flex items-center justify-between text-xs font-sans pt-1">
@@ -853,7 +855,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <select
                     value={settings.language}
                     onChange={(e) => updateSettings({ language: e.target.value })}
-                    className="rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
+                    className="rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
                   >
                     <option value="Portuguese (pt-BR)">Portuguese (pt-BR)</option>
                     <option value="English (US)">English (US)</option>
@@ -932,7 +934,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ].map((row) => (
                     <div
                       key={row.slot}
-                      className="flex items-start justify-between py-3 border-b border-[#222222] relative"
+                      className="flex items-start justify-between py-3 border-b border-ink-700 relative"
                     >
                       <div>
                         <div className="text-xs font-sans text-gray-200 font-semibold">{row.label}</div>
@@ -953,7 +955,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               );
                               setModelSearchQuery('');
                             }}
-                            className="flex items-center space-x-1.5 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <span className="max-w-[160px] truncate">{row.currentModel}</span>
                             <ChevronDown className="h-3 w-3 text-gray-400" />
@@ -962,7 +964,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {/* Searchable Model Dropdown Popover */}
                           {openModelSelectorSlot === row.slot && (
                             <div
-                              className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-[#333333] bg-[#161616] p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+                              className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-ink-500 bg-ink-850 p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="relative mb-2">
@@ -972,7 +974,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   value={modelSearchQuery}
                                   onChange={(e) => setModelSearchQuery(e.target.value)}
                                   autoFocus
-                                  className="w-full rounded-lg border border-[#3a3a3a] bg-[#101010] px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
+                                  className="w-full rounded-lg border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
                                 />
                               </div>
 
@@ -990,8 +992,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         onClick={() => handleSelectModel(row.slot, m)}
                                         className={`flex cursor-pointer flex-col rounded p-2 text-xs font-sans transition-colors ${
                                           isSelected
-                                            ? 'bg-[#282828] text-white'
-                                            : 'hover:bg-[#202020] text-gray-300 hover:text-white'
+                                            ? 'bg-ink-600 text-white'
+                                            : 'hover:bg-ink-700 text-gray-300 hover:text-white'
                                         }`}
                                       >
                                         <div className="flex items-center justify-between font-medium">
@@ -1024,7 +1026,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 openEffortSelectorSlot === row.slot ? null : row.slot
                               );
                             }}
-                            className="flex items-center space-x-1.5 rounded border border-[#333333] bg-[#1c1c1c] px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
+                            className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
                           >
                             <span>{row.currentEffort}</span>
                             <ChevronDown className="h-3 w-3 text-gray-400" />
@@ -1033,7 +1035,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {/* Effort Dropdown Popover */}
                           {openEffortSelectorSlot === row.slot && (
                             <div
-                              className="absolute right-0 top-9 z-50 w-36 rounded-xl border border-[#333333] bg-[#161616] py-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+                              className="absolute right-0 top-9 z-50 w-36 rounded-xl border border-ink-500 bg-ink-850 py-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {effortLevels.map((lvl) => {
@@ -1044,8 +1046,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     onClick={() => handleSelectEffort(row.slot, lvl)}
                                     className={`flex cursor-pointer items-center justify-between px-3.5 py-1.5 text-xs font-mono transition-colors ${
                                       isSelected
-                                        ? 'bg-[#242424] text-white font-semibold'
-                                        : 'hover:bg-[#202020] text-gray-400 hover:text-gray-200'
+                                        ? 'bg-ink-600 text-white font-semibold'
+                                        : 'hover:bg-ink-700 text-gray-400 hover:text-gray-200'
                                     }`}
                                   >
                                     <span>{lvl}</span>
@@ -1059,6 +1061,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
                   ))}
+
+                  {/* PROBING */}
+                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mt-8 mb-3">
+                    PROBING
+                  </div>
+                  <div className="rounded-lg border border-ink-600 bg-ink-850 px-4 py-3.5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <label htmlFor="min-questions" className="text-sm text-gray-200">
+                          Mínimo de questões da sondagem
+                        </label>
+                        <p className="mt-0.5 text-[11px] text-gray-500">
+                          Quantas questões o agente faz antes de poder montar o plano de ensino (
+                          {PROBE_QUESTIONS_RANGE.min} a {PROBE_QUESTIONS_RANGE.max}).
+                        </p>
+                      </div>
+                      <span
+                        data-testid="min-questions-value"
+                        className="w-8 shrink-0 text-right font-mono text-sm font-semibold text-gray-100"
+                      >
+                        {clampProbeQuestions(settings.minQuestions)}
+                      </span>
+                    </div>
+                    <input
+                      id="min-questions"
+                      type="range"
+                      role="slider"
+                      aria-label="Mínimo de questões da sondagem"
+                      min={PROBE_QUESTIONS_RANGE.min}
+                      max={PROBE_QUESTIONS_RANGE.max}
+                      step={1}
+                      value={clampProbeQuestions(settings.minQuestions)}
+                      onChange={(e) => updateSettings({ minQuestions: clampProbeQuestions(e.target.value) })}
+                      className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -1071,8 +1109,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     APPEARANCE
                   </h3>
 
-                  <div className="rounded-xl border border-[#2a2a2a] bg-[#181818] p-8 text-center flex flex-col items-center justify-center space-y-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#262626] text-gray-300">
+                  <div className="rounded-xl border border-ink-600 bg-ink-800 p-8 text-center flex flex-col items-center justify-center space-y-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink-600 text-gray-300">
                       <Palette className="h-6 w-6" />
                     </div>
                     <div className="space-y-1 max-w-sm">
@@ -1096,7 +1134,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     GENERAL
                   </h3>
 
-                  <div className="flex items-start justify-between py-2.5 border-b border-[#222222]">
+                  <div className="flex items-start justify-between py-2.5 border-b border-ink-700">
                     <div className="space-y-1">
                       <div className="text-xs font-sans text-gray-200 font-semibold">
                         Version {settings.appVersion}
@@ -1123,7 +1161,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={handleCheckUpdates}
-                      className="rounded-md border border-[#333333] bg-[#1c1c1c] px-3.5 py-1.5 text-xs font-sans text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
+                      className="rounded-md border border-ink-500 bg-ink-800 px-3.5 py-1.5 text-xs font-sans text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
                     >
                       Check for updates
                     </button>
@@ -1145,12 +1183,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       aria-checked={settings.autoUpdates}
                       onClick={() => updateSettings({ autoUpdates: !settings.autoUpdates })}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                        settings.autoUpdates ? 'bg-white' : 'bg-[#2a2a2a]'
+                        settings.autoUpdates ? 'bg-white' : 'bg-ink-600'
                       }`}
                     >
                       <span
                         className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out mt-0.5 ${
-                          settings.autoUpdates ? 'translate-x-4 bg-[#141414]' : 'translate-x-0.5 bg-[#888888]'
+                          settings.autoUpdates ? 'translate-x-4 bg-ink-850' : 'translate-x-0.5 bg-[#888888]'
                         }`}
                       />
                     </button>

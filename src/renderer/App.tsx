@@ -3,13 +3,14 @@ import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
-import { ProbingSession, ModelOption } from '../shared/types';
+import { ProbingSession, ModelOption, PersistedUi } from '../shared/types';
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [pendingSessionMode, setPendingSessionMode] = useState<'teaching' | 'practice' | null>(null);
   const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
+  const [restoredUi, setRestoredUi] = useState<PersistedUi | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
@@ -20,6 +21,21 @@ export default function App() {
     } catch {}
     return DEFAULT_SETTINGS;
   });
+
+  // Load persisted sessions (survive app restarts)
+  useEffect(() => {
+    if (!window.api?.listSessions) return;
+    window.api.listSessions().then((list) => {
+      setSessions(
+        list.map((r) => ({
+          id: r.id,
+          title: r.title,
+          mode: r.mode,
+          date: new Date(r.updatedAt).toLocaleDateString('pt-BR'),
+        }))
+      );
+    }).catch(() => {});
+  }, []);
 
   // Sync saved settings with Electron Main process on startup and whenever settings change
   useEffect(() => {
@@ -41,6 +57,7 @@ export default function App() {
         effortLevel: effectiveEffort as any,
         deepgramApiKey: settings.deepgramApiKey,
         voiceLanguage: settings.voiceLanguage,
+        minProbeQuestions: settings.minQuestions,
       });
     }
   }, [settings]);
@@ -76,15 +93,22 @@ export default function App() {
   const handleSelectSession = async (id: string) => {
     setActiveSessionId(id);
     setPendingSessionMode(null);
-    if (window.api?.getSession) {
-      const sess = await window.api.getSession();
-      if (sess && sess.id === id) {
-        setCurrentSession(sess);
+    try {
+      const active = window.api?.getSession ? await window.api.getSession() : null;
+      if (active && active.id === id) {
+        setCurrentSession(active);
+        return;
       }
-    }
+      if (window.api?.loadSession) {
+        const loaded = await window.api.loadSession(id);
+        setRestoredUi(loaded.ui || { chatMessages: [] });
+        setCurrentSession(loaded.session);
+      }
+    } catch {}
   };
 
   const handleDeleteSession = (id: string) => {
+    window.api?.deleteSession?.(id);
     setSessions((prev) => {
       const updated = prev.filter((s) => s.id !== id);
       if (activeSessionId === id) {
@@ -174,37 +198,36 @@ export default function App() {
   const titleText = currentSession?.goal
     ? currentSession.goal
     : pendingSessionMode === 'practice'
-    ? 'Nova Prática Rápida — APRENDA'
-    : 'APRENDA — Diagnóstico Cognitivo & Ensino Socrático';
+    ? 'Nova Prática Rápida'
+    : 'Nova Trilha Socrática';
+  const phaseLabel = currentSession?.phase ? currentSession.phase.replace(/_/g, ' ') : undefined;
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-gray-100 overflow-hidden font-sans select-none">
-      {/* Frameless Custom Title Bar */}
-      <TitleBar title={titleText} />
+    <div className="flex h-screen w-screen bg-ink-950 text-gray-100 overflow-hidden font-sans select-none">
+      <Sidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        pendingMode={pendingSessionMode}
+        onSelectSession={handleSelectSession}
+        onNewSession={handleNewSession}
+        onDeleteSession={handleDeleteSession}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
 
-      {/* Main Container */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Retractable / Fixed Sidebar */}
-        <Sidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          pendingMode={pendingSessionMode}
-          onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-          onDeleteSession={handleDeleteSession}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-        />
-
-        {/* Central Session / Socratic Canvas */}
+      {/* Right column: frameless title bar + session canvas */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <TitleBar title={titleText} phaseLabel={phaseLabel} />
         <main className="flex-1 overflow-hidden">
           <SessionView
             currentSession={currentSession}
             pendingMode={pendingSessionMode}
+            restoredUi={restoredUi}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
             onSessionCreated={handleSessionCreated}
             modelName={settings.strongModel || settings.model || 'Sem modelo'}
             thinkingLevel={settings.strongThinking || settings.thinkingLevel || 'High'}
             tokenCount={sessionTokens}
+            minQuestions={settings.minQuestions}
             questionCount={currentSession?.questionCount}
             isRecording={isRecording}
             onToggleDictate={handleToggleDictate}

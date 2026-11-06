@@ -289,6 +289,7 @@ async function readResponseOrStream(
     let contentAcc = '';
     let reasoningAcc = '';
     let reportedUsage: TokenUsage | null = null;
+    let streamError: any = null;
 
     while (true) {
       const { value, done } = await reader.read();
@@ -306,6 +307,10 @@ async function readResponseOrStream(
 
         try {
           const parsed = JSON.parse(dataStr);
+          if (parsed?.error) {
+            streamError = parsed.error;
+            continue;
+          }
           if (parsed?.usage) {
             const p = Number(parsed.usage.prompt_tokens) || 0;
             const c = Number(parsed.usage.completion_tokens) || 0;
@@ -337,6 +342,13 @@ async function readResponseOrStream(
       }
     }
 
+    if (streamError && !contentAcc.trim()) {
+      const code = Number(streamError.code) || 0;
+      const detail = String(streamError.message || '');
+      if ([401, 402, 403, 429].includes(code)) throwProviderLimit(code, detail);
+      throw new Error(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`);
+    }
+
     if (shouldEmitLiveThinking) {
       const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
       const finalThinking = (partialFromContent || reasoningAcc.trim()).trim();
@@ -359,6 +371,12 @@ async function readResponseOrStream(
 
   // Fallback for non-streaming responses (or unit test mocks returning res.json())
   const data: any = await res.json();
+  if (data?.error && !data?.choices?.length) {
+    const code = Number(data.error.code) || 0;
+    const detail = String(data.error.message || '');
+    if ([401, 402, 403, 429].includes(code)) throwProviderLimit(code, detail);
+    throw new Error(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`);
+  }
   const msg = data?.choices?.[0]?.message;
   const content = String(msg?.content || '');
   const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
@@ -392,13 +410,67 @@ async function readResponseOrStream(
   return { content, nativeReasoning };
 }
 
+
+export type ProviderLimitKind = 'rate_limit' | 'credits' | 'auth';
+
+/** Provider refused the call because of quota/credits/key. Must never be masked by offline fallbacks. */
+export class ProviderLimitError extends Error {
+  constructor(public kind: ProviderLimitKind, message: string, public status?: number) {
+    super(message);
+    this.name = 'ProviderLimitError';
+  }
+}
+
+/** Works on typed errors and on errors that lost their class (IPC, mocks) via the HTTP code in the message. */
+export function isProviderLimitError(err: unknown): boolean {
+  if (err instanceof ProviderLimitError) return true;
+  const msg = String((err as any)?.message || err || '');
+  return /HTTP (401|402|403|429)\b/i.test(msg);
+}
+
+/** No provider/model configured yet: retrying cannot help. */
+export class LLMNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'Nenhum provedor/modelo de IA configurado. Abra Configurações → Providers, valide sua chave e escolha um modelo em Agent.'
+    );
+    this.name = 'LLMNotConfiguredError';
+  }
+}
+
+/** Errors for which a retry is pointless (quota/key/credits or missing configuration). */
+export function isFatalLLMError(err: unknown): boolean {
+  return isProviderLimitError(err) || err instanceof LLMNotConfiguredError;
+}
+
+function throwProviderLimit(status: number, detail: string): never {
+  const d = detail ? `: ${detail}` : '';
+  if (status === 429) {
+    throw new ProviderLimitError(
+      'rate_limit',
+      `Limite de requisições atingido no provedor de IA (HTTP 429)${d}. Se estiver usando modelos gratuitos (:free) no OpenRouter, o limite diário dessa chave foi atingido — aguarde, ou troque a chave/provedor/modelo em Configurações.`,
+      429
+    );
+  }
+  if (status === 402) {
+    throw new ProviderLimitError(
+      'credits',
+      `Créditos/saldo esgotados no provedor de IA (HTTP 402)${d}. Adicione créditos ou troque o provedor/modelo em Configurações.`,
+      402
+    );
+  }
+  throw new ProviderLimitError(
+    'auth',
+    `Chave de API inválida ou sem autorização (HTTP ${status})${d}. Verifique Configurações → Providers.`,
+    status
+  );
+}
+
 export const callLLM: LLMCaller = async (options) => {
   const config = { ...defaultLLMConfig, ...options.config };
 
   if (!config.baseURL || !config.model) {
-    throw new Error(
-      'Nenhum provedor/modelo de IA configurado. Abra Configurações → Providers, valide sua chave e escolha um modelo em Agent.'
-    );
+    throw new LLMNotConfiguredError();
   }
 
   const messages: Array<{ role: string; content: string }> = [];
@@ -421,21 +493,7 @@ export const callLLM: LLMCaller = async (options) => {
       const body: any = await res.json();
       detail = body?.error?.message || body?.message || '';
     } catch {}
-    if (res.status === 429) {
-      throw new Error(
-        `Limite de requisições atingido no provedor de IA (HTTP 429)${detail ? `: ${detail}` : ''}. Se estiver usando modelos gratuitos (:free) no OpenRouter, o limite diário (50 req/dia) dessa chave foi atingido — troque a chave/provedor ou o modelo em Configurações.`
-      );
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        `Chave de API inválida ou sem autorização (HTTP ${res.status})${detail ? `: ${detail}` : ''}. Verifique Configurações → Providers.`
-      );
-    }
-    if (res.status === 402) {
-      throw new Error(
-        `Saldo/créditos insuficientes no provedor de IA (HTTP 402)${detail ? `: ${detail}` : ''}.`
-      );
-    }
+    if ([401, 402, 403, 429].includes(res.status)) throwProviderLimit(res.status, detail);
     throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 

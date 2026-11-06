@@ -8,13 +8,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        dark: {
-          900: '#0a0a0a',
-          850: '#111111',
-          800: '#171717',
-          700: '#1e293b',
-          600: '#334155',
+        ink: {
+          950: '#0a0a0a',
+          900: '#111111',
+          850: '#141414',
+          800: '#181818',
+          700: '#1f1f1f',
+          600: '#262626',
+          500: '#333333',
+          400: '#3a3a3a',
         },
+        accent: '#facc15',
         brand: {
           yellow: '#facc15',
           green: '#22c55e',
@@ -23,7 +27,7 @@ module.exports = {
         }
       },
       fontFamily: {
-        serif: ['DejaVu Serif', 'Georgia', 'serif'],
+        serif: ["'Source Serif 4'", 'DejaVu Serif', 'Georgia', 'serif'],
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'DejaVu Sans Mono', 'monospace'],
       }

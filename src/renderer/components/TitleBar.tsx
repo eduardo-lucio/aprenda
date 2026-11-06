@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 
 interface TitleBarProps {
   title?: string;
+  phaseLabel?: string;
 }
 
-export const TitleBar: React.FC<TitleBarProps> = () => {
+export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   const handleWindowAction = (action: 'minimize' | 'maximize' | 'close') => {
@@ -18,11 +19,22 @@ export const TitleBar: React.FC<TitleBarProps> = () => {
 
   return (
     <header
-      className="flex h-9 w-full select-none items-center justify-between border-b border-[#141414] bg-[#0a0a0a] px-3.5 text-xs text-gray-400"
+      className="flex h-14 w-full shrink-0 select-none items-center justify-between gap-4 border-b border-ink-700 bg-ink-950 px-6 text-xs text-gray-400"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
-      {/* Top-left is kept clean and minimalist: name and phrase removed */}
-      <div className="flex-1 h-full" />
+      <h1 className="min-w-0 flex-1 truncate font-serif text-2xl font-semibold text-gray-100">
+        {title}
+      </h1>
+
+      {phaseLabel && (
+        <div
+          className="flex shrink-0 items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400"
+          data-testid="phase-badge"
+        >
+          <span className="h-4 w-4 rounded-full border-2 border-ink-400 border-t-gray-300" aria-hidden />
+          <span>{phaseLabel}</span>
+        </div>
+      )}
 
       {/* Linux Default Window Control Buttons (Zorin / GNOME style) */}
       <div
@@ -32,7 +44,7 @@ export const TitleBar: React.FC<TitleBarProps> = () => {
         <button
           type="button"
           onClick={() => handleWindowAction('minimize')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-[#262626] text-[#e0e0e0] hover:bg-[#383838] active:bg-[#444] transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
           title="Minimizar"
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
@@ -43,7 +55,7 @@ export const TitleBar: React.FC<TitleBarProps> = () => {
         <button
           type="button"
           onClick={() => handleWindowAction('maximize')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-[#262626] text-[#e0e0e0] hover:bg-[#383838] active:bg-[#444] transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
           title={isMaximized ? 'Restaurar' : 'Maximizar'}
         >
           {isMaximized ? (
@@ -60,7 +72,7 @@ export const TitleBar: React.FC<TitleBarProps> = () => {
         <button
           type="button"
           onClick={() => handleWindowAction('close')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-[#262626] text-[#e0e0e0] hover:bg-[#c73838] hover:text-white active:bg-[#a82828] transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-[#c73838] hover:text-white active:bg-[#a82828] transition-colors focus:outline-none"
           title="Fechar"
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">

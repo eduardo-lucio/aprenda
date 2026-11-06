@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, BookOpen, Dumbbell, Settings, Layers, Trash2 } from 'lucide-react';
+import { Search, Settings, Layers, Trash2, PanelLeft } from 'lucide-react';
 
 export interface SessionItem {
   id: string;
@@ -29,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [filterTab, setFilterTab] = useState<'ALL' | 'TEACHING' | 'PRACTICE'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [collapsed, setCollapsed] = useState(false);
 
   const filteredSessions = sessions.filter((s) => {
     const matchesFilter =
@@ -40,47 +41,94 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return matchesFilter && matchesSearch;
   });
 
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center border-r border-ink-700 bg-ink-900 py-3 text-gray-400">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="Expandir barra lateral"
+          aria-label="Expandir barra lateral"
+          className="flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-ink-700 hover:text-gray-200"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Configurações do Agente & LLM"
+          aria-label="Configurações do Agente"
+          className="flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-ink-700 hover:text-gray-200"
+        >
+          <Settings className="h-4 w-4" />
+        </button>
+      </aside>
+    );
+  }
+
+  const actionBtn = (active: boolean) =>
+    `flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-[11px] font-semibold uppercase tracking-widest transition-colors ${
+      active ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
+    }`;
+
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-[#1e293b] bg-[#111111] text-gray-300">
-      {/* Action Buttons */}
-      <div className="flex flex-col gap-2 p-3 border-b border-[#1e293b]/60">
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-ink-700 bg-ink-900 text-gray-300">
+      {/* Brand + collapse */}
+      <div className="flex h-14 shrink-0 items-center justify-between px-5">
+        <Layers className="h-6 w-6 text-gray-100" aria-hidden />
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          title="Recolher barra lateral"
+          aria-label="Recolher barra lateral"
+          className="flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-ink-700 hover:text-gray-200"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* New session actions */}
+      <div className="flex flex-col gap-0.5 px-3 pb-3">
         <button
           onClick={() => onNewSession('teaching')}
-          className={`flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors shadow-sm border ${
-            pendingMode === 'teaching'
-              ? 'bg-emerald-600 text-white border-emerald-400'
-              : 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
-          }`}
+          className={actionBtn(pendingMode === 'teaching')}
           title="Iniciar nova trilha socrática de aprendizado"
         >
-          <BookOpen className="h-4 w-4" />
           <span>+ TEACHING</span>
         </button>
-
         <button
           onClick={() => onNewSession('practice')}
-          className={`flex w-full items-center justify-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors border ${
-            pendingMode === 'practice'
-              ? 'bg-blue-600 text-white border-blue-400'
-              : 'bg-[#1e293b]/40 text-gray-300 border-[#334155]/60 hover:bg-[#1e293b]'
-          }`}
+          className={actionBtn(pendingMode === 'practice')}
           title="Iniciar prática rápida de fixação"
         >
-          <Dumbbell className="h-3.5 w-3.5 text-gray-400" />
           <span>+ PRACTICE</span>
         </button>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex border-b border-[#1e293b] px-3 pt-2 text-[11px] font-semibold text-gray-400">
+      {/* Sessions header + search */}
+      <div className="flex items-center gap-2 px-5 pb-2">
+        <span className="label-mono">Sessões</span>
+        <div className="flex flex-1 items-center rounded border border-ink-600 bg-ink-850 px-2 py-1">
+          <Search className="mr-1.5 h-3 w-3 text-gray-500" />
+          <input
+            type="text"
+            placeholder="Buscar..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-transparent font-mono text-[11px] text-gray-200 outline-none placeholder:text-gray-600"
+          />
+        </div>
+      </div>
+
+      {/* Filter segmented control */}
+      <div className="mx-3 mb-3 flex rounded-lg border border-ink-600 bg-ink-850 p-0.5">
         {(['TEACHING', 'PRACTICE', 'ALL'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setFilterTab(tab)}
-            className={`flex-1 pb-2 text-center transition-colors border-b-2 ${
-              filterTab === tab
-                ? 'border-emerald-500 text-gray-100'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+            className={`flex-1 rounded-md py-1.5 text-center font-mono text-[10px] font-semibold uppercase tracking-widest transition-colors ${
+              filterTab === tab ? 'bg-ink-600 text-gray-100' : 'text-gray-500 hover:text-gray-300'
             }`}
           >
             {tab}
@@ -88,28 +136,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </div>
 
-      {/* Search Input */}
-      <div className="p-2 border-b border-[#1e293b]/50">
-        <div className="flex items-center rounded bg-[#0a0a0a] px-2 py-1 text-xs text-gray-300 border border-[#1e293b]">
-          <Search className="mr-1.5 h-3.5 w-3.5 text-gray-500" />
-          <input
-            type="text"
-            placeholder="Buscar sessões..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent text-xs text-gray-200 outline-none placeholder:text-gray-600"
-          />
-        </div>
-      </div>
-
-      {/* Sessions List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-          Sessões Salvas
-        </div>
-
+      {/* Sessions list */}
+      <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-2">
         {filteredSessions.length === 0 ? (
-          <div className="p-4 text-center text-xs text-gray-600 italic">
+          <div className="p-4 text-center font-mono text-[11px] text-gray-600">
             Nenhuma sessão encontrada.
           </div>
         ) : (
@@ -119,29 +149,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={s.id}
                 onClick={() => onSelectSession(s.id)}
-                className={`group flex cursor-pointer flex-col rounded-md px-2.5 py-2 transition-all relative ${
+                className={`group relative flex cursor-pointer flex-col rounded-lg px-3 py-2.5 transition-colors ${
                   isActive
-                    ? 'bg-[#1e293b] text-white border-l-2 border-emerald-500 shadow-sm'
-                    : 'text-gray-400 hover:bg-[#171717] hover:text-gray-200'
+                    ? 'bg-ink-700 text-gray-100'
+                    : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
                 }`}
               >
-                <div className="flex items-center justify-between pr-5">
-                  <span className="text-xs font-medium truncate font-serif">{s.title}</span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase shrink-0 ${
-                      s.mode === 'teaching'
-                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
-                        : 'bg-blue-950 text-blue-400 border border-blue-800/50'
-                    }`}
-                  >
-                    {s.mode}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mt-1 text-[10px] text-gray-500">
-                  <span>{s.date}</span>
-                </div>
+                <span className="truncate pr-5 text-sm font-medium">{s.title}</span>
+                <span className="mt-1 font-mono text-[10px] text-gray-500">
+                  {s.mode} · {s.date}
+                </span>
 
-                {/* Delete button (visible on hover) */}
                 {onDeleteSession && (
                   <button
                     type="button"
@@ -150,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onDeleteSession(s.id);
                     }}
                     title="Excluir sessão"
-                    className="absolute right-2 top-2 hidden group-hover:flex h-5 w-5 items-center justify-center rounded text-gray-500 hover:bg-red-950 hover:text-red-400 transition-colors"
+                    className="absolute right-2 top-2 hidden h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-950 hover:text-red-400 group-hover:flex"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -162,21 +180,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-[#1e293b] p-3 text-xs text-gray-400 bg-[#0d0d0d]">
-        <div className="flex items-center space-x-2">
-          <Layers className="h-4 w-4 text-emerald-500" />
-          <span className="text-[11px] font-medium text-gray-300">APRENDA</span>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          title="Configurações do Agente & LLM"
-          aria-label="Configurações do Agente"
-          className="flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-[#1e293b] hover:text-gray-200 transition-colors"
-        >
-          <Settings className="h-4 w-4" />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        title="Configurações do Agente & LLM"
+        aria-label="Configurações do Agente"
+        className="flex items-center gap-2 border-t border-ink-700 px-5 py-4 font-mono text-[11px] font-semibold uppercase tracking-widest text-gray-500 transition-colors hover:text-gray-200"
+      >
+        <Settings className="h-3.5 w-3.5" />
+        <span>Configurações</span>
+      </button>
     </aside>
   );
 };

@@ -65,18 +65,18 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                   onSelect(idx);
                 }
               }}
-              className={`flex cursor-pointer items-center space-x-3 rounded-lg border px-4 py-2.5 text-xs transition-all ${
+              className={`flex cursor-pointer items-center space-x-3 rounded-xl border px-4 py-3 text-[13px] transition-all ${
                 isSelected
-                  ? 'border-emerald-500/80 bg-emerald-950/25 text-white ring-1 ring-emerald-500/30'
-                  : 'border-[#282828] bg-[#181818] text-gray-300 hover:border-[#3a3a3a] hover:bg-[#1e1e1e]'
+                  ? 'border-gray-300 bg-ink-800 text-white'
+                  : 'border-ink-600 bg-ink-800 text-gray-300 hover:border-ink-400 hover:bg-ink-700'
               }`}
             >
               <span
                 className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                  isSelected ? 'border-emerald-400 bg-emerald-500/20' : 'border-gray-600 bg-transparent'
+                  isSelected ? 'border-gray-200' : 'border-ink-400 bg-transparent'
                 }`}
               >
-                {isSelected && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+                {isSelected && <span className="h-2 w-2 rounded-full bg-gray-100" />}
               </span>
               <RichText text={opt} className="leading-snug" />
             </div>
@@ -89,12 +89,12 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             aria-checked={dashedOption.selected}
             tabIndex={0}
             onClick={dashedOption.onSelect}
-            className={`flex cursor-pointer items-center space-x-3 rounded-lg border border-dashed px-4 py-2.5 text-xs transition-all ${
+            className={`flex cursor-pointer items-center space-x-3 rounded-xl border border-dashed px-4 py-3 text-xs transition-all ${
               dashedOption.selected
                 ? dashedTone === 'amber'
                   ? 'border-amber-500/80 bg-amber-950/20 text-amber-200'
-                  : 'border-emerald-500/80 bg-emerald-950/20 text-white'
-                : 'border-[#2e2e2e] bg-transparent text-gray-400 hover:border-gray-500 hover:bg-[#181818]/40'
+                  : 'border-gray-300 bg-ink-800 text-white'
+                : 'border-ink-500 bg-transparent text-gray-400 hover:border-gray-500 hover:bg-ink-800/40'
             }`}
           >
             <span
@@ -102,13 +102,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                 dashedOption.selected
                   ? dashedTone === 'amber'
                     ? 'border-amber-400 bg-amber-500/20'
-                    : 'border-emerald-400 bg-emerald-500/20'
+                    : 'border-gray-200'
                   : 'border-gray-600 bg-transparent'
               }`}
             >
               {dashedOption.selected && (
                 <span
-                  className={`h-2 w-2 rounded-full ${dashedTone === 'amber' ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                  className={`h-2 w-2 rounded-full ${dashedTone === 'amber' ? 'bg-amber-400' : 'bg-gray-100'}`}
                 />
               )}
             </span>

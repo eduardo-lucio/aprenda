@@ -166,3 +166,32 @@ Gere a pergunta de predição em JSON:`;
 
   return { systemPrompt, prompt };
 }
+
+export function buildPlanPrompt(params: {
+  goal: string;
+  nodes: ConceptNode[];
+  attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
+}): { systemPrompt: string; prompt: string } {
+  const teacherInstructions = getTeacherInstructions();
+
+  const systemPrompt = `Você é o Planejador do APRENDA.
+${teacherInstructions}
+
+Com base no que a sondagem revelou, escreva o PLANO DE ENSINO apresentado ao aluno: um texto curto (no máximo 120 palavras, em português, segunda pessoa) com a abordagem escolhida e a ordem em que os conceitos serão trabalhados, justificando brevemente por que começar pelo que está frágil ou ausente. Não repita o que já está dominado. Cite os conceitos pelo título.
+
+Responda SOMENTE em JSON:
+{
+  "plan": "Texto do plano...",
+  "order": ["id-do-no-1", "id-do-no-2"]
+}`;
+
+  const nodeLines = params.nodes
+    .map((n) => {
+      const att = [...params.attempts].reverse().find((a) => a.nodeId === n.id);
+      return `- ${n.id} | ${n.title} | nível ${n.level} | estado: ${n.status}${att ? ` | juiz: ${att.judgeReasoning}` : ''}`;
+    })
+    .join('\n');
+
+  const prompt = `Objetivo: "${params.goal}"\nConceitos e resultado da sondagem:\n${nodeLines}\n\nGere o plano em JSON:`;
+  return { systemPrompt, prompt };
+}
