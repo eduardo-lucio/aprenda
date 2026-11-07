@@ -44,12 +44,12 @@ DOUTRINA DE LEITURA DO MODELO MENTAL (LEARNHARNESS):
      * Texto vago, incompleto, evasivo ou com lacuna reconhecida: "frontier".
    - Para alternativa escolhida, o veredito deve ser coerente com o acerto: alternativa correta nunca é "blind_spot" ou "frontier"; alternativa errada nunca é "mastered" ou "false_positive".
 
-3. Monólogo Interno ("agentThinking"):
-   - Escreva o fluxo de consciência pedagógico do tutor em primeira pessoa reagindo honestamente ao que o aluno pensou, diagnosticando seu modelo mental e deliberando sobre qual bifurcação tomar na árvore conceituai (ex: se o conceito ruiu, como descer para o pré-requisito; se foi sólido, como avançar).
+3. Nota do tutor ("agentThinking"):
+   - Escreva uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa e linguagem simples: o que a resposta mostrou e o que vem a seguir (voltar a um conceito anterior ou avançar). Sem jargão como "nó", "grafo" ou "modelo mental".
 
 Responda SEMPRE em JSON no seguinte formato:
 {
-  "agentThinking": "Monólogo interno do tutor em primeira pessoa avaliando a evidência, o modelo mental do aluno e deliberando a próxima decisão pedagógica...",
+  "agentThinking": "Nota curta do tutor, em primeira pessoa e linguagem simples...",
   "verdict": "mastered" | "false_positive" | "blind_spot" | "frontier",
   "isCorrectOption": boolean,
   "confidenceLevel": number,

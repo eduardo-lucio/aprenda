@@ -112,12 +112,12 @@ describe('SessionView Integration', () => {
     render(<SessionView initialNodes={initialNodes} />);
 
     expect(screen.getByText(/nova sessão/i)).toBeDefined();
-    expect(screen.getByText(/o professor vai abrir uma investigação sobre o que você já sabe/i)).toBeDefined();
+    expect(screen.getByText(/antes de explicar qualquer coisa, eu vou descobrir o que você já sabe/i)).toBeDefined();
 
-    const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
+    const input = screen.getByPlaceholderText(/ex\.: equações do 2º grau/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });
 
-    const startBtn = screen.getByRole('button', { name: /iniciar diagnóstico/i });
+    const startBtn = screen.getByRole('button', { name: /^começar$/i });
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -130,9 +130,9 @@ describe('SessionView Integration', () => {
     render(<SessionView initialNodes={initialNodes} />);
 
     // Start
-    const input = screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i);
+    const input = screen.getByPlaceholderText(/ex\.: equações do 2º grau/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });
-    fireEvent.click(screen.getByRole('button', { name: /iniciar diagnóstico/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
 
     await waitFor(() => {
       expect(screen.getByText('Aprofundar em TTL e Prevenção de Loops')).toBeDefined();
@@ -166,7 +166,7 @@ describe('SessionView Integration', () => {
     render(<SessionView initialNodes={initialNodes} currentSession={planSession} />);
 
     expect(screen.getByText(/começaremos pelo ttl/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /começar ensino/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /começar as aulas/i })).toBeDefined();
     expect(screen.queryByText(/diagnóstico da fronteira/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /iniciar ensino socrático/i })).toBeNull();
 
@@ -228,7 +228,7 @@ describe('SessionView Integration', () => {
     expect(
       screen.getByText('Qual é o propósito da Camada 3 (Camada de Rede) no modelo OSI?')
     ).toBeDefined();
-    expect(screen.getByText('CORRECT')).toBeDefined();
+    expect(screen.getByText('Certa')).toBeDefined();
     expect(screen.getByText('A camada 3 roteia pacotes entre sub-redes distintas.')).toBeDefined();
 
     // Active question is rendered below it
@@ -237,12 +237,12 @@ describe('SessionView Integration', () => {
     ).toBeDefined();
 
     // Multiple AGENT'S THINKING blocks exist between turns
-    const thinkingToggles = screen.getAllByText(/agent's thinking/i);
+    const thinkingToggles = screen.getAllByText(/raciocínio do tutor/i);
     expect(thinkingToggles.length).toBeGreaterThanOrEqual(2);
 
     // Bottom chat input bar is rendered
     expect(
-      screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)
+      screen.getByPlaceholderText(/escreva seu raciocínio ou sua própria resposta/i)
     ).toBeDefined();
   });
 
@@ -298,7 +298,7 @@ describe('SessionView Integration', () => {
     fireEvent.click(modelPillBtn);
 
     // Search bar matching Image 3 is visible
-    const searchInput = screen.getByPlaceholderText('Search models...');
+    const searchInput = screen.getByPlaceholderText('Buscar modelos...');
     expect(searchInput).toBeDefined();
 
     // Model items matching Image 3 are displayed
@@ -317,7 +317,7 @@ describe('SessionView Integration', () => {
 
     // Reopen and search
     fireEvent.click(modelPillBtn);
-    const searchInput2 = screen.getByPlaceholderText('Search models...');
+    const searchInput2 = screen.getByPlaceholderText('Buscar modelos...');
     fireEvent.change(searchInput2, { target: { value: 'Particle' } });
 
     // Filtered results
@@ -354,16 +354,16 @@ describe('SessionView Integration', () => {
   it('renders the probe question as a single card with confidence slider and one reasoning field', async () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
 
-    // Single text field + confidence slider above it; no separate "Your thinking" field
+    // Single text field + confidence slider above it; no second reasoning field
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
-    expect(screen.queryByText(/your thinking/i)).toBeNull();
-    expect(screen.getByText('CONFIDENCE')).toBeDefined();
-    expect(screen.getByText('Não sei / Ainda não domino este conceito')).toBeDefined();
+    expect(screen.getAllByText(/seu raciocínio/i)).toHaveLength(1);
+    expect(screen.getByText('Confiança')).toBeDefined();
+    expect(screen.getByText('Não sei / ainda não aprendi isso')).toBeDefined();
 
     // Nothing chosen yet: send is disabled and placeholder invites own answer / thinking
     const send = screen.getByRole('button', { name: /^enviar resposta$/i }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/escreva seu raciocínio ou sua própria resposta/i)).toBeDefined();
 
     // Choosing an option enables send even with empty (optional) reasoning
     fireEvent.click(screen.getByText('Descarta o pacote'));
@@ -401,7 +401,7 @@ describe('SessionView Integration', () => {
 
   it('does not send confidence when the student answers "Não sei"', async () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
-    fireEvent.click(screen.getByText('Não sei / Ainda não domino este conceito'));
+    fireEvent.click(screen.getByText('Não sei / ainda não aprendi isso'));
     fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
     await waitFor(() => {
@@ -414,7 +414,7 @@ describe('SessionView Integration', () => {
 
   it('treats text typed without choosing an alternative as the student\'s own answer', async () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
-    fireEvent.change(screen.getByPlaceholderText(/digite seu pensamento ou sua própria resposta/i), {
+    fireEvent.change(screen.getByPlaceholderText(/escreva seu raciocínio ou sua própria resposta/i), {
       target: { value: 'O pacote some e o roteador avisa a origem.' },
     });
     fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
@@ -431,19 +431,19 @@ describe('SessionView Integration', () => {
 
   it('renders the scope question as a single card and asks for a custom scope in its field (no confidence slider)', async () => {
     render(<SessionView initialNodes={initialNodes} />);
-    fireEvent.change(screen.getByPlaceholderText(/ex: digite o tema ou disciplina/i), {
+    fireEvent.change(screen.getByPlaceholderText(/ex\.: equações do 2º grau/i), {
       target: { value: 'Camada 3 e TTL' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /iniciar diagnóstico/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
 
     await waitFor(() => {
       expect(screen.getByText('Tabela de Roteamento')).toBeDefined();
     });
-    expect(screen.queryByText('CONFIDENCE')).toBeNull();
+    expect(screen.queryByText('Confiança')).toBeNull();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
 
     // Free-text custom scope typed in the chat field
-    const input = screen.getByPlaceholderText(/insira um escopo personalizado/i);
+    const input = screen.getByPlaceholderText(/ou descreva o foco com suas palavras/i);
     fireEvent.change(input, { target: { value: 'Só o ICMP' } });
     fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
 
@@ -464,7 +464,7 @@ describe('SessionView Integration', () => {
     expect(screen.queryByTestId('active-question-dock')).toBeNull();
 
     expect(card.textContent).toContain('Descarta o pacote');
-    expect(card.textContent).toContain('CONFIDENCE');
+    expect(card.textContent).toContain('Confiança');
     expect(card.querySelector('textarea')).not.toBeNull();
     expect(screen.getByRole('button', { name: /^enviar resposta$/i })).toBeDefined();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
@@ -479,7 +479,7 @@ describe('SessionView Integration', () => {
     render(<SessionView initialNodes={initialNodes} currentSession={probingSession} />);
 
     // Only 1 AGENT'S THINKING block for the single active probe turn
-    expect(screen.getAllByText(/agent's thinking/i)).toHaveLength(1);
+    expect(screen.getAllByText(/raciocínio do tutor/i)).toHaveLength(1);
 
     fireEvent.click(screen.getByText('Descarta o pacote'));
     fireEvent.click(screen.getByRole('button', { name: /^enviar resposta$/i }));
@@ -488,7 +488,7 @@ describe('SessionView Integration', () => {
     expect(screen.queryByRole('button', { name: /^enviar resposta$/i })).toBeNull();
     expect(screen.queryByTestId('probe-card')).toBeNull();
     expect(screen.getByText('Descarta o pacote')).toBeDefined();
-    expect(screen.getByText('CORRECT')).toBeDefined();
+    expect(screen.getByText('Certa')).toBeDefined();
     expect(screen.queryByText(/você (acertou|errou)/i)).toBeNull();
     expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
 
@@ -510,7 +510,7 @@ describe('SessionView Integration', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /começar ensino/i })).toBeDefined();
+      expect(screen.getByRole('button', { name: /começar as aulas/i })).toBeDefined();
     });
   });
   it('ends the teaching pass with a summary card (instead of looping) when no concept is left to teach', async () => {
@@ -533,8 +533,8 @@ describe('SessionView Integration', () => {
     await waitFor(() => {
       expect(screen.getByTestId('teaching-finished')).toBeDefined();
     });
-    expect(screen.getByText(/passada de ensino concluída/i)).toBeDefined();
-    expect(screen.getByText(/1 conceito ainda não está dominado/i)).toBeDefined();
+    expect(screen.getByText(/aulas concluídas/i)).toBeDefined();
+    expect(screen.getByText(/1 conceito ainda não está firme/i)).toBeDefined();
     expect(screen.getByRole('button', { name: /abrir mapa de conceitos/i })).toBeDefined();
     // No new socratic step was opened
     expect(screen.queryByTestId('probe-card')).toBeNull();

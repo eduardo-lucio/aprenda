@@ -3,7 +3,8 @@ import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { ConceptNode } from '../../shared/types';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { CENTER_RADIUS, PILL_H, PILL_W, collectRelations, layoutRadial, ringRx, wrapTitle } from '../graph/radialLayout';
-import { STATUS_META, STATUS_ORDER } from '../graph/statusMeta';
+import { STATUS_ORDER, useStatusMeta } from '../graph/statusMeta';
+import { useI18n } from '../i18n';
 
 interface KnowledgeGraphProps {
   nodes: ConceptNode[];
@@ -29,6 +30,8 @@ const INSET_TOP = 76;
 const INSET_BOTTOM = 56;
 
 export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, activeNodeId, onNodeSelect, onStartSocratic }) => {
+  const { t } = useI18n();
+  const statusMeta = useStatusMeta();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [view, setView] = useState<View>({ tx: 0, ty: 0, k: 1 });
@@ -184,7 +187,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
         <svg
           ref={svgRef}
           role="img"
-          aria-label="Mapa de conceitos"
+          aria-label={t('graph.aria')}
           className={`h-full w-full touch-none select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -218,7 +221,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
             </g>
 
             {/* Goal at the centre */}
-            <g aria-label={`Objetivo: ${goal || ''}`}>
+            <g aria-label={t('graph.goalAria', { goal: goal || '' })}>
               <circle r={CENTER_RADIUS} fill="#181818" stroke="#52525b" strokeWidth={1.5} />
               <text textAnchor="middle" y={-CENTER_RADIUS + 20} fontSize={9} className="font-mono" fill="#71717a" letterSpacing="0.14em">
                 OBJETIVO
@@ -236,7 +239,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
             {nodes.map((node) => {
               const pos = layout.positions.get(node.id);
               if (!pos) return null;
-              const meta = STATUS_META[node.status];
+              const meta = statusMeta(node.status);
               const lines = wrapTitle(node.title, 27, 2);
               const blockH = lines.length * 14 + 6 + 10;
               const top = -blockH / 2;
@@ -305,8 +308,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
         <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-8rem)] flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-ink-700 bg-ink-900/90 px-3 py-2 backdrop-blur">
           {STATUS_ORDER.map((s) => (
             <span key={s} className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-gray-400">
-              <span className="h-2 w-2 rounded-full" style={{ background: STATUS_META[s].stroke }} />
-              {STATUS_META[s].label}
+              <span className="h-2 w-2 rounded-full" style={{ background: statusMeta(s).stroke }} />
+              {statusMeta(s).label}
             </span>
           ))}
           <span className="font-mono text-[10px] tracking-wider text-gray-500">
@@ -316,10 +319,10 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
 
         {/* Zoom controls */}
         <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-lg border border-ink-700 bg-ink-900/90 p-1">
-          <button type="button" onClick={() => zoomCentre(1.25)} aria-label="Aumentar zoom" title="Aumentar zoom" className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
+          <button type="button" onClick={() => zoomCentre(1.25)} aria-label={t('graph.zoomIn')} title={t('graph.zoomIn')} className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
             <ZoomIn className="h-4 w-4" />
           </button>
-          <button type="button" onClick={() => zoomCentre(0.8)} aria-label="Diminuir zoom" title="Diminuir zoom" className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
+          <button type="button" onClick={() => zoomCentre(0.8)} aria-label={t('graph.zoomOut')} title={t('graph.zoomOut')} className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-ink-700 hover:text-white">
             <ZoomOut className="h-4 w-4" />
           </button>
           <button
@@ -328,8 +331,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
               userMovedRef.current = false;
               fit();
             }}
-            aria-label="Ajustar à tela"
-            title="Ajustar à tela"
+            aria-label={t('graph.fit')}
+            title={t('graph.fit')}
             className="flex h-7 items-center gap-1.5 rounded px-2 font-mono text-[10px] uppercase tracking-wider text-gray-400 hover:bg-ink-700 hover:text-white"
           >
             <Maximize2 className="h-3.5 w-3.5" />

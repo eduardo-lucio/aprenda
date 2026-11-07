@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useI18n } from '../i18n';
 
 interface TitleBarProps {
   title?: string;
@@ -6,6 +7,7 @@ interface TitleBarProps {
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
+  const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
 
   const handleWindowAction = (action: 'minimize' | 'maximize' | 'close') => {
@@ -45,7 +47,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
           type="button"
           onClick={() => handleWindowAction('minimize')}
           className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
-          title="Minimizar"
+          title={t('window.minimize')}
+          aria-label={t('window.minimize')}
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
             <path d="M4 7v2h8V7z" fillRule="evenodd" />
@@ -56,7 +59,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
           type="button"
           onClick={() => handleWindowAction('maximize')}
           className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
-          title={isMaximized ? 'Restaurar' : 'Maximizar'}
+          title={isMaximized ? t('window.restore') : t('window.maximize')}
+          aria-label={isMaximized ? t('window.restore') : t('window.maximize')}
         >
           {isMaximized ? (
             <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
@@ -73,7 +77,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
           type="button"
           onClick={() => handleWindowAction('close')}
           className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-[#c73838] hover:text-white active:bg-[#a82828] transition-colors focus:outline-none"
-          title="Fechar"
+          title={t('window.close')}
+          aria-label={t('window.close')}
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
             <path d="M5 4a1 1 0 0 0-.707 1.707L6.586 8l-2.293 2.293A1 1 0 0 0 5 12a1 1 0 0 0 .707-.293L8 9.414l2.283 2.283A1 1 0 0 0 12 11a1 1 0 0 0-.293-.707L9.414 8l2.283-2.283A1 1 0 0 0 11 4a1 1 0 0 0-.707.293L8 6.586 5.717 4.302A1.01 1.01 0 0 0 5 4z" />

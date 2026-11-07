@@ -14,6 +14,29 @@ export const defaultLLMConfig: LLMConfig = {
   timeoutMs: 45000,
 };
 
+export type ResponseLanguage = 'pt' | 'en';
+let responseLanguage: ResponseLanguage = 'pt';
+
+/** Language the student uses the app in: every text the AI writes for them follows it. */
+export function setResponseLanguage(lang: ResponseLanguage): void {
+  responseLanguage = lang === 'en' ? 'en' : 'pt';
+}
+
+export function getResponseLanguage(): ResponseLanguage {
+  return responseLanguage;
+}
+
+/** Picks the Portuguese or English version of a user-facing text produced by the main process. */
+export function localize(ptText: string, enText: string): string {
+  return responseLanguage === 'en' ? enText : ptText;
+}
+
+const ENGLISH_OUTPUT_RULE = `
+
+---
+
+OUTPUT LANGUAGE: the student uses the app in English. Write EVERY text meant for the student (questions, options, explanations, plans, diagnoses and "agentThinking") in natural English, even though these instructions are in Portuguese. Keep JSON keys and ids exactly as specified.`;
+
 export function updateDefaultLLMConfig(newConfig: Partial<LLMConfig>): void {
   Object.assign(defaultLLMConfig, newConfig);
 }
@@ -432,7 +455,10 @@ export function isProviderLimitError(err: unknown): boolean {
 export class LLMNotConfiguredError extends Error {
   constructor() {
     super(
-      'Nenhum provedor/modelo de IA configurado. Abra Configurações → Providers, valide sua chave e escolha um modelo em Agent.'
+      localize(
+        'Nenhum provedor de IA configurado. Abra Configurações → Provedores, valide sua chave e escolha um modelo na aba Modelo.',
+        'No AI provider configured. Open Settings → Providers, validate your key and pick a model in the Model tab.'
+      )
     );
     this.name = 'LLMNotConfiguredError';
   }
@@ -448,20 +474,29 @@ function throwProviderLimit(status: number, detail: string): never {
   if (status === 429) {
     throw new ProviderLimitError(
       'rate_limit',
-      `Limite de requisições atingido no provedor de IA (HTTP 429)${d}. Se estiver usando modelos gratuitos (:free) no OpenRouter, o limite diário dessa chave foi atingido — aguarde, ou troque a chave/provedor/modelo em Configurações.`,
+      localize(
+        `O provedor de IA recusou por excesso de pedidos (HTTP 429)${d}. Em modelos gratuitos (:free) do OpenRouter isso costuma ser o limite diário da chave: espere um pouco ou troque de chave, provedor ou modelo em Configurações.`,
+        `The AI provider refused because of too many requests (HTTP 429)${d}. On free (:free) OpenRouter models this is usually the key's daily limit: wait a bit or switch key, provider or model in Settings.`
+      ),
       429
     );
   }
   if (status === 402) {
     throw new ProviderLimitError(
       'credits',
-      `Créditos/saldo esgotados no provedor de IA (HTTP 402)${d}. Adicione créditos ou troque o provedor/modelo em Configurações.`,
+      localize(
+        `Os créditos do provedor de IA acabaram (HTTP 402)${d}. Adicione créditos ou troque o provedor ou o modelo em Configurações.`,
+        `The AI provider credits ran out (HTTP 402)${d}. Add credits or switch provider or model in Settings.`
+      ),
       402
     );
   }
   throw new ProviderLimitError(
     'auth',
-    `Chave de API inválida ou sem autorização (HTTP ${status})${d}. Verifique Configurações → Providers.`,
+    localize(
+      `A chave de API é inválida ou não tem permissão (HTTP ${status})${d}. Confira em Configurações → Provedores.`,
+      `The API key is invalid or not authorized (HTTP ${status})${d}. Check Settings → Providers.`
+    ),
     status
   );
 }
@@ -471,6 +506,10 @@ export const callLLM: LLMCaller = async (options) => {
 
   if (!config.baseURL || !config.model) {
     throw new LLMNotConfiguredError();
+  }
+
+  if (responseLanguage === 'en') {
+    options = { ...options, systemPrompt: `${options.systemPrompt || ''}${ENGLISH_OUTPUT_RULE}` };
   }
 
   const messages: Array<{ role: string; content: string }> = [];

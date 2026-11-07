@@ -200,7 +200,7 @@ describe('SessionStateMachine rollback when the next question cannot be generate
       .submitProbeAnswer({ selectedOptionIndex: 0, confidence: 70, thinkingText: 'Raciocínio.' })
       .catch((e) => e);
     expect(String(err.message)).toMatch(/NÃO foi registrada/);
-    expect(String(err.message)).toMatch(/Configurações → Agent/);
+    expect(String(err.message)).toMatch(/Configurações → Modelo/);
 
     const after = f.getState();
     expect(after.attempts).toHaveLength(0);

@@ -5,7 +5,7 @@ import {
   resolveAnswerKind,
 } from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
 const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
 type Verdict = (typeof VERDICTS)[number];
@@ -19,8 +19,12 @@ const MAX_TRIES = 2;
 export class JudgeUnavailableError extends Error {
   constructor(reason: string) {
     super(
-      `Não foi possível avaliar sua resposta (${reason}). Sua resposta NÃO foi registrada — envie de novo. ` +
-        'Se continuar falhando, troque o modelo em Configurações → Agent ou verifique sua conexão.'
+      localize(
+        `Não foi possível avaliar sua resposta (${reason}). Sua resposta NÃO foi registrada: envie de novo. ` +
+          'Se continuar falhando, troque o modelo em Configurações → Modelo ou verifique sua conexão.',
+        `Your answer could not be evaluated (${reason}). It was NOT recorded: send it again. ` +
+          'If it keeps failing, switch the model in Settings → Model or check your connection.'
+      )
     );
     this.name = 'JudgeUnavailableError';
   }
@@ -137,9 +141,9 @@ export class CognitiveJudgeService {
 
   private describeFailure(err: unknown): string {
     const msg = String((err as any)?.message || err || '');
-    if (/Tempo limite|timeout|aborted/i.test(msg)) return 'o modelo demorou demais para responder';
-    if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return 'falha de conexão com o provedor de IA';
-    if (/JSON|Unexpected token|parse/i.test(msg)) return 'a IA não devolveu um JSON válido';
-    return msg ? msg.slice(0, 120) : 'erro desconhecido do provedor de IA';
+    if (/Tempo limite|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
+    if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');
+    if (/JSON|Unexpected token|parse/i.test(msg)) return localize('a IA respondeu num formato inesperado', 'the AI answered in an unexpected format');
+    return msg ? msg.slice(0, 120) : localize('erro desconhecido do provedor de IA', 'unknown AI provider error');
   }
 }

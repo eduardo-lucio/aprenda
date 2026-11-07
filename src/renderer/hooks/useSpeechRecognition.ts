@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { transcribeWithDeepgram } from '../../main/services/speechService';
+import { useI18n } from '../i18n';
 
 export interface UseSpeechRecognitionReturn {
   isListening: boolean;
@@ -41,6 +41,7 @@ function pickMimeType(): string {
 }
 
 export function useSpeechRecognition(onResult?: (text: string) => void): UseSpeechRecognitionReturn {
+  const { t } = useI18n();
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -108,13 +109,11 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       recognition.onerror = (event: any) => {
         const errCode = event?.error || '';
         if (errCode === 'network' || errCode === 'service-not-allowed') {
-          setError(
-            'Reconhecimento nativo indisponível no Electron. Configure sua chave de API do Deepgram em Configurações → Providers para gravar voz.'
-          );
+          setError(t('voice.err.noNative'));
         } else if (errCode === 'not-allowed' || errCode === 'permission-denied') {
-          setError('Permissão de microfone negada. Verifique as permissões de áudio do sistema.');
+          setError(t('voice.err.denied'));
         } else {
-          setError(errCode || 'Erro no reconhecimento de voz');
+          setError(errCode || t('voice.err.generic'));
         }
         setIsListening(false);
       };
@@ -125,7 +124,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
 
       recognitionRef.current = recognition;
     } catch (err: any) {
-      setError(err?.message || 'Falha ao inicializar fala');
+      setError(err?.message || t('voice.err.generic'));
     }
 
     return () => {
@@ -141,7 +140,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
   const startDeepgramRecording = useCallback(
     async (apiKey: string, language: string) => {
       if (!navigator.mediaDevices?.getUserMedia || typeof (window as any).MediaRecorder === 'undefined') {
-        setError('Captura de microfone não suportada neste ambiente.');
+        setError(t('voice.err.unsupported'));
         return;
       }
 
@@ -174,28 +173,19 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
           setIsListening(false);
 
           if (blob.size === 0) {
-            setError('Nenhum áudio capturado pelo microfone.');
+            setError(t('voice.err.noAudio'));
             return;
           }
 
           setIsTranscribing(true);
           try {
             const buffer = await blob.arrayBuffer();
-            let text = '';
-            if (window.api?.transcribeAudio) {
-              text = await window.api.transcribeAudio({
-                audio: buffer,
-                mimeType: actualMime,
-                language,
-              });
-            } else {
-              text = await transcribeWithDeepgram({
-                apiKey,
-                audio: buffer,
-                mimeType: actualMime,
-                language,
-              });
-            }
+            if (!window.api?.transcribeAudio) throw new Error(t('voice.err.unsupported'));
+            const text = await window.api.transcribeAudio({
+              audio: buffer,
+              mimeType: actualMime,
+              language,
+            });
 
             if (text && text.trim()) {
               setTranscript(text.trim());
@@ -203,10 +193,10 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
                 onResultRef.current(text.trim());
               }
             } else {
-              setError('Nenhuma fala detectada no áudio gravado. Tente falar mais próximo ao microfone.');
+              setError(t('voice.err.noSpeech'));
             }
           } catch (err: any) {
-            const cleanMsg = String(err?.message || err || 'Erro ao transcrever com Deepgram').replace(
+            const cleanMsg = String(err?.message || err || t('voice.err.generic')).replace(
               /^Error invoking remote method '[^']+': (Error: )?/,
               ''
             );
@@ -223,12 +213,12 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
         setIsListening(false);
         setError(
           err?.name === 'NotAllowedError'
-            ? 'Permissão de microfone negada.'
-            : `Não foi possível acessar o microfone: ${err?.message || 'erro de dispositivo'}`
+            ? t('voice.err.denied')
+            : t('voice.err.mic', { detail: err?.message || '' })
         );
       }
     },
-    [cleanupMediaStream]
+    [cleanupMediaStream, t]
   );
 
   const startListening = useCallback(() => {
@@ -254,10 +244,8 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       return;
     }
 
-    setError(
-      'Para gravar sua explicação por voz, adicione sua chave de API do Deepgram em Configurações → Providers.'
-    );
-  }, [startDeepgramRecording]);
+    setError(t('voice.err.noKey'));
+  }, [startDeepgramRecording, t]);
 
   const stopListening = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {

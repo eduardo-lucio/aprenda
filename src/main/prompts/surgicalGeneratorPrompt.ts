@@ -4,7 +4,7 @@ export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: s
   systemPrompt: string;
   prompt: string;
 } {
-  const systemPrompt = `Você é o Professor Socrático do APRENDA.
+  const systemPrompt = `Você é o professor do APRENDA.
 Sua missão é instalar compreensão profunda e auto-preservável no cérebro do estudante, guiando-o da intuição à maestria conceitual.
 
 METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):

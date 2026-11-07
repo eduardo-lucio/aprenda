@@ -5,7 +5,7 @@ import { QuestionCard } from '../../src/renderer/components/QuestionCard';
 
 describe('QuestionCard (presentational, docked above the chat)', () => {
   const baseProps = {
-    label: 'PROBE #2',
+    label: 'Pergunta 2',
     anchor: 'TTL',
     questionText: 'O que acontece quando o TTL atinge 0?',
     options: ['Descarta o pacote', 'Retransmite em loop', 'Converte em broadcast', 'Ignora o cabeçalho'],
@@ -15,12 +15,12 @@ describe('QuestionCard (presentational, docked above the chat)', () => {
 
   it('renders label, question, anchor and options without any text field of its own', () => {
     render(<QuestionCard {...baseProps} />);
-    expect(screen.getByText('PROBE #2')).toBeDefined();
+    expect(screen.getByText('Pergunta 2')).toBeDefined();
     expect(screen.getByText('TTL')).toBeDefined();
     expect(screen.getByText('O que acontece quando o TTL atinge 0?')).toBeDefined();
     expect(screen.getAllByRole('radio')).toHaveLength(4);
     expect(screen.queryByRole('textbox')).toBeNull();
-    expect(screen.queryByText(/your thinking/i)).toBeNull();
+    expect(screen.queryByText(/seu raciocínio/i)).toBeNull();
   });
 
   it('reports the selected option index and marks it as checked', () => {
@@ -38,10 +38,10 @@ describe('QuestionCard (presentational, docked above the chat)', () => {
     render(
       <QuestionCard
         {...baseProps}
-        dashedOption={{ label: 'Não sei / Ainda não domino este conceito', selected: false, onSelect: onDashed, tone: 'amber' }}
+        dashedOption={{ label: 'Não sei / ainda não aprendi isso', selected: false, onSelect: onDashed, tone: 'amber' }}
       />
     );
-    fireEvent.click(screen.getByText('Não sei / Ainda não domino este conceito'));
+    fireEvent.click(screen.getByText('Não sei / ainda não aprendi isso'));
     expect(onDashed).toHaveBeenCalled();
   });
 

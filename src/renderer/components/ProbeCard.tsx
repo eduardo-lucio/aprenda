@@ -1,5 +1,6 @@
 import React from 'react';
 import { ConfidenceSlider } from './ConfidenceSlider';
+import { useI18n } from '../i18n';
 
 interface ProbeCardProps {
   /** The question block (QuestionCard). */
@@ -31,7 +32,9 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
   disabled,
   onSubmit,
   textareaRef,
-}) => (
+}) => {
+  const { t } = useI18n();
+  return (
   <div data-testid="probe-card" className="card dock-variant overflow-hidden">
     <div className="p-5">{children}</div>
 
@@ -42,7 +45,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
     <div className="p-3">
       <div className="rounded-xl border border-ink-600 bg-ink-950 px-3.5 py-3 transition-colors focus-within:border-ink-400">
         <label className="label-mono mb-1.5 block" htmlFor="probe-reasoning">
-          Seu raciocínio
+          {t('probe.reasoning')}
         </label>
         <textarea
           id="probe-reasoning"
@@ -61,18 +64,19 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
           className="w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="font-mono text-[10px] text-gray-600">↵ envia · ⇧↵ nova linha</span>
+          <span className="font-mono text-[10px] text-gray-600">{t('probe.keysHint')}</span>
           <button
             type="button"
             onClick={onSubmit}
             disabled={!canSend}
-            aria-label="Enviar resposta"
+            aria-label={t('probe.send')}
             className="rounded-md bg-gray-200 px-3.5 py-1.5 font-mono text-[11px] font-semibold text-ink-950 transition-colors hover:bg-white disabled:bg-ink-500 disabled:text-gray-400"
           >
-            Enviar resposta
+            {t('probe.send')}
           </button>
         </div>
       </div>
     </div>
   </div>
-);
+  );
+};

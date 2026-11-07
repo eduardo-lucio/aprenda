@@ -1,6 +1,6 @@
 import { CheckQuestionData, ConceptNode } from '../../shared/types';
 import { buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
-import { callLLM, isProviderLimitError, LLMCaller, parseLLMJson } from '../services/llmClient';
+import { callLLM, isProviderLimitError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
 
 export class SocraticEngine {
@@ -75,7 +75,10 @@ export class SocraticEngine {
       // Offline fallback below
     }
 
-    const teachProse = `Princípio central: ${node.unconditionalTruth}\n\nCompare com a sua previsão ("${studentPrediction}"): onde ela concorda com esse princípio, sua intuição estava no caminho certo; onde diverge, é exatamente esse o ajuste que precisamos fazer em "${node.title}".`;
+    const teachProse = localize(
+      `A ideia central é esta: ${node.unconditionalTruth}\n\nCompare com o seu palpite ("${studentPrediction}"). O que bate com essa ideia mostra que você estava no caminho; o que não bate é justamente o ponto a ajustar em "${node.title}".`,
+      `The core idea is this: ${node.unconditionalTruth}\n\nCompare it with your guess ("${studentPrediction}"). Whatever matches shows you were on track; whatever doesn't is exactly what to adjust in "${node.title}".`
+    );
     return { teachProse };
   }
 
@@ -83,12 +86,21 @@ export class SocraticEngine {
     this.currentNode = node;
     // Neutral fallback built only from the AI-generated node itself
     return {
-      questionText: `Qual afirmação expressa corretamente o princípio central de "${node.title}"?`,
+      questionText: localize(
+        `Qual afirmação descreve corretamente a ideia central de "${node.title}"?`,
+        `Which statement correctly describes the core idea of "${node.title}"?`
+      ),
       options: [
         node.unconditionalTruth,
-        `"${node.title}" não tem relação com seus pré-requisitos e pode ser aplicado isoladamente.`,
-        `O princípio de "${node.title}" vale apenas em casos particulares, sem regra geral.`,
-        'Nenhuma das anteriores.',
+        localize(
+          `"${node.title}" não depende dos conceitos anteriores e pode ser usado isoladamente.`,
+          `"${node.title}" does not depend on the previous concepts and can be used on its own.`
+        ),
+        localize(
+          `A ideia de "${node.title}" só vale em casos particulares, sem regra geral.`,
+          `The idea of "${node.title}" only holds in special cases, with no general rule.`
+        ),
+        localize('Nenhuma das anteriores.', 'None of the above.'),
       ],
       correctOptionIndex: 0,
       explanation: node.unconditionalTruth,
@@ -101,8 +113,11 @@ export class SocraticEngine {
       return { isPassed: true };
     }
 
-    const correctOptionText = checkData.options[checkData.correctOptionIndex] || 'Alternativa correta';
-    const repairExplanation = `A alternativa correta é "${correctOptionText}". Motivo: ${checkData.explanation} (Seguimos para o próximo degrau — sem ciclo de remediação infinito.)`;
+    const correctOptionText = checkData.options[checkData.correctOptionIndex] || '';
+    const repairExplanation = localize(
+      `A resposta certa era "${correctOptionText}". ${checkData.explanation} Vamos seguir para o próximo conceito; você pode voltar a este pelo mapa quando quiser.`,
+      `The right answer was "${correctOptionText}". ${checkData.explanation} Let's move on to the next concept; you can come back to this one from the map anytime.`
+    );
 
     return { isPassed: false, repairExplanation };
   }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { CONFIDENCE_STOPS } from '../../shared/types';
+import { useI18n } from '../i18n';
 
 interface ConfidenceSliderProps {
   value: number;
@@ -7,12 +8,13 @@ interface ConfidenceSliderProps {
 }
 
 export const ConfidenceSlider: React.FC<ConfidenceSliderProps> = ({ value, onChange }) => {
+  const { t } = useI18n();
   const stopIndex = Math.max(0, CONFIDENCE_STOPS.findIndex((s) => s === value));
 
   return (
     <div className="flex items-center space-x-4 border-y border-ink-600 px-4 py-2.5 text-xs">
       <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400 shrink-0">
-        CONFIDENCE
+        {t('confidence.label')}
       </span>
 
       <input
@@ -21,7 +23,7 @@ export const ConfidenceSlider: React.FC<ConfidenceSliderProps> = ({ value, onCha
         max={CONFIDENCE_STOPS.length - 1}
         step="1"
         role="slider"
-        aria-label="Confiança"
+        aria-label={t('confidence.label')}
         aria-valuenow={value}
         aria-valuetext={`${value}%`}
         value={stopIndex}

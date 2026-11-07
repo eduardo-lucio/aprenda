@@ -1,4 +1,5 @@
 import React from 'react';
+import katex from 'katex';
 
 type Segment = { type: 'text'; value: string } | { type: 'code'; lang: string; value: string };
 
@@ -154,12 +155,64 @@ export const InlineCode: React.FC<{ children: React.ReactNode }> = ({ children }
   </code>
 );
 
+/**
+ * Math delimiters: $$…$$ and \[…\] (display), \(…\) and $…$ (inline).
+ * Inline `$…$` follows the Pandoc rule so prices like "R$ 5 e R$ 10" stay plain text:
+ * no space right after the opening `$`, none right before the closing one, and no digit after it.
+ */
+const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])((?:\\\$|[^$\n])+?)(?<![\s\\])\$(?!\d)/g;
+
+export type MathPart = { type: 'text'; value: string } | { type: 'math'; value: string; display: boolean };
+
+/** Splits plain text into text and math parts (exported for tests). */
+export function splitMath(text: string): MathPart[] {
+  const parts: MathPart[] = [];
+  let last = 0;
+  MATH_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MATH_RE.exec(text)) !== null) {
+    if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
+    const display = m[1] !== undefined || m[2] !== undefined;
+    parts.push({ type: 'math', value: (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim(), display });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+  return parts;
+}
+
+export const MathFormula: React.FC<{ tex: string; display?: boolean }> = ({ tex, display = false }) => {
+  const html = React.useMemo(() => {
+    try {
+      // trust:false (default) keeps \href, \url, \htmlClass etc. disabled, so model output cannot inject markup
+      return katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: 'ignore', output: 'html' });
+    } catch {
+      return null;
+    }
+  }, [tex, display]);
+  if (html === null) return <>{display ? `$$${tex}$$` : `$${tex}$`}</>;
+  return display ? (
+    <span data-testid="math-display" className="my-2 block overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <span data-testid="math-inline" dangerouslySetInnerHTML={{ __html: html }} />
+  );
+};
+
+function renderTextWithMath(text: string, keyPrefix: string): React.ReactNode[] {
+  return splitMath(text).map((part, i) =>
+    part.type === 'math' ? (
+      <MathFormula key={`${keyPrefix}-m${i}`} tex={part.value} display={part.display} />
+    ) : (
+      <React.Fragment key={`${keyPrefix}-t${i}`}>{part.value}</React.Fragment>
+    )
+  );
+}
+
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  return text.split(/(`[^`\n]+`)/g).map((part, i) =>
+  return text.split(/(`[^`\n]+`)/g).flatMap((part, i) =>
     part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
       <InlineCode key={`${keyPrefix}-${i}`}>{part.slice(1, -1)}</InlineCode>
     ) : (
-      <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>
+      renderTextWithMath(part, `${keyPrefix}-${i}`)
     )
   );
 }
@@ -169,7 +222,7 @@ interface RichTextProps {
   className?: string;
 }
 
-/** Renders text with fenced code blocks (line numbers + highlighting) and inline `code` chips. */
+/** Renders text with fenced code blocks (line numbers + highlighting), inline `code` chips and LaTeX math (KaTeX). */
 export const RichText: React.FC<RichTextProps> = ({ text, className }) => {
   const segments = parseSegments(text || '');
   return (

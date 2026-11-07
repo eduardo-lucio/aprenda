@@ -9,29 +9,25 @@ describe('Sidebar Component', () => {
     { id: '2', title: 'Cálculo de Sub-redes CIDR', mode: 'practice' as const, date: 'Ontem' },
   ];
 
-  it('renders filter tabs TEACHING, PRACTICE, ALL and allows tab switching', () => {
-    const onSelectSession = vi.fn();
-    const onNewSession = vi.fn();
+  it('has no practice mode: a single "+ Nova sessão" action and no mode filter tabs', () => {
+    render(<Sidebar sessions={sessions} activeSessionId="1" onSelectSession={vi.fn()} onNewSession={vi.fn()} />);
 
-    render(
-      <Sidebar
-        sessions={sessions}
-        activeSessionId="1"
-        onSelectSession={onSelectSession}
-        onNewSession={onNewSession}
-      />
-    );
-
-    expect(screen.getByText('TEACHING')).toBeDefined();
-    expect(screen.getByText('PRACTICE')).toBeDefined();
-    expect(screen.getByText('ALL')).toBeDefined();
-
-    // Click PRACTICE tab to filter
-    fireEvent.click(screen.getByText('PRACTICE'));
+    expect(screen.getByText('+ Nova sessão')).toBeDefined();
+    expect(screen.queryByText(/practice|prática/i)).toBeNull();
+    expect(screen.queryByText('TEACHING')).toBeNull();
+    expect(screen.queryByText('ALL')).toBeNull();
+    // Sessions saved by older versions in practice mode are still listed
     expect(screen.getByText('Cálculo de Sub-redes CIDR')).toBeDefined();
   });
 
-  it('triggers onNewSession when + TEACHING button is clicked', () => {
+  it('filters sessions by the search text', () => {
+    render(<Sidebar sessions={sessions} activeSessionId="1" onSelectSession={vi.fn()} onNewSession={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('Buscar...'), { target: { value: 'cidr' } });
+    expect(screen.getByText('Cálculo de Sub-redes CIDR')).toBeDefined();
+    expect(screen.queryByText('Camada 3 Modelo OSI')).toBeNull();
+  });
+
+  it('triggers onNewSession when + Nova sessão is clicked', () => {
     const onSelectSession = vi.fn();
     const onNewSession = vi.fn();
 
@@ -44,9 +40,9 @@ describe('Sidebar Component', () => {
       />
     );
 
-    const newBtn = screen.getByText('+ TEACHING');
+    const newBtn = screen.getByText('+ Nova sessão');
     fireEvent.click(newBtn);
-    expect(onNewSession).toHaveBeenCalledWith('teaching');
+    expect(onNewSession).toHaveBeenCalledTimes(1);
   });
 
   it('triggers onSelectSession when clicking a session item', () => {
@@ -79,7 +75,7 @@ describe('Sidebar Component', () => {
       />
     );
 
-    const settingsBtn = screen.getByRole('button', { name: /configurações do agente/i });
+    const settingsBtn = screen.getByRole('button', { name: /^configurações$/i });
     fireEvent.click(settingsBtn);
     expect(onOpenSettings).toHaveBeenCalled();
   });

@@ -178,7 +178,15 @@ O projeto conta com mais de 70 testes automatizados cobrindo tanto serviços de 
 npm test
 ```
 
-### 4. Build de Produção
+### 4. Gerar os instaláveis (Windows e Linux)
+```bash
+npm run dist:linux   # release/APRENDA-<versão>-linux-x86_64.AppImage
+npm run dist:win     # release/APRENDA-<versão>-windows-x64-setup.exe
+npm run dist         # os dois
+```
+No Linux, o instalador de Windows é gerado com o Wine instalado. Os prompts (`prompts/`) vão dentro do pacote, em `resources/prompts`. Os instaláveis não são assinados digitalmente: o Windows pode mostrar o aviso do SmartScreen ("Mais informações → Executar assim mesmo").
+
+### 5. Build de Produção
 Para compilar tanto os scripts do processo principal quanto os assets otimizados do renderer:
 ```bash
 npm run build

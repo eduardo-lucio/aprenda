@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface AgentThinkingBlockProps {
   thinkingText?: string;
@@ -9,53 +10,46 @@ interface AgentThinkingBlockProps {
 }
 
 export const AgentThinkingBlock: React.FC<AgentThinkingBlockProps> = ({
-  thinkingText = 'Analisando premissas conceituais, histórico de respostas e limites da fronteira de conhecimento...',
+  thinkingText,
   defaultExpanded = false,
   isStreaming = false,
   statusLabel,
 }) => {
+  const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded || isStreaming);
-  const [displayedText, setDisplayedText] = useState(thinkingText);
 
   useEffect(() => {
-    if (isStreaming) {
-      setIsExpanded(true);
-    }
+    if (isStreaming) setIsExpanded(true);
   }, [isStreaming]);
 
-  useEffect(() => {
-    setDisplayedText(thinkingText);
-  }, [thinkingText]);
+  const text = thinkingText || t('thinking.placeholder');
 
   return (
     <div className="my-2 text-xs">
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="group flex items-center space-x-2 py-1.5 text-left text-gray-400 hover:text-gray-200 transition-colors"
+        aria-expanded={isExpanded}
+        className="group flex items-center gap-2 py-1.5 text-left text-gray-400 transition-colors hover:text-gray-200"
       >
-        <span className="font-mono text-[11px] font-semibold tracking-widest uppercase text-gray-400 group-hover:text-gray-200">
-          AGENT&apos;S THINKING
+        {/* Discreet "working" indicator on the left while the tutor is thinking */}
+        {isStreaming && <span data-testid="thinking-indicator" className="thinking-dot" aria-hidden />}
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-gray-400 group-hover:text-gray-200">
+          {t('thinking.label')}
         </span>
         {isExpanded ? (
           <ChevronUp className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300" />
         ) : (
           <ChevronDown className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-300" />
         )}
-        {isStreaming && (
-          <span className="flex items-center space-x-1.5 text-[11px] font-mono text-emerald-400/90 ml-2">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <span>{statusLabel || 'Thinking...'}</span>
-          </span>
+        {isStreaming && statusLabel && (
+          <span className="ml-1 truncate font-sans text-[11px] text-gray-500">{statusLabel}</span>
         )}
       </button>
 
       {isExpanded && (
-        <div className="mt-1.5 pl-0.5 font-mono text-[11.5px] leading-relaxed text-gray-400/90 whitespace-pre-wrap">
-          {displayedText}
-          {isStreaming && (
-            <span className="inline-block w-1.5 h-3.5 ml-1 align-middle bg-emerald-400/80 animate-pulse" />
-          )}
+        <div className="mt-1.5 whitespace-pre-wrap pl-0.5 font-mono text-[11.5px] leading-relaxed text-gray-400/90">
+          {text}
         </div>
       )}
     </div>

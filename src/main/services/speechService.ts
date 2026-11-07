@@ -1,20 +1,6 @@
-export const VOICE_LANGUAGES: Array<{ code: string; label: string }> = [
-  { code: 'pt-BR', label: 'Português (Brasil)' },
-  { code: 'pt-PT', label: 'Português (Portugal)' },
-  { code: 'en-US', label: 'English (US)' },
-  { code: 'en-GB', label: 'English (UK)' },
-  { code: 'es', label: 'Español' },
-  { code: 'es-419', label: 'Español (Latinoamérica)' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'it', label: 'Italiano' },
-  { code: 'nl', label: 'Nederlands' },
-  { code: 'ru', label: 'Русский' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'zh-CN', label: '中文 (简体)' },
-  { code: 'hi', label: 'हिन्दी' },
-];
+export { VOICE_LANGUAGES } from '../../shared/types';
+
+import { localize } from './llmClient';
 
 const DEEPGRAM_BASE = 'https://api.deepgram.com/v1';
 
@@ -63,7 +49,12 @@ export async function transcribeWithDeepgram(params: {
 }): Promise<string> {
   const key = params.apiKey.trim();
   if (!key) {
-    throw new Error('Configure a chave do Deepgram em Configurações → Providers para usar a gravação de voz.');
+    throw new Error(
+      localize(
+        'Para usar o ditado, configure a chave do Deepgram em Configurações → Provedores.',
+        'To use dictation, set up your Deepgram key in Settings → Providers.'
+      )
+    );
   }
 
   const query = new URLSearchParams({

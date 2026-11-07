@@ -15,6 +15,7 @@ import {
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
   addGlobalTokenListener,
+  setResponseLanguage,
 } from '../services/llmClient';
 import { SessionRepository } from '../persistence/SessionRepository';
 import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
@@ -193,6 +194,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (payload.deepgramApiKey !== undefined) speechConfig.deepgramApiKey = payload.deepgramApiKey;
     if (payload.voiceLanguage) speechConfig.voiceLanguage = payload.voiceLanguage;
     if (payload.minProbeQuestions !== undefined) fsm.setMinProbeQuestions(payload.minProbeQuestions);
+    if (payload.uiLanguage) setResponseLanguage(payload.uiLanguage);
     return { success: true };
   });
 

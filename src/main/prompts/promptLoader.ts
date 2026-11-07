@@ -9,7 +9,10 @@ import path from 'path';
 const promptCache = new Map<string, string>();
 
 function findPromptsRoot(): string {
+  // Installed app: electron-builder copies prompts/ into the resources folder (extraResources)
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   const candidates = [
+    ...(resourcesPath ? [path.join(resourcesPath, 'prompts')] : []),
     path.join(process.cwd(), 'prompts'),
     path.join(__dirname, '../../../prompts'),
     path.join(__dirname, '../../prompts'),
@@ -20,6 +23,7 @@ function findPromptsRoot(): string {
       return dir;
     }
   }
+  console.warn('[promptLoader] Pasta prompts/ não encontrada; os agentes vão rodar sem a doutrina pedagógica.');
   return path.join(process.cwd(), 'prompts');
 }
 

@@ -1,29 +1,27 @@
 {
   "name": "aprenda",
   "version": "1.0.0",
-  "description": "APRENDA - EduCognitive Agent Harness",
+  "description": "APRENDA: tutor que descobre o que você já sabe antes de ensinar",
   "private": true,
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "vite",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.node.json",
-    "build": "npm run build:renderer && npm run build:main",
+    "build": "npm run clean && npm run build:renderer && npm run build:main",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
-    "start": "electron dist/main/main.js"
+    "start": "electron dist/main/main.js",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "dist": "npm run build && electron-builder --linux AppImage --win nsis --x64"
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/source-serif-4": "^5.3.1",
-    "clsx": "^2.1.1",
-    "katex": "^0.16.11",
-    "lucide-react": "^0.460.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.5.4"
-  },
-  "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@types/katex": "^0.16.7",
@@ -32,12 +30,72 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "clsx": "^2.1.1",
     "electron": "^33.2.0",
+    "electron-builder": "^26.18.0",
     "jsdom": "^25.0.1",
+    "katex": "^0.19.1",
+    "lucide-react": "^0.460.0",
     "postcss": "^8.4.49",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.4",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vitest": "^2.1.5"
-  }
+  },
+  "author": {
+    "name": "Eduardo"
+  },
+  "build": {
+    "appId": "app.aprenda.desktop",
+    "productName": "APRENDA",
+    "copyright": "Copyright © 2026 Eduardo",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "prompts",
+        "to": "prompts",
+        "filter": [
+          "**/*.md"
+        ]
+      }
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Education",
+      "icon": "build/icon.png",
+      "artifactName": "APRENDA-${version}-linux-${arch}.${ext}",
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "APRENDA-${version}-windows-${arch}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "APRENDA",
+      "language": "1046"
+    }
+  },
+  "desktopName": "aprenda.desktop"
 }

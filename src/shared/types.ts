@@ -185,6 +185,8 @@ export interface SettingsUpdatePayload {
   deepgramApiKey?: string;
   voiceLanguage?: string;
   minProbeQuestions?: number;
+  /** Language of the interface; the AI also writes to the student in it. */
+  uiLanguage?: 'pt' | 'en';
 }
 
 export interface ElectronAPI {
@@ -227,3 +229,22 @@ export interface ElectronAPI {
   onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
   onTokensUpdate?: (callback: (payload: { tokensUsed: number }) => void) => () => void;
 }
+
+/** Languages offered for voice dictation (Deepgram / Web Speech codes). */
+export const VOICE_LANGUAGES: Array<{ code: string; label: string }> = [
+  { code: 'pt-BR', label: 'Português (Brasil)' },
+  { code: 'pt-PT', label: 'Português (Portugal)' },
+  { code: 'en-US', label: 'English (US)' },
+  { code: 'en-GB', label: 'English (UK)' },
+  { code: 'es', label: 'Español' },
+  { code: 'es-419', label: 'Español (Latinoamérica)' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'it', label: 'Italiano' },
+  { code: 'nl', label: 'Nederlands' },
+  { code: 'ru', label: 'Русский' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+  { code: 'zh-CN', label: '中文 (简体)' },
+  { code: 'hi', label: 'हिन्दी' },
+];

@@ -17,11 +17,11 @@ DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES (LEARNHARNESS ASK_USER_QUESTION):
 2. As 8 primeiras opções devem mapear recortes concretos e técnicos indispensáveis do tema, cobrindo desde os fundamentos primitivos, passando pelos mecanismos estruturais, até aplicações, ecossistemas ou tópicos avançados.
 3. Cada opção deve ter entre 4 e 16 palavras, especificando subtópicos concretos entre parênteses quando relevante (ex: "Fundamentos da linguagem (variáveis, funções, controle de fluxo, objetos, arrays)").
 4. A 9ª opção DEVE ser exatamente: "Outro / não sei ainda — quero orientação".
-5. Em "agentThinking", escreva o seu monólogo interno autêntico em primeira pessoa analisando o tema "${goal}", quais são as grandes áreas de conhecimento que ele envolve e por que estruturou estas 9 alternativas de delimitação de escopo.
+5. Em "agentThinking", escreva uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa e linguagem simples, dizendo como dividiu o tema "${goal}" nessas opções.
 
 Responda EXCLUSIVAMENTE em formato JSON:
 {
-  "agentThinking": "Monólogo interno do tutor em primeira pessoa analisando o tema e a delimitação das 9 áreas...",
+  "agentThinking": "Nota curta do tutor, em primeira pessoa e linguagem simples...",
   "question": "O que exatamente você quer aprender sobre <TEMA>? Escolha a opção que melhor descreve seu objetivo:",
   "options": [
     "Recorte 1 (subtópicos essenciais...)",
@@ -36,7 +36,7 @@ Responda EXCLUSIVAMENTE em formato JSON:
   ]
 }`;
 
-  const prompt = `Tema de estudo do aluno: "${goal}"\nGere seu monólogo interno, a pergunta de clarificação e as 9 opções em JSON:`;
+  const prompt = `Tema de estudo do aluno: "${goal}"\nGere a nota do tutor, a pergunta de clarificação e as 9 opções em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -68,12 +68,12 @@ Regras da Primeira Questão ("firstQuestion"):
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
 - "difficulty": 1.
-- "agentThinking": seu monólogo interno em primeira pessoa deliberando sobre como o grafo foi estruturado do chão ao teto e o que esta primeira questão de base irá testar.
+- "agentThinking": uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa e linguagem simples, dizendo por onde vamos começar e por quê.
 
 Responda SOMENTE em JSON no formato:
 {
   "discipline": "nome curto da disciplina/área",
-  "agentThinking": "Monólogo interno do tutor em primeira pessoa detalhando a decomposição conceitual e a razão de começar por este fundamento...",
+  "agentThinking": "Nota curta do tutor, em primeira pessoa e linguagem simples...",
   "nodes": [
     {
       "id": "slug-base",
@@ -94,7 +94,7 @@ Responda SOMENTE em JSON no formato:
   }
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo em ordem crescente (Nível 1 a 4), seu monólogo interno e a primeira questão de Nível 1 em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo em ordem crescente (Nível 1 a 4), a nota do tutor e a primeira questão de Nível 1 em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -116,11 +116,11 @@ Diretrizes da Questão Diagnóstica (Option Craft):
 - 4 alternativas homogêneas, mesmo esqueleto, mesmo tom e afirmações diretas sem justificativa embutida.
 - Distratores devem capturar atalhos heurísticos falhos ou modelos mentais equivocados comuns em estudantes universitários.
 - Não repita formulações de questões anteriores.
-- "agentThinking": seu monólogo interno autêntico em primeira pessoa (fluxo de consciência pedagógico) deliberando sobre o estado da investigação, por que este nó está sendo testado e quais equívocos as alternativas falsas irão desmascarar.
+- "agentThinking": uma nota curta (2 a 4 frases) do tutor, em primeira pessoa e linguagem simples, dizendo por que esta pergunta vem agora e o que ela vai mostrar. Sem jargão.
 
 Responda SOMENTE em JSON:
 {
-  "agentThinking": "Monólogo interno em primeira pessoa analisando a progressão da sondagem e a armadilha conceitual desenhada...",
+  "agentThinking": "Nota curta do tutor, em primeira pessoa e linguagem simples...",
   "questionText": "Enunciado prático contextualizado...",
   "options": ["Opção 0", "Opção 1", "Opção 2", "Opção 3"],
   "correctOptionIndex": 0,
@@ -135,7 +135,7 @@ Verdade Incondicional / Princípio Invariante: ${node.unconditionalTruth}
 Nível de complexidade: ${node.level}/4
 ${previousQuestions.length ? `Questões já aplicadas na sessão (evite repeti-las):\n- ${previousQuestions.slice(-4).join('\n- ')}` : ''}
 
-Gere a questão diagnóstica e seu monólogo interno em JSON:`;
+Gere a questão diagnóstica e a nota do tutor em JSON:`;
 
   return { systemPrompt, prompt };
 }
@@ -143,7 +143,7 @@ Gere a questão diagnóstica e seu monólogo interno em JSON:`;
 export function buildPredictPrompt(node: ConceptNode, goal: string): { systemPrompt: string; prompt: string } {
   const teacherInstructions = getTeacherInstructions();
 
-  const systemPrompt = `Você é o Professor Socrático do APRENDA.
+  const systemPrompt = `Você é o professor do APRENDA.
 ${teacherInstructions}
 
 DOUTRINA DA PREDIÇÃO (TEACHER PREDICTION CYCLE):

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { ProbeAttempt } from '../../shared/types';
 import { RichText } from './RichText';
+import { useI18n } from '../i18n';
 
 interface AnsweredQuestionCardProps {
   attempt: ProbeAttempt;
@@ -9,6 +10,7 @@ interface AnsweredQuestionCardProps {
 }
 
 export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt }) => {
+  const { t } = useI18n();
   const [showUserThinking, setShowUserThinking] = useState(true);
 
   const isCorrectOption = attempt.selectedOptionIndex === attempt.correctOptionIndex;
@@ -18,25 +20,25 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
   const getBadgeConfig = () => {
     if (isDontKnow) {
       return {
-        label: "DIDN'T KNOW",
+        label: t('answered.badge.dontKnow'),
         className: 'bg-ink-600 text-gray-300 border border-ink-400',
       };
     }
     if (attempt.verdict === 'mastered') {
       return {
-        label: 'CORRECT',
+        label: t('answered.badge.correct'),
         className: 'bg-emerald-950/90 text-emerald-400 border border-emerald-700/50',
       };
     }
     if (attempt.verdict === 'false_positive') {
       return {
-        label: 'FALSE POSITIVE',
+        label: t('answered.badge.falsePositive'),
         className: 'bg-amber-950/90 text-amber-300 border border-amber-700/50',
       };
     }
     return {
       // A written answer has no answer-key bit: anything short of mastery is only partial
-      label: isCorrectOption || (isOwnAnswer && attempt.verdict === 'frontier') ? 'PARTIAL' : 'INCORRECT',
+      label: isCorrectOption || (isOwnAnswer && attempt.verdict === 'frontier') ? t('answered.badge.partial') : t('answered.badge.wrong'),
       className: 'bg-red-950/90 text-red-400 border border-red-800/50',
     };
   };
@@ -49,7 +51,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
           <span className="font-mono text-[11px] uppercase tracking-widest text-gray-400">
-            PROBE
+            {t('answered.header')}
           </span>
           <span
             className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${badge.className}`}
@@ -96,7 +98,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       {/* Confidence Bar OR Answered "I don't know" */}
       {isDontKnow ? (
         <div className="text-xs text-gray-400 pt-0.5">
-          Answered &quot;I don&apos;t know&quot;.
+          {t('answered.dontKnow')}
         </div>
       ) : attempt.confidence === undefined ? null : (
         <div className="flex items-center space-x-3 pt-1">
@@ -125,7 +127,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
           onClick={() => setShowUserThinking(!showUserThinking)}
           className="flex items-center space-x-1.5 font-mono text-[10px] uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors"
         >
-          <span>YOUR THINKING</span>
+          <span>{isOwnAnswer ? t('answered.ownAnswer') : t('answered.reasoning')}</span>
           {showUserThinking ? (
             <ChevronUp className="h-3 w-3 text-gray-500" />
           ) : (

@@ -4,11 +4,13 @@ import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
 import { ProbingSession, ModelOption, PersistedUi } from '../shared/types';
+import { I18nProvider, localeOf, MessageKey, normalizeLang, translate } from './i18n';
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [pendingSessionMode, setPendingSessionMode] = useState<'teaching' | 'practice' | null>(null);
+  /** True while a new session is open but the student has not typed the topic yet. */
+  const [isCreating, setIsCreating] = useState(false);
   const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
   const [restoredUi, setRestoredUi] = useState<PersistedUi | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -17,10 +19,15 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('aprenda_settings');
-      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        return { ...parsed, language: normalizeLang(parsed.language) };
+      }
     } catch {}
     return DEFAULT_SETTINGS;
   });
+  const lang = normalizeLang(settings.language);
+  const t = (key: MessageKey, vars?: Record<string, string | number>) => translate(lang, key, vars);
 
   // Load persisted sessions (survive app restarts)
   useEffect(() => {
@@ -31,7 +38,7 @@ export default function App() {
           id: r.id,
           title: r.title,
           mode: r.mode,
-          date: new Date(r.updatedAt).toLocaleDateString('pt-BR'),
+          date: new Date(r.updatedAt).toLocaleDateString(localeOf(lang)),
         }))
       );
     }).catch(() => {});
@@ -58,6 +65,7 @@ export default function App() {
         deepgramApiKey: settings.deepgramApiKey,
         voiceLanguage: settings.voiceLanguage,
         minProbeQuestions: settings.minQuestions,
+        uiLanguage: lang,
       });
     }
   }, [settings]);
@@ -69,9 +77,9 @@ export default function App() {
     } catch {}
   };
 
-  // Called when user clicks + TEACHING or + PRACTICE in sidebar
-  const handleNewSession = (mode: 'teaching' | 'practice') => {
-    setPendingSessionMode(mode);
+  // Called when the student clicks "+ Nova sessão" in the sidebar
+  const handleNewSession = () => {
+    setIsCreating(true);
     setActiveSessionId(null);
     setCurrentSession(null);
   };
@@ -81,18 +89,18 @@ export default function App() {
     const item: SessionItem = {
       id: newSession.id,
       title: newSession.goal,
-      mode: pendingSessionMode || newSession.mode || 'teaching',
-      date: 'Hoje',
+      mode: newSession.mode || 'teaching',
+      date: new Date().toLocaleDateString(localeOf(lang)),
     };
     setSessions((prev) => [item, ...prev.filter((s) => s.id !== newSession.id)]);
     setActiveSessionId(newSession.id);
     setCurrentSession(newSession);
-    setPendingSessionMode(null);
+    setIsCreating(false);
   };
 
   const handleSelectSession = async (id: string) => {
     setActiveSessionId(id);
-    setPendingSessionMode(null);
+    setIsCreating(false);
     try {
       const active = window.api?.getSession ? await window.api.getSession() : null;
       if (active && active.id === id) {
@@ -117,7 +125,7 @@ export default function App() {
         } else {
           setActiveSessionId(null);
           setCurrentSession(null);
-          setPendingSessionMode('teaching');
+          setIsCreating(true);
         }
       }
       return updated;
@@ -195,19 +203,16 @@ export default function App() {
     ];
   }, [activeProvider, settings.strongModel, settings.model]);
 
-  const titleText = currentSession?.goal
-    ? currentSession.goal
-    : pendingSessionMode === 'practice'
-    ? 'Nova Prática Rápida'
-    : 'Nova Trilha Socrática';
-  const phaseLabel = currentSession?.phase ? currentSession.phase.replace(/_/g, ' ') : undefined;
+  const titleText = currentSession?.goal ? currentSession.goal : t('app.newSession');
+  const phaseLabel = currentSession?.phase ? t(`phase.${currentSession.phase}` as MessageKey) : undefined;
 
   return (
+    <I18nProvider lang={lang}>
     <div className="flex h-screen w-screen bg-ink-950 text-gray-100 overflow-hidden font-sans select-none">
       <Sidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
-        pendingMode={pendingSessionMode}
+        isCreating={isCreating}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
@@ -220,11 +225,11 @@ export default function App() {
         <main className="flex-1 overflow-hidden">
           <SessionView
             currentSession={currentSession}
-            pendingMode={pendingSessionMode}
+            pendingMode={isCreating ? 'teaching' : null}
             restoredUi={restoredUi}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
             onSessionCreated={handleSessionCreated}
-            modelName={settings.strongModel || settings.model || 'Sem modelo'}
+            modelName={settings.strongModel || settings.model || t('app.noModel')}
             thinkingLevel={settings.strongThinking || settings.thinkingLevel || 'High'}
             tokenCount={sessionTokens}
             minQuestions={settings.minQuestions}
@@ -247,5 +252,6 @@ export default function App() {
         initialSettings={settings}
       />
     </div>
+    </I18nProvider>
   );
 }

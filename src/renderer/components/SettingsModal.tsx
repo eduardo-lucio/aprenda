@@ -1,22 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  X,
-  ChevronDown,
-  Check,
-  AlertTriangle,
-  Palette,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-} from 'lucide-react';
+import { X, ChevronDown, Check, AlertTriangle, Loader2, AlertCircle } from 'lucide-react';
 import {
   ModelOption,
   ProviderConfig,
   ProviderValidationResult,
+  PROBE_QUESTIONS_RANGE,
+  clampProbeQuestions,
+  VOICE_LANGUAGES,
 } from '../../shared/types';
-import { validateAndFetchModels } from '../../main/services/providerValidationService';
-import { PROBE_QUESTIONS_RANGE, clampProbeQuestions } from '../../shared/types';
-import { validateDeepgramKey, VOICE_LANGUAGES } from '../../main/services/speechService';
+import { Lang, useI18n } from '../i18n';
+
+type Effort = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 
 export interface AppSettings {
   // Legacy / backwards compatibility fields
@@ -30,24 +24,18 @@ export interface AppSettings {
   activeProviderId: string;
   providers: ProviderConfig[];
 
-  // Voice Recognition (Deepgram) & Voice Language
+  // Voice dictation (Deepgram) & spoken language
   deepgramApiKey: string;
   deepgramKeyMasked: string;
   deepgramValidated: boolean;
   voiceLanguage: string;
 
-  // Agent Models
+  // Model used by every agent of the session
   strongModel: string;
-  strongThinking: 'off' | 'minimal' | 'low' | 'medium' | 'high';
-  cheapModel: string;
-  cheapThinking: 'off' | 'minimal' | 'low' | 'medium' | 'high';
-  visionModel: string;
-  visionThinking: 'off' | 'minimal' | 'low' | 'medium' | 'high';
+  strongThinking: Effort;
 
-  // Language & General
-  language: string;
-  appVersion: string;
-  autoUpdates: boolean;
+  /** Interface language; the AI also writes to the student in it. */
+  language: Lang;
 }
 
 // Built-in catalog of providers supported for API validation
@@ -62,7 +50,7 @@ export const AVAILABLE_PROVIDERS = [
   { id: 'cerebras', name: 'Cerebras', envKey: 'CEREBRAS_API_KEY', defaultUrl: 'https://api.cerebras.ai/v1' },
   { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY', defaultUrl: 'https://api.together.xyz/v1' },
   { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY', defaultUrl: 'https://api.mistral.ai/v1' },
-  { id: 'custom', name: 'Custom endpoint...', envKey: 'CUSTOM_OPENAI_API_KEY', defaultUrl: 'http://localhost:8000/v1' },
+  { id: 'custom', name: 'Custom endpoint', envKey: 'CUSTOM_OPENAI_API_KEY', defaultUrl: 'http://localhost:8000/v1' },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -82,15 +70,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   strongModel: '',
   strongThinking: 'high',
-  cheapModel: '',
-  cheapThinking: 'low',
-  visionModel: '',
-  visionThinking: 'low',
 
-  language: 'Portuguese (pt-BR)',
-  appVersion: '0.4.0',
-  autoUpdates: false,
+  language: 'pt',
 };
+
+const EFFORT_LEVELS: Effort[] = ['off', 'minimal', 'low', 'medium', 'high'];
+const QUICK_VOICE_LANGUAGES = ['pt-BR', 'en-US', 'es'];
+
+type SettingsTab = 'providers' | 'model' | 'general';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -99,20 +86,20 @@ interface SettingsModalProps {
   initialSettings?: AppSettings;
 }
 
+const cleanIpcError = (err: any, fallback: string) =>
+  String(err?.message || err || fallback).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   onSave,
   initialSettings = DEFAULT_SETTINGS,
 }) => {
-  const [settings, setSettings] = useState<AppSettings>({
-    ...DEFAULT_SETTINGS,
-    ...initialSettings,
-  });
+  const { t } = useI18n();
+  const [settings, setSettings] = useState<AppSettings>({ ...DEFAULT_SETTINGS, ...initialSettings });
+  const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
 
-  const [activeTab, setActiveTab] = useState<'Providers' | 'Agent' | 'Appearance' | 'General'>('Providers');
-
-  // Search & Add Provider state
+  // Search & add provider
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
   const [providerSearch, setProviderSearch] = useState('');
   const [editingProvider, setEditingProvider] = useState<{
@@ -123,22 +110,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     isNew?: boolean;
   } | null>(null);
 
-  // Validation state
+  // Validation
   const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Deepgram Voice Recognition state
+  // Deepgram
   const [deepgramDraftKey, setDeepgramDraftKey] = useState('');
   const [isEditingDeepgram, setIsEditingDeepgram] = useState(false);
   const [isValidatingDeepgram, setIsValidatingDeepgram] = useState(false);
   const [deepgramError, setDeepgramError] = useState<string | null>(null);
 
-  // Model & Effort selector dropdown states in Agent tab
-  const [openModelSelectorSlot, setOpenModelSelectorSlot] = useState<'strong' | 'cheap' | 'vision' | null>(null);
+  // Model & effort popovers
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [openEffortSelectorSlot, setOpenEffortSelectorSlot] = useState<'strong' | 'cheap' | 'vision' | null>(null);
-
-  const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
+  const [isEffortMenuOpen, setIsEffortMenuOpen] = useState(false);
 
   useEffect(() => {
     setSettings({ ...DEFAULT_SETTINGS, ...initialSettings });
@@ -148,65 +133,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const next = { ...settings, ...updates };
     setSettings(next);
     onSave(next);
-
-    // Synchronize to Electron Main LLM client if available
-    if (window.api?.updateSettings) {
-      window.api.updateSettings({
-        providerId: next.activeProviderId,
-        apiKey: next.apiKey,
-        baseUrl: next.baseUrl,
-        model: next.strongModel || next.model,
-        effortLevel: next.strongThinking,
-        deepgramApiKey: next.deepgramApiKey,
-        voiceLanguage: next.voiceLanguage,
-        minProbeQuestions: next.minQuestions,
-      });
-    }
   };
 
-  // Identify active provider
   const activeProvider = useMemo(() => {
     const found = settings.providers?.find((p) => p.id === settings.activeProviderId);
     if (found) return found;
     return settings.providers?.find((p) => Boolean(p.apiKey && p.isValidated)) || null;
   }, [settings.providers, settings.activeProviderId]);
 
-  // Identify available models dynamically fetched from the active validated provider
-  const availableModelsForActiveProvider = useMemo(() => {
-    if (!activeProvider || !activeProvider.isValidated || !activeProvider.models) {
-      return [];
-    }
-    return activeProvider.models;
-  }, [activeProvider]);
+  const availableModels = useMemo(
+    () => (activeProvider?.isValidated && activeProvider.models ? activeProvider.models : []),
+    [activeProvider]
+  );
 
   const filteredModels = useMemo(() => {
     const q = modelSearchQuery.toLowerCase().trim();
-    if (!q) return availableModelsForActiveProvider;
-    return availableModelsForActiveProvider.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q) ||
-        m.slug.toLowerCase().includes(q)
+    if (!q) return availableModels;
+    return availableModels.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.slug.toLowerCase().includes(q)
     );
-  }, [availableModelsForActiveProvider, modelSearchQuery]);
+  }, [availableModels, modelSearchQuery]);
 
   const filteredProviders = useMemo(() => {
     const q = providerSearch.toLowerCase().trim();
     if (!q) return AVAILABLE_PROVIDERS;
-    return AVAILABLE_PROVIDERS.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.envKey.toLowerCase().includes(q)
-    );
+    return AVAILABLE_PROVIDERS.filter((p) => p.name.toLowerCase().includes(q) || p.envKey.toLowerCase().includes(q));
   }, [providerSearch]);
 
   if (!isOpen) return null;
 
-  // Strict API Key Validation against live provider endpoint
+  const closeMenus = () => {
+    setIsModelMenuOpen(false);
+    setIsEffortMenuOpen(false);
+  };
+
+  // Strict API key validation against the live provider endpoint (runs in the main process)
   const handleSaveProviderKey = async () => {
     if (!editingProvider) return;
     const key = editingProvider.apiKey.trim();
 
     if (!key && editingProvider.id !== 'ollama') {
-      setValidationError('Por favor, insira uma Chave de API válida.');
+      setValidationError(t('settings.providers.errEmptyKey'));
       return;
     }
 
@@ -214,27 +181,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setValidationError(null);
 
     try {
-      let result: ProviderValidationResult;
+      if (!window.api?.validateProvider) throw new Error(t('settings.providers.errNoBackend'));
+      const result: ProviderValidationResult = await window.api.validateProvider({
+        providerId: editingProvider.id,
+        apiKey: key,
+        baseUrl: editingProvider.baseUrl,
+      });
 
-      // Prefer window.api IPC (Electron Main process) to bypass browser CORS
-      if (window.api?.validateProvider) {
-        result = await window.api.validateProvider({
-          providerId: editingProvider.id,
-          apiKey: key,
-          baseUrl: editingProvider.baseUrl,
-        });
-      } else {
-        // Fallback for tests or direct execution
-        result = await validateAndFetchModels({
-          providerId: editingProvider.id,
-          apiKey: key,
-          baseUrl: editingProvider.baseUrl,
-        });
-      }
-
-      if (!result.isValid) {
-        throw new Error(result.error || 'A chave de API informada foi rejeitada pelo provedor.');
-      }
+      if (!result.isValid) throw new Error(result.error || t('settings.providers.errRejected'));
 
       const newConfig: ProviderConfig = {
         id: result.providerId,
@@ -248,31 +202,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       };
 
       const existing = (settings.providers || []).filter((p) => p.id !== editingProvider.id);
-      const updatedProviders = [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))];
-
-      // Auto-assign default models if empty or from previous provider
       const defaultModel = result.models[0]?.id || '';
       const defaultEffort = result.models[0]?.defaultEffort || 'high';
 
       updateSettings({
-        providers: updatedProviders,
+        providers: [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))],
         activeProviderId: editingProvider.id,
         apiKey: key,
         baseUrl: editingProvider.baseUrl || settings.baseUrl,
         strongModel: settings.strongModel || defaultModel,
         model: settings.model || defaultModel,
         strongThinking: settings.strongThinking || defaultEffort,
-        cheapModel: settings.cheapModel || defaultModel,
-        visionModel: settings.visionModel || defaultModel,
       });
 
       setEditingProvider(null);
       setShowProviderDropdown(false);
       setValidationError(null);
     } catch (err: any) {
-      setValidationError(
-        err.message || 'Falha na validação com o provedor. Verifique sua chave e tente novamente.'
-      );
+      setValidationError(cleanIpcError(err, t('settings.providers.errGeneric')));
     } finally {
       setIsValidatingKey(false);
     }
@@ -280,10 +227,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleRemoveProvider = (id: string) => {
     const updated = (settings.providers || []).filter((p) => p.id !== id);
-    const nextActive = updated.length > 0 ? updated[0].id : '';
     updateSettings({
       providers: updated,
-      activeProviderId: nextActive,
+      activeProviderId: updated.length > 0 ? updated[0].id : '',
       apiKey: updated[0]?.apiKey || '',
     });
   };
@@ -291,107 +237,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleSaveDeepgramKey = async () => {
     const key = deepgramDraftKey.trim();
     if (!key) {
-      setDeepgramError('Por favor, insira sua Chave de API do Deepgram.');
+      setDeepgramError(t('settings.voice.errEmptyKey'));
       return;
     }
 
     setIsValidatingDeepgram(true);
     setDeepgramError(null);
     try {
-      let res: { isValid: boolean; keyMasked: string };
-      if (window.api?.validateDeepgramKey) {
-        res = await window.api.validateDeepgramKey(key);
-      } else {
-        res = await validateDeepgramKey(key);
-      }
-      updateSettings({
-        deepgramApiKey: key,
-        deepgramKeyMasked: res.keyMasked,
-        deepgramValidated: true,
-      });
+      if (!window.api?.validateDeepgramKey) throw new Error(t('settings.providers.errNoBackend'));
+      const res = await window.api.validateDeepgramKey(key);
+      updateSettings({ deepgramApiKey: key, deepgramKeyMasked: res.keyMasked, deepgramValidated: true });
       setIsEditingDeepgram(false);
       setDeepgramDraftKey('');
     } catch (err: any) {
-      const cleanMsg = String(err?.message || err || 'Chave Deepgram inválida.').replace(
-        /^Error invoking remote method '[^']+': (Error: )?/,
-        ''
-      );
-      setDeepgramError(cleanMsg);
+      setDeepgramError(cleanIpcError(err, t('settings.voice.errInvalid')));
     } finally {
       setIsValidatingDeepgram(false);
     }
   };
 
   const handleRemoveDeepgramKey = () => {
-    updateSettings({
-      deepgramApiKey: '',
-      deepgramKeyMasked: '',
-      deepgramValidated: false,
-    });
+    updateSettings({ deepgramApiKey: '', deepgramKeyMasked: '', deepgramValidated: false });
     setIsEditingDeepgram(false);
     setDeepgramDraftKey('');
     setDeepgramError(null);
   };
 
-  const handleSelectModel = (slot: 'strong' | 'cheap' | 'vision', modelOption: ModelOption) => {
-    const updates: Partial<AppSettings> = {};
-    if (slot === 'strong') {
-      updates.strongModel = modelOption.id;
-      updates.model = modelOption.id;
-      updates.strongThinking = modelOption.defaultEffort;
-      updates.thinkingLevel = (modelOption.defaultEffort.charAt(0).toUpperCase() +
-        modelOption.defaultEffort.slice(1)) as any;
-    } else if (slot === 'cheap') {
-      updates.cheapModel = modelOption.id;
-      updates.cheapThinking = modelOption.defaultEffort;
-    } else if (slot === 'vision') {
-      updates.visionModel = modelOption.id;
-      updates.visionThinking = modelOption.defaultEffort;
-    }
-    updateSettings(updates);
-    setOpenModelSelectorSlot(null);
+  const capitalize = (effort: Effort) => (effort.charAt(0).toUpperCase() + effort.slice(1)) as any;
+
+  const handleSelectModel = (modelOption: ModelOption) => {
+    updateSettings({
+      strongModel: modelOption.id,
+      model: modelOption.id,
+      strongThinking: modelOption.defaultEffort,
+      thinkingLevel: capitalize(modelOption.defaultEffort),
+    });
+    setIsModelMenuOpen(false);
     setModelSearchQuery('');
   };
 
-  const handleSelectEffort = (
-    slot: 'strong' | 'cheap' | 'vision',
-    effort: 'off' | 'minimal' | 'low' | 'medium' | 'high'
-  ) => {
-    const updates: Partial<AppSettings> = {};
-    if (slot === 'strong') {
-      updates.strongThinking = effort;
-      updates.thinkingLevel = (effort.charAt(0).toUpperCase() + effort.slice(1)) as any;
-    } else if (slot === 'cheap') {
-      updates.cheapThinking = effort;
-    } else if (slot === 'vision') {
-      updates.visionThinking = effort;
-    }
-    updateSettings(updates);
-    setOpenEffortSelectorSlot(null);
+  const handleSelectEffort = (effort: Effort) => {
+    updateSettings({ strongThinking: effort, thinkingLevel: capitalize(effort) });
+    setIsEffortMenuOpen(false);
   };
 
-  const handleCheckUpdates = () => {
-    setUpdateCheckStatus('checking');
-    setTimeout(() => {
-      setUpdateCheckStatus('up-to-date');
-      setTimeout(() => setUpdateCheckStatus(null), 3000);
-    }, 1200);
-  };
-
-  const navTabs: ('Providers' | 'Agent' | 'Appearance' | 'General')[] = [
-    'Providers',
-    'Agent',
-    'Appearance',
-    'General',
+  const navTabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: 'providers', label: t('settings.tab.providers') },
+    { id: 'model', label: t('settings.tab.model') },
+    { id: 'general', label: t('settings.tab.general') },
   ];
 
-  const effortLevels: ('off' | 'minimal' | 'low' | 'medium' | 'high')[] = [
-    'off',
-    'minimal',
-    'low',
-    'medium',
-    'high',
-  ];
+  const sectionTitle = 'text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4';
+  const subTitle = 'text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold';
+  const selectClass =
+    'rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500';
+  const currentModel = settings.strongModel || availableModels[0]?.id || t('settings.model.none');
 
   return (
     <div
@@ -399,67 +299,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('settings.title')}
         className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-ink-600 bg-ink-850 text-gray-200 shadow-2xl overflow-hidden font-sans"
         onClick={(e) => {
           e.stopPropagation();
-          if (openModelSelectorSlot) setOpenModelSelectorSlot(null);
-          if (openEffortSelectorSlot) setOpenEffortSelectorSlot(null);
+          closeMenus();
         }}
       >
         {/* Header */}
         <div className="flex h-14 items-center justify-between border-b border-ink-600 px-6">
-          <h2 className="text-2xl font-serif text-white tracking-tight font-medium">Settings</h2>
+          <h2 className="text-2xl font-serif text-white tracking-tight font-medium">{t('settings.title')}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="rounded p-1 text-gray-400 hover:bg-ink-600 hover:text-white transition-colors"
-            aria-label="Fechar"
+            aria-label={t('settings.close')}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Main 2-Column Content */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left Navigation Sidebar */}
+          {/* Left navigation */}
           <div className="w-44 border-r border-ink-600 p-3 space-y-1 bg-ink-850">
-            {navTabs.map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab);
-                    setOpenModelSelectorSlot(null);
-                    setOpenEffortSelectorSlot(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-md text-xs font-sans transition-colors ${
-                    isActive
-                      ? 'bg-ink-600 text-white font-semibold shadow-sm'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-ink-800'
-                  }`}
-                >
-                  {tab}
-                </button>
-              );
-            })}
+            {navTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  closeMenus();
+                }}
+                className={`w-full text-left px-3 py-2 rounded-md text-xs font-sans transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-ink-600 text-white font-semibold shadow-sm'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-ink-800'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Right Tab Content */}
+          {/* Tab content */}
           <div className="flex-1 overflow-y-auto p-6 bg-ink-850 relative">
-            {/* 1. PROVIDERS TAB */}
-            {activeTab === 'Providers' && (
+            {/* 1. PROVIDERS */}
+            {activeTab === 'providers' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
-                    PROVIDERS
-                  </h3>
+                  <h3 className={sectionTitle}>{t('settings.providers.title')}</h3>
+                  <div className={`${subTitle} mb-2`}>{t('settings.providers.keys')}</div>
 
-                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-2">
-                    MODEL API KEYS
-                  </div>
-
-                  {/* Configured Keys */}
+                  {/* Configured keys */}
                   <div className="space-y-1 mb-2">
                     {settings.providers && settings.providers.length > 0 ? (
                       settings.providers.map((p) => {
@@ -468,33 +361,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <div
                             key={p.id}
                             className={`group flex items-center justify-between py-2 px-2.5 rounded transition-colors text-xs font-sans border ${
-                              isCurrentActive
-                                ? 'bg-ink-700 border-ink-500'
-                                : 'hover:bg-ink-800 border-transparent'
+                              isCurrentActive ? 'bg-ink-700 border-ink-500' : 'hover:bg-ink-800 border-transparent'
                             }`}
                           >
                             <div className="flex items-center space-x-2">
-                              <span
-                                className={`h-2 w-2 rounded-full ${
-                                  p.isValidated ? 'bg-emerald-500' : 'bg-amber-500'
-                                }`}
-                              />
+                              <span className={`h-2 w-2 rounded-full ${p.isValidated ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                               <span className="text-gray-200 font-medium">{p.name}</span>
                               {isCurrentActive && (
                                 <span className="rounded bg-ink-600 px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
-                                  Ativo
+                                  {t('settings.active')}
                                 </span>
                               )}
                               {p.isValidated && p.models && (
                                 <span className="text-[10px] font-mono text-gray-400">
-                                  ({p.models.length} modelos)
+                                  {t('settings.providers.modelCount', { count: p.models.length })}
                                 </span>
                               )}
                             </div>
 
                             <div className="flex items-center space-x-3">
                               <span className="text-gray-400 font-mono text-[11px]">{p.keyMasked}</span>
-
                               <button
                                 type="button"
                                 onClick={() => {
@@ -509,16 +395,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 }}
                                 className="text-[11px] text-gray-400 hover:text-white font-sans underline"
                               >
-                                Editar Chave
+                                {t('settings.editKey')}
                               </button>
-
                               <button
                                 type="button"
                                 onClick={() => handleRemoveProvider(p.id)}
                                 className="text-[11px] text-red-400 hover:text-red-300 font-sans opacity-70 group-hover:opacity-100"
-                                title="Remover"
                               >
-                                remover
+                                {t('settings.remove')}
                               </button>
                             </div>
                           </div>
@@ -526,28 +410,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       })
                     ) : (
                       <div className="text-xs text-gray-500 italic py-2 px-2 font-sans">
-                        Nenhum provedor configurado ainda. Clique abaixo para adicionar sua Chave de API.
+                        {t('settings.providers.empty')}
                       </div>
                     )}
                   </div>
 
-                  {/* Add Provider Button / Row */}
+                  {/* Add provider */}
                   <div className="relative">
-                    <div
+                    <button
+                      type="button"
                       onClick={() => setShowProviderDropdown(!showProviderDropdown)}
-                      className="flex items-center justify-between rounded p-2 text-xs font-sans text-gray-300 hover:text-white hover:bg-ink-800 cursor-pointer transition-colors border border-transparent hover:border-ink-500"
+                      className="flex w-full items-center justify-between rounded p-2 text-xs font-sans text-gray-300 hover:text-white hover:bg-ink-800 cursor-pointer transition-colors border border-transparent hover:border-ink-500"
                     >
-                      <span className="font-medium">+ Add a provider</span>
+                      <span className="font-medium">{t('settings.providers.add')}</span>
                       <span className="text-gray-500 font-mono text-xs">{AVAILABLE_PROVIDERS.length}</span>
-                    </div>
+                    </button>
 
-                    {/* Searchable Dropdown Popover */}
                     {showProviderDropdown && (
-                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-ink-500 bg-ink-800 p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                      <div className="absolute left-0 top-10 z-50 w-80 rounded-xl border border-ink-500 bg-ink-800 p-3 shadow-2xl">
                         <div className="relative mb-2">
                           <input
                             type="text"
-                            placeholder="Search providers..."
+                            placeholder={t('settings.providers.search')}
                             value={providerSearch}
                             onChange={(e) => setProviderSearch(e.target.value)}
                             autoFocus
@@ -557,8 +441,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         <div className="max-h-60 overflow-y-auto space-y-0.5 pr-1">
                           {filteredProviders.map((prov) => (
-                            <div
+                            <button
                               key={prov.id}
+                              type="button"
                               onClick={() => {
                                 setEditingProvider({
                                   id: prov.id,
@@ -570,25 +455,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 setValidationError(null);
                                 setShowProviderDropdown(false);
                               }}
-                              className="flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-ink-600 text-gray-200 hover:text-white transition-colors"
+                              className="flex w-full cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs font-sans hover:bg-ink-600 text-gray-200 hover:text-white transition-colors"
                             >
                               <span>{prov.name}</span>
                               <span className="text-[10px] font-mono text-gray-400">{prov.envKey}</span>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {/* Modal / Inline form to insert API key with live validation */}
+                    {/* Inline form to insert an API key with live validation */}
                     {editingProvider && (
-                      <div className="mt-3 rounded-lg border border-ink-500 bg-ink-800 p-4 space-y-3 animate-in fade-in duration-100">
+                      <div className="mt-3 rounded-lg border border-ink-500 bg-ink-800 p-4 space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-sans text-white font-semibold">
-                            Configurar Chave de API: {editingProvider.name}
+                            {t('settings.providers.keyFor', { name: editingProvider.name })}
                           </span>
                           <button
                             type="button"
+                            aria-label={t('settings.cancel')}
                             onClick={() => {
                               setEditingProvider(null);
                               setValidationError(null);
@@ -599,51 +485,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </button>
                         </div>
 
-                        {/* Error alert box if validation fails */}
                         {validationError && (
-                          <div className="rounded border border-red-900/60 bg-red-950/40 p-3 text-xs text-red-200 flex items-start space-x-2 animate-in fade-in duration-100">
+                          <div className="rounded border border-red-900/60 bg-red-950/40 p-3 text-xs text-red-200 flex items-start space-x-2">
                             <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
                             <div className="space-y-0.5">
-                              <span className="font-semibold text-red-300">Erro de validação:</span>
-                              <p className="text-[11px] leading-relaxed text-red-200">
-                                {validationError}
-                              </p>
+                              <span className="font-semibold text-red-300">{t('settings.providers.validationError')}</span>
+                              <p className="text-[11px] leading-relaxed text-red-200">{validationError}</p>
                             </div>
                           </div>
                         )}
 
                         <div className="space-y-1">
-                          <label className="text-[11px] font-sans text-gray-400">
-                            Chave de API (API Key)
+                          <label className="text-[11px] font-sans text-gray-400" htmlFor="provider-api-key">
+                            {t('settings.providers.apiKey')}
                           </label>
                           <input
+                            id="provider-api-key"
                             type="password"
                             value={editingProvider.apiKey}
                             onChange={(e) => {
                               setEditingProvider({ ...editingProvider, apiKey: e.target.value });
                               if (validationError) setValidationError(null);
                             }}
-                            placeholder="Insira sua chave real (ex: sk-... ou token)"
+                            placeholder={t('settings.providers.keyPlaceholder')}
                             disabled={isValidatingKey}
                             className="w-full rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             autoFocus
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isValidatingKey) {
-                                handleSaveProviderKey();
-                              }
+                              if (e.key === 'Enter' && !isValidatingKey) handleSaveProviderKey();
                             }}
                           />
                         </div>
 
                         {(editingProvider.id === 'custom' || editingProvider.id === 'ollama') && (
                           <div className="space-y-1">
-                            <label className="text-[11px] font-sans text-gray-400">Endpoint Base URL</label>
+                            <label className="text-[11px] font-sans text-gray-400" htmlFor="provider-base-url">
+                              {t('settings.providers.baseUrl')}
+                            </label>
                             <input
+                              id="provider-base-url"
                               type="text"
                               value={editingProvider.baseUrl}
-                              onChange={(e) =>
-                                setEditingProvider({ ...editingProvider, baseUrl: e.target.value })
-                              }
+                              onChange={(e) => setEditingProvider({ ...editingProvider, baseUrl: e.target.value })}
                               placeholder="http://localhost:11434"
                               disabled={isValidatingKey}
                               className="w-full rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
@@ -652,10 +535,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
 
                         <div className="flex items-center justify-between pt-2 border-t border-ink-600">
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            A chave será validada online via API antes de ser ativada.
-                          </span>
-
+                          <span className="text-[10px] text-gray-400 font-mono">{t('settings.providers.validateHint')}</span>
                           <div className="flex space-x-2">
                             <button
                               type="button"
@@ -666,7 +546,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               disabled={isValidatingKey}
                               className="px-3 py-1 text-xs font-sans text-gray-400 hover:text-white disabled:opacity-50"
                             >
-                              Cancelar
+                              {t('settings.cancel')}
                             </button>
                             <button
                               type="button"
@@ -677,10 +557,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               {isValidatingKey ? (
                                 <>
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  <span>Validando Chave...</span>
+                                  <span>{t('settings.validating')}</span>
                                 </>
                               ) : (
-                                <span>Salvar Chave de API</span>
+                                <span>{t('settings.providers.saveKey')}</span>
                               )}
                             </button>
                           </div>
@@ -692,11 +572,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <hr className="border-ink-600" />
 
-                {/* VOICE RECOGNITION (DEEPGRAM) & VOICE LANGUAGE */}
+                {/* VOICE DICTATION (DEEPGRAM) & SPOKEN LANGUAGE */}
                 <div className="space-y-3">
-                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold">
-                    RECONHECIMENTO DE VOZ (DEEPGRAM API KEY)
-                  </div>
+                  <div className={subTitle}>{t('settings.voice.title')}</div>
 
                   {settings.deepgramValidated && settings.deepgramApiKey && !isEditingDeepgram ? (
                     <div className="flex items-center justify-between py-2 px-2.5 rounded bg-ink-700 border border-ink-500 text-xs font-sans">
@@ -704,13 +582,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
                         <span className="text-gray-200 font-medium">Deepgram (Nova-2)</span>
                         <span className="rounded bg-ink-600 px-1.5 py-0.2 text-[9px] font-mono text-emerald-400 border border-emerald-900/60 uppercase">
-                          Ativo
+                          {t('settings.active')}
                         </span>
                       </div>
-
                       <div className="flex items-center space-x-3">
                         <span className="text-gray-400 font-mono text-[11px]">
-                          {settings.deepgramKeyMasked || 'Configurada'}
+                          {settings.deepgramKeyMasked || t('settings.voice.configured')}
                         </span>
                         <button
                           type="button"
@@ -721,14 +598,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className="text-[11px] text-gray-400 hover:text-white font-sans underline"
                         >
-                          Editar Chave
+                          {t('settings.editKey')}
                         </button>
                         <button
                           type="button"
                           onClick={handleRemoveDeepgramKey}
                           className="text-[11px] text-red-400 hover:text-red-300 font-sans"
                         >
-                          remover
+                          {t('settings.remove')}
                         </button>
                       </div>
                     </div>
@@ -740,7 +617,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <span className="text-[11px] leading-relaxed">{deepgramError}</span>
                         </div>
                       )}
-
+                      <p className="text-[11px] text-gray-400">{t('settings.voice.hint')}</p>
                       <div className="flex items-center gap-2">
                         <input
                           type="password"
@@ -749,17 +626,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             setDeepgramDraftKey(e.target.value);
                             if (deepgramError) setDeepgramError(null);
                           }}
-                          placeholder="Token Deepgram (DEEPGRAM_API_KEY)"
+                          placeholder={t('settings.voice.placeholder')}
                           disabled={isValidatingDeepgram}
-                          aria-label="Chave de API do Deepgram"
+                          aria-label={t('settings.voice.keyAria')}
                           className="flex-1 rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isValidatingDeepgram) {
-                              handleSaveDeepgramKey();
-                            }
+                            if (e.key === 'Enter' && !isValidatingDeepgram) handleSaveDeepgramKey();
                           }}
                         />
-
                         {isEditingDeepgram && (
                           <button
                             type="button"
@@ -770,10 +644,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             disabled={isValidatingDeepgram}
                             className="px-2.5 py-1.5 text-xs font-sans text-gray-400 hover:text-white"
                           >
-                            Cancelar
+                            {t('settings.cancel')}
                           </button>
                         )}
-
                         <button
                           type="button"
                           onClick={handleSaveDeepgramKey}
@@ -783,31 +656,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {isValidatingDeepgram ? (
                             <>
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              <span>Validando...</span>
+                              <span>{t('settings.validating')}</span>
                             </>
                           ) : (
-                            <span>Salvar Deepgram</span>
+                            <span>{t('settings.voice.save')}</span>
                           )}
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Voice Language Selector (Checkbox / Pill Selection + Select Box) */}
+                  {/* Spoken language */}
                   <div className="rounded-lg border border-ink-600 bg-ink-800 p-3 space-y-2.5">
                     <div className="flex items-center justify-between text-xs font-sans">
                       <div>
-                        <span className="text-gray-200 font-medium block">Idioma da Voz (Reconhecimento de Fala)</span>
-                        <span className="text-[11px] text-gray-400">
-                          Marque ou selecione o idioma falado ao gravar suas explicações
-                        </span>
+                        <span className="text-gray-200 font-medium block">{t('settings.voice.language')}</span>
+                        <span className="text-[11px] text-gray-400">{t('settings.voice.languageHint')}</span>
                       </div>
-
                       <select
-                        aria-label="Idioma da Voz"
+                        aria-label={t('settings.voice.language')}
                         value={settings.voiceLanguage || 'pt-BR'}
                         onChange={(e) => updateSettings({ voiceLanguage: e.target.value })}
-                        className="rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
+                        className={selectClass}
                       >
                         {VOICE_LANGUAGES.map((lang) => (
                           <option key={lang.code} value={lang.code}>
@@ -818,11 +688,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
 
                     <div className="flex flex-wrap gap-2 pt-1">
-                      {[
-                        { code: 'pt-BR', label: 'Português (Brasil)' },
-                        { code: 'en-US', label: 'English (US)' },
-                        { code: 'es', label: 'Español' },
-                      ].map((opt) => {
+                      {VOICE_LANGUAGES.filter((l) => QUICK_VOICE_LANGUAGES.includes(l.code)).map((opt) => {
                         const checked = (settings.voiceLanguage || 'pt-BR') === opt.code;
                         return (
                           <label
@@ -846,235 +712,168 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
                 </div>
-
-                <hr className="border-ink-600" />
-
-                {/* Language Setting */}
-                <div className="flex items-center justify-between text-xs font-sans pt-1">
-                  <span className="text-gray-200 font-medium">Language</span>
-                  <select
-                    value={settings.language}
-                    onChange={(e) => updateSettings({ language: e.target.value })}
-                    className="rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-sans text-gray-200 outline-none hover:border-gray-500"
-                  >
-                    <option value="Portuguese (pt-BR)">Portuguese (pt-BR)</option>
-                    <option value="English (US)">English (US)</option>
-                    <option value="Spanish (ES)">Spanish (ES)</option>
-                  </select>
-                </div>
               </div>
             )}
 
-            {/* 2. AGENT TAB */}
-            {activeTab === 'Agent' && (
+            {/* 2. MODEL */}
+            {activeTab === 'model' && (
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold">
-                      AGENT
-                    </h3>
+                    <h3 className={sectionTitle.replace(' mb-4', '')}>{t('settings.model.title')}</h3>
                     {activeProvider && activeProvider.isValidated && (
                       <span className="text-xs font-sans text-gray-400 flex items-center space-x-1.5">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
                         <span>
-                          Provedor Ativo: <strong className="text-white">{activeProvider.name}</strong>
-                          {activeProvider.models && ` (${activeProvider.models.length} modelos reais)`}
+                          {t('settings.model.activeProvider')} <strong className="text-white">{activeProvider.name}</strong>
+                          {activeProvider.models && ` ${t('settings.providers.modelCount', { count: activeProvider.models.length })}`}
                         </span>
                       </span>
                     )}
                   </div>
 
-                  {/* Warning banner if NO provider is validated */}
                   {(!activeProvider || !activeProvider.isValidated || !activeProvider.apiKey) && (
-                    <div className="rounded-lg border border-amber-900/60 bg-amber-950/25 p-4 mb-5 text-xs space-y-2 animate-in fade-in duration-100">
+                    <div className="rounded-lg border border-amber-900/60 bg-amber-950/25 p-4 mb-5 text-xs space-y-2">
                       <div className="flex items-center space-x-2 text-amber-300 font-semibold">
                         <AlertTriangle className="h-4 w-4" />
-                        <span>Nenhum provedor configurado com Chave de API</span>
+                        <span>{t('settings.model.noProvider')}</span>
                       </div>
-                      <p className="text-[11px] text-gray-300 leading-relaxed">
-                        Para identificar os agentes e modelos reais disponíveis, configure e valide a chave de API do provedor desejado (ex: OpenRouter, Google, OpenAI, DeepSeek ou Ollama) na aba de Provedores.
-                      </p>
+                      <p className="text-[11px] text-gray-300 leading-relaxed">{t('settings.model.noProviderHint')}</p>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('Providers')}
+                        onClick={() => setActiveTab('providers')}
                         className="rounded bg-amber-600/30 hover:bg-amber-600/40 text-amber-200 border border-amber-500/50 px-3 py-1 text-xs font-medium transition-colors"
                       >
-                        Ir para a aba Providers
+                        {t('settings.model.goToProviders')}
                       </button>
                     </div>
                   )}
 
-                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mb-3">
-                    MODELS
-                  </div>
+                  <div className="flex items-start justify-between py-3 border-b border-ink-700 relative">
+                    <div>
+                      <div className="text-xs font-sans text-gray-200 font-semibold">{t('settings.model.main')}</div>
+                      <div className="text-[11px] font-sans text-gray-400">{t('settings.model.mainHint')}</div>
+                    </div>
 
-                  {/* Models list: Strong, Cheap, Vision */}
-                  {[
-                    {
-                      slot: 'strong' as const,
-                      label: 'Strong',
-                      sub: 'The main model for your sessions',
-                      currentModel: settings.strongModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
-                      currentEffort: settings.strongThinking,
-                    },
-                    {
-                      slot: 'cheap' as const,
-                      label: 'Cheap',
-                      sub: 'The assistants that research, build demos, and grade your work',
-                      currentModel: settings.cheapModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
-                      currentEffort: settings.cheapThinking,
-                    },
-                    {
-                      slot: 'vision' as const,
-                      label: 'Vision',
-                      sub: 'The assistants that draw and read PDFs',
-                      currentModel: settings.visionModel || (availableModelsForActiveProvider[0]?.id ?? 'Nenhum selecionado'),
-                      currentEffort: settings.visionThinking,
-                    },
-                  ].map((row) => (
-                    <div
-                      key={row.slot}
-                      className="flex items-start justify-between py-3 border-b border-ink-700 relative"
-                    >
-                      <div>
-                        <div className="text-xs font-sans text-gray-200 font-semibold">{row.label}</div>
-                        <div className="text-[11px] font-sans text-gray-400">{row.sub}</div>
-                      </div>
+                    <div className="flex items-center space-x-2">
+                      {/* Model picker */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          disabled={!activeProvider?.isValidated}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsEffortMenuOpen(false);
+                            setIsModelMenuOpen(!isModelMenuOpen);
+                            setModelSearchQuery('');
+                          }}
+                          className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="max-w-[160px] truncate">{currentModel}</span>
+                          <ChevronDown className="h-3 w-3 text-gray-400" />
+                        </button>
 
-                      <div className="flex items-center space-x-2">
-                        {/* 1. Model Selection Pill Button */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            disabled={!activeProvider?.isValidated}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenEffortSelectorSlot(null);
-                              setOpenModelSelectorSlot(
-                                openModelSelectorSlot === row.slot ? null : row.slot
-                              );
-                              setModelSearchQuery('');
-                            }}
-                            className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        {isModelMenuOpen && (
+                          <div
+                            className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-ink-500 bg-ink-850 p-3 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <span className="max-w-[160px] truncate">{row.currentModel}</span>
-                            <ChevronDown className="h-3 w-3 text-gray-400" />
-                          </button>
-
-                          {/* Searchable Model Dropdown Popover */}
-                          {openModelSelectorSlot === row.slot && (
-                            <div
-                              className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-ink-500 bg-ink-850 p-3 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="relative mb-2">
-                                <input
-                                  type="text"
-                                  placeholder="Search models..."
-                                  value={modelSearchQuery}
-                                  onChange={(e) => setModelSearchQuery(e.target.value)}
-                                  autoFocus
-                                  className="w-full rounded-lg border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
-                                />
-                              </div>
-
-                              <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-                                {filteredModels.length === 0 ? (
-                                  <div className="p-3 text-center text-xs text-gray-500 italic">
-                                    Nenhum modelo encontrado para este provedor.
-                                  </div>
-                                ) : (
-                                  filteredModels.map((m) => {
-                                    const isSelected = row.currentModel === m.id;
-                                    return (
-                                      <div
-                                        key={m.id}
-                                        onClick={() => handleSelectModel(row.slot, m)}
-                                        className={`flex cursor-pointer flex-col rounded p-2 text-xs font-sans transition-colors ${
-                                          isSelected
-                                            ? 'bg-ink-600 text-white'
-                                            : 'hover:bg-ink-700 text-gray-300 hover:text-white'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between font-medium">
-                                          <span className="truncate pr-2">{m.name}</span>
-                                          <span className="text-[10px] font-mono text-gray-400 shrink-0">
-                                            {m.price}
-                                          </span>
-                                        </div>
-                                        <div className="text-[10px] font-mono text-gray-500 truncate mt-0.5">
-                                          {m.provider} · {m.slug} · {m.context}
-                                          {m.isReasoning && ' · (Reasoning)'}
-                                        </div>
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
+                            <div className="relative mb-2">
+                              <input
+                                type="text"
+                                placeholder={t('models.search')}
+                                value={modelSearchQuery}
+                                onChange={(e) => setModelSearchQuery(e.target.value)}
+                                autoFocus
+                                className="w-full rounded-lg border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-sans text-white placeholder:text-gray-500 outline-none focus:border-gray-400"
+                              />
                             </div>
-                          )}
-                        </div>
-
-                        {/* 2. Effort / Thinking Selection Pill Button */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenModelSelectorSlot(null);
-                              setOpenEffortSelectorSlot(
-                                openEffortSelectorSlot === row.slot ? null : row.slot
-                              );
-                            }}
-                            className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
-                          >
-                            <span>{row.currentEffort}</span>
-                            <ChevronDown className="h-3 w-3 text-gray-400" />
-                          </button>
-
-                          {/* Effort Dropdown Popover */}
-                          {openEffortSelectorSlot === row.slot && (
-                            <div
-                              className="absolute right-0 top-9 z-50 w-36 rounded-xl border border-ink-500 bg-ink-850 py-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {effortLevels.map((lvl) => {
-                                const isSelected = row.currentEffort === lvl;
-                                return (
-                                  <div
-                                    key={lvl}
-                                    onClick={() => handleSelectEffort(row.slot, lvl)}
-                                    className={`flex cursor-pointer items-center justify-between px-3.5 py-1.5 text-xs font-mono transition-colors ${
-                                      isSelected
-                                        ? 'bg-ink-600 text-white font-semibold'
-                                        : 'hover:bg-ink-700 text-gray-400 hover:text-gray-200'
+                            <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                              {filteredModels.length === 0 ? (
+                                <div className="p-3 text-center text-xs text-gray-500 italic">{t('models.empty')}</div>
+                              ) : (
+                                filteredModels.map((m) => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => handleSelectModel(m)}
+                                    className={`flex w-full cursor-pointer flex-col rounded p-2 text-left text-xs font-sans transition-colors ${
+                                      currentModel === m.id
+                                        ? 'bg-ink-600 text-white'
+                                        : 'hover:bg-ink-700 text-gray-300 hover:text-white'
                                     }`}
                                   >
-                                    <span>{lvl}</span>
-                                    {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
-                                  </div>
-                                );
-                              })}
+                                    <div className="flex w-full items-center justify-between font-medium">
+                                      <span className="truncate pr-2">{m.name}</span>
+                                      <span className="text-[10px] font-mono text-gray-400 shrink-0">{m.price}</span>
+                                    </div>
+                                    <div className="text-[10px] font-mono text-gray-500 truncate mt-0.5">
+                                      {m.provider} · {m.slug} · {m.context}
+                                      {m.isReasoning && ` · ${t('models.reasoning')}`}
+                                    </div>
+                                  </button>
+                                ))
+                              )}
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Reasoning effort */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          aria-label={t('settings.model.effortAria', { effort: settings.strongThinking })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsModelMenuOpen(false);
+                            setIsEffortMenuOpen(!isEffortMenuOpen);
+                          }}
+                          className="flex items-center space-x-1.5 rounded border border-ink-500 bg-ink-800 px-3 py-1 text-xs font-mono text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
+                        >
+                          <span>{settings.strongThinking}</span>
+                          <ChevronDown className="h-3 w-3 text-gray-400" />
+                        </button>
+
+                        {isEffortMenuOpen && (
+                          <div
+                            className="absolute right-0 top-9 z-50 w-36 rounded-xl border border-ink-500 bg-ink-850 py-1.5 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {EFFORT_LEVELS.map((lvl) => (
+                              <button
+                                key={lvl}
+                                type="button"
+                                onClick={() => handleSelectEffort(lvl)}
+                                className={`flex w-full cursor-pointer items-center justify-between px-3.5 py-1.5 text-xs font-mono transition-colors ${
+                                  settings.strongThinking === lvl
+                                    ? 'bg-ink-600 text-white font-semibold'
+                                    : 'hover:bg-ink-700 text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                <span>{lvl}</span>
+                                {settings.strongThinking === lvl && <Check className="h-3.5 w-3.5 text-white" />}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-
-                  {/* PROBING */}
-                  <div className="text-[10px] font-mono tracking-widest text-gray-500 uppercase font-semibold mt-8 mb-3">
-                    PROBING
                   </div>
+
+                  {/* Diagnosis length */}
+                  <div className={`${subTitle} mt-8 mb-3`}>{t('settings.model.diagnosis')}</div>
                   <div className="rounded-lg border border-ink-600 bg-ink-850 px-4 py-3.5">
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <label htmlFor="min-questions" className="text-sm text-gray-200">
-                          Mínimo de questões da sondagem
+                          {t('settings.model.minQuestions')}
                         </label>
                         <p className="mt-0.5 text-[11px] text-gray-500">
-                          Quantas questões o agente faz antes de poder montar o plano de ensino (
-                          {PROBE_QUESTIONS_RANGE.min} a {PROBE_QUESTIONS_RANGE.max}).
+                          {t('settings.model.minQuestionsHint', {
+                            min: PROBE_QUESTIONS_RANGE.min,
+                            max: PROBE_QUESTIONS_RANGE.max,
+                          })}
                         </p>
                       </div>
                       <span
@@ -1088,7 +887,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       id="min-questions"
                       type="range"
                       role="slider"
-                      aria-label="Mínimo de questões da sondagem"
+                      aria-label={t('settings.model.minQuestions')}
                       min={PROBE_QUESTIONS_RANGE.min}
                       max={PROBE_QUESTIONS_RANGE.max}
                       step={1}
@@ -1101,97 +900,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 3. APPEARANCE TAB (Em Breve) */}
-            {activeTab === 'Appearance' && (
+            {/* 3. GENERAL */}
+            {activeTab === 'general' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
-                    APPEARANCE
-                  </h3>
-
-                  <div className="rounded-xl border border-ink-600 bg-ink-800 p-8 text-center flex flex-col items-center justify-center space-y-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink-600 text-gray-300">
-                      <Palette className="h-6 w-6" />
+                  <h3 className={sectionTitle}>{t('settings.general.title')}</h3>
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-ink-600 bg-ink-800 p-3 text-xs font-sans">
+                    <div>
+                      <span className="text-gray-200 font-medium block">{t('settings.general.language')}</span>
+                      <span className="text-[11px] text-gray-400">{t('settings.general.languageHint')}</span>
                     </div>
-                    <div className="space-y-1 max-w-sm">
-                      <h4 className="text-sm font-semibold font-sans text-white">
-                        Personalização de Aparência (Em Breve)
-                      </h4>
-                      <p className="text-xs text-gray-400 leading-relaxed">
-                        Ajustes de temas visuais, fontes de leitura, pesos tipográficos e esquemas de contraste customizados estão sendo calibrados para a próxima versão.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 4. GENERAL TAB */}
-            {activeTab === 'General' && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-[11px] font-mono tracking-widest text-gray-400 uppercase font-semibold mb-4">
-                    GENERAL
-                  </h3>
-
-                  <div className="flex items-start justify-between py-2.5 border-b border-ink-700">
-                    <div className="space-y-1">
-                      <div className="text-xs font-sans text-gray-200 font-semibold">
-                        Version {settings.appVersion}
-                      </div>
-                      <div className="text-[11px] font-sans text-gray-400 leading-relaxed max-w-sm">
-                        {updateCheckStatus === 'checking' ? (
-                          <span className="text-blue-400">Checking for updates...</span>
-                        ) : updateCheckStatus === 'up-to-date' ? (
-                          <span className="text-emerald-400">You are running the latest version!</span>
-                        ) : (
-                          <>
-                            No newer version was found at the last check.
-                            <br />
-                            Checking downloads available updates. Downloaded updates install when you quit the app.
-                            <br />
-                            <span className="text-gray-300 underline cursor-pointer hover:text-white">
-                              Release notes
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleCheckUpdates}
-                      className="rounded-md border border-ink-500 bg-ink-800 px-3.5 py-1.5 text-xs font-sans text-gray-200 hover:border-gray-500 hover:text-white transition-colors"
+                    <select
+                      aria-label={t('settings.general.language')}
+                      value={settings.language}
+                      onChange={(e) => updateSettings({ language: e.target.value as Lang })}
+                      className={selectClass}
                     >
-                      Check for updates
-                    </button>
-                  </div>
-
-                  <div className="flex items-start justify-between py-3">
-                    <div className="space-y-1 max-w-sm">
-                      <div className="text-xs font-sans text-gray-200 font-semibold">
-                        Automatic updates
-                      </div>
-                      <div className="text-[11px] font-sans text-gray-400 leading-relaxed">
-                        Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={settings.autoUpdates}
-                      onClick={() => updateSettings({ autoUpdates: !settings.autoUpdates })}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
-                        settings.autoUpdates ? 'bg-white' : 'bg-ink-600'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out mt-0.5 ${
-                          settings.autoUpdates ? 'translate-x-4 bg-ink-850' : 'translate-x-0.5 bg-[#888888]'
-                        }`}
-                      />
-                    </button>
+                      <option value="pt">Português (Brasil)</option>
+                      <option value="en">English</option>
+                    </select>
                   </div>
                 </div>
               </div>

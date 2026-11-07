@@ -6,7 +6,7 @@ import {
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, extractLLMThinking, isProviderLimitError, LLMCaller, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, isProviderLimitError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
 function slugify(text: string): string {
   return (
@@ -111,10 +111,16 @@ export interface GoalClarificationResult {
 /** Short, human reason for a failed generation attempt. */
 function describeGenerationFailure(err: unknown): string {
   const msg = String((err as any)?.message || err || '');
-  if (/Tempo limite|timeout|aborted/i.test(msg)) return 'o modelo demorou demais para responder (tempo limite)';
-  if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return 'falha de conexão com o provedor de IA';
-  if (/JSON|Unexpected token|parse/i.test(msg)) return 'a IA não devolveu um JSON válido';
-  return msg ? `erro do provedor de IA (${msg.slice(0, 120)})` : 'erro desconhecido do provedor de IA';
+  if (/Tempo limite|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
+  if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');
+  if (/JSON|Unexpected token|parse/i.test(msg)) return localize('a IA respondeu num formato inesperado', 'the AI answered in an unexpected format');
+  return msg
+    ? localize(`erro do provedor de IA (${msg.slice(0, 120)})`, `AI provider error (${msg.slice(0, 120)})`)
+    : localize('erro desconhecido do provedor de IA', 'unknown AI provider error');
+}
+
+function defaultPredictGoal(): string {
+  return localize('Dê seu palpite antes da explicação.', 'Make a guess before the explanation.');
 }
 
 export class CurriculumGenerator {
@@ -160,8 +166,11 @@ export class CurriculumGenerator {
 
         if (rawOpts.length >= 5 && question) {
           let options = rawOpts;
-          if (!options.some((o) => /outro|não sei/i.test(o))) {
-            options = [...options.slice(0, 8), 'Outro / não sei ainda — quero orientação'];
+          if (!options.some((o) => /outro|não sei|other|not sure/i.test(o))) {
+            options = [
+              ...options.slice(0, 8),
+              localize('Outro / ainda não sei — quero ajuda para escolher', "Something else / not sure yet — help me choose"),
+            ];
           }
           return { question, options, agentThinking: this.lastGoalThinking };
         }
@@ -264,7 +273,7 @@ export class CurriculumGenerator {
   ): Promise<QuestionData> {
     const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
 
-    let lastReason = 'a resposta da IA veio vazia ou fora do formato esperado';
+    let lastReason = localize('a resposta da IA veio vazia ou num formato inesperado', 'the AI answer was empty or in an unexpected format');
     for (let attempt = 0; attempt < 3; attempt++) {
       if (callOpts?.signal?.aborted) {
         throw new Error('Operação cancelada pelo orquestrador.');
@@ -302,7 +311,10 @@ export class CurriculumGenerator {
             agentThinking: qThink,
           };
         }
-        lastReason = 'a IA devolveu uma questão incompleta (faltam enunciado, alternativas ou gabarito)';
+        lastReason = localize(
+          'a IA devolveu uma pergunta incompleta (faltou enunciado, alternativas ou gabarito)',
+          'the AI returned an incomplete question (missing text, options or answer key)'
+        );
         console.error(`[CurriculumGenerator] Questão inválida (tentativa ${attempt + 1}):`, raw.slice(0, 300));
       } catch (err) {
         console.error(`[CurriculumGenerator] Falha ao gerar questão via IA (tentativa ${attempt + 1}):`, err);
@@ -314,9 +326,14 @@ export class CurriculumGenerator {
     }
 
     throw new Error(
-      `Não foi possível gerar a próxima questão ("${node.title}"): ${lastReason}. ` +
-        'Sua resposta NÃO foi registrada — clique em "Enviar resposta" para tentar de novo. ' +
-        'Se continuar falhando, troque o modelo em Configurações → Agent (modelos mais rápidos ou sem raciocínio longo costumam resolver) ou verifique sua conexão.'
+      localize(
+        `Não foi possível preparar a próxima pergunta ("${node.title}"): ${lastReason}. ` +
+          'Sua resposta NÃO foi registrada: clique em "Enviar resposta" para tentar de novo. ' +
+          'Se continuar falhando, troque o modelo em Configurações → Modelo (modelos mais rápidos costumam resolver) ou verifique sua conexão.',
+        `The next question could not be prepared ("${node.title}"): ${lastReason}. ` +
+          'Your answer was NOT recorded: click "Send answer" to try again. ' +
+          'If it keeps failing, switch the model in Settings → Model (faster models usually help) or check your connection.'
+      )
     );
   }
 
@@ -344,7 +361,7 @@ export class CurriculumGenerator {
       if (parsed.questionText) {
         return {
           questionText: String(parsed.questionText),
-          promptGoal: String(parsed.promptGoal || 'Preveja o resultado antes de vermos a teoria formal.'),
+          promptGoal: String(parsed.promptGoal || defaultPredictGoal()),
         };
       }
     } catch (err) {
@@ -352,8 +369,11 @@ export class CurriculumGenerator {
       // Fallback
     }
     return {
-      questionText: `Antes de estudarmos formalmente "${node.title}": ${node.summary} Com base na sua intuição, o que você espera que aconteça e por quê?`,
-      promptGoal: 'Preveja o resultado antes de vermos a teoria formal.',
+      questionText: localize(
+        `Antes da explicação sobre "${node.title}": ${node.summary} O que você acha que acontece, e por quê?`,
+        `Before the explanation of "${node.title}": ${node.summary} What do you think happens, and why?`
+      ),
+      promptGoal: defaultPredictGoal(),
     };
   }
 
@@ -390,8 +410,14 @@ export class CurriculumGenerator {
     const list = pending.map((n) => n.title).join(', ');
     return {
       plan: pending.length
-        ? `Vamos trabalhar, nesta ordem, os conceitos que a sondagem mostrou frágeis ou ainda não dominados: ${list}.`
-        : 'A sondagem mostrou domínio dos conceitos mapeados. Vamos reforçar os mais avançados.',
+        ? localize(
+            `Vamos estudar, nesta ordem, o que ainda não está firme: ${list}.`,
+            `We'll study, in this order, what isn't solid yet: ${list}.`
+          )
+        : localize(
+            'Você mostrou que domina os conceitos do mapa. Vamos reforçar os mais avançados.',
+            'You showed you know the concepts on the map. Let’s reinforce the most advanced ones.'
+          ),
       order: pending.map((n) => n.id),
     };
   }

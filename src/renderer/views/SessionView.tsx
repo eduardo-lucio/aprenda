@@ -17,6 +17,7 @@ import { RichText } from '../components/RichText';
 import { ProbeCard } from '../components/ProbeCard';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
+import { useI18n } from '../i18n';
 import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions } from '../../shared/types';
 import {
   CheckCircle2,
@@ -30,7 +31,6 @@ import {
   AlertCircle,
   Send,
   CornerDownLeft,
-  Paperclip,
   Mic,
   ChevronDown,
   Check,
@@ -76,6 +76,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   onChangeModel,
   availableModels = [],
 }) => {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'session' | 'dag'>('session');
   const [nodes, setNodes] = useState<ConceptNode[]>(initialNodes);
   const [session, setSession] = useState<ProbingSession | null>(currentSession);
@@ -83,9 +84,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(
     currentSession?.currentQuestion || null
   );
-  const [agentThinking, setAgentThinking] = useState<string>(
-    'Aguardando definição do seu objetivo de aprendizado para estruturar o grafo de dependências conceituais...'
-  );
+  const [agentThinking, setAgentThinking] = useState<string>('');
   const [socraticNode, setSocraticNode] = useState<ConceptNode | null>(null);
   const [socraticPredictData, setSocraticPredictData] = useState<{
     questionText: string;
@@ -346,7 +345,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const cleanError = (err: any): string =>
-    String(err?.message || err || 'Erro inesperado').replace(
+    String(err?.message || err || t('session.err.unexpected')).replace(
       /^Error invoking remote method '[^']+': (Error: )?/,
       ''
     );
@@ -360,8 +359,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setAnsweredScope(null);
     setStreamingThinking('');
     appendUserChatMessage(goalToUse, -1);
-    setSubmittingLabel('Definindo objetivo e preparando opções de escopo...');
-    setAgentThinking('Analisando o tema em tempo real...');
+    setSubmittingLabel(t('session.status.scope'));
+    setAgentThinking(t('session.thinking.scope'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -374,9 +373,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (sess.agentThinking) {
         setAgentThinking(sess.agentThinking);
       } else {
-        setAgentThinking(
-          `Objetivo registrado (${mode.toUpperCase()}): "${goalToUse}". Estruturei os recortes de escopo abaixo. Assim que o estudante escolher o foco, construirei o grafo de dependências conceituais e iniciarei a sondagem.`
-        );
+        setAgentThinking(t('session.thinking.scopeReady', { goal: goalToUse }));
       }
     } catch (err: any) {
       setActionError(cleanError(err));
@@ -401,8 +398,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         : option;
       appendUserChatMessage(userMsg, 0);
     }
-    setSubmittingLabel('Construindo o Grafo de Dependências e preparando a 1ª questão...');
-    setAgentThinking('Estruturando o grafo do nível básico ao avançado em tempo real...');
+    setSubmittingLabel(t('session.status.graph'));
+    setAgentThinking(t('session.thinking.graph'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -430,9 +427,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (q.agentThinking) {
         setAgentThinking(q.agentThinking);
       } else {
-        setAgentThinking(
-          `Foco afunilado para "${option}". Grafo de dependências gerado. Começando a sondagem pelo nó de base "${q.anchorConcept}" para verificar os fundamentos.`
-        );
+        setAgentThinking(t('session.thinking.graphReady', { scope: option, concept: q.anchorConcept }));
       }
     } catch (err: any) {
       setActionError(cleanError(err));
@@ -467,8 +462,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
     } else {
       setPendingAttempt(null);
     }
-    setSubmittingLabel('O Juiz Cognitivo está analisando seu raciocínio em tempo real...');
-    setAgentThinking('Avaliando a resposta do estudante em tempo real...');
+    setSubmittingLabel(t('session.status.judge'));
+    setAgentThinking(t('session.thinking.judge'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -482,7 +477,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setActiveTab('session');
         setAgentThinking(
           result.session.agentThinking ||
-            `Sondagem concluída (${result.session.questionCount} questões avaliadas). Montei um plano de ensino a partir do que a sondagem mostrou.`
+            t('session.thinking.probeDone', { count: result.session.questionCount })
         );
       } else if (result.nextQuestion) {
         setCurrentQuestion(result.nextQuestion);
@@ -501,7 +496,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleAdvanceToPlan = async () => {
-    setSubmittingLabel('Montando o plano de ensino...');
+    setSubmittingLabel(t('session.status.plan'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -510,9 +505,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (onSessionUpdate) onSessionUpdate(sess);
       setCurrentQuestion(null);
       setActiveTab('session');
-      setAgentThinking(
-        'Sondagem concluída. Plano de ensino pronto para sua revisão.'
-      );
+      setAgentThinking(t('session.thinking.planReady'));
     } catch (err: any) {
       setActionError(cleanError(err));
     } finally {
@@ -521,7 +514,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleConfirmPlan = async () => {
-    setSubmittingLabel('Preparando o primeiro conceito...');
+    setSubmittingLabel(t('session.status.firstConcept'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -537,7 +530,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleStartSocraticCycle = async (nodeId?: string) => {
-    setSubmittingLabel('Preparando etapa socrática (Predição)...');
+    setSubmittingLabel(t('session.status.lesson'));
     setIsSubmitting(true);
     setActionError(null);
     try {
@@ -600,16 +593,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const phase = session?.phase || 'goal_orientation';
   const pendingConceptCount = Object.values(session?.nodesState || {}).filter((st) => st !== 'mastered').length;
-  const modeLabel = (session?.mode || pendingMode || 'teaching').toUpperCase();
   const phaseDividerLabel = !session
-    ? modeLabel
+    ? t('session.divider.new')
     : socraticNode || phase === 'teaching'
-    ? 'TEACHING'
+    ? t('phase.teaching')
     : phase === 'probing'
-    ? 'PROBING'
+    ? t('phase.probing')
     : phase === 'plan_review'
-    ? 'PLAN'
-    : 'ORIENTATION';
+    ? t('phase.plan_review')
+    : t('phase.goal_orientation');
 
   // ---- Active question card (in-flow) + shared chat field ----
   // Hide the active question immediately while isSubmitting is true so answered questions never linger
@@ -646,20 +638,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
       : Boolean(inputTrimmed));
 
   const inputPlaceholder = !session
-    ? 'Ex: Digite o tema ou disciplina que deseja estudar...'
+    ? t('session.input.goal')
     : isScopeMode
     ? selectedIdx !== null
-      ? 'Por que esse recorte? (opcional)'
-      : 'Insira um escopo personalizado...'
+      ? t('session.input.scopeWhy')
+      : t('session.input.scopeCustom')
     : isProbeMode
     ? hasChosenAnswer
-      ? 'Explique seu raciocínio (opcional)...'
-      : 'Digite seu pensamento ou sua própria resposta...'
+      ? t('session.input.probeWhy')
+      : t('session.input.probeOwn')
     : isSocraticPredict
-    ? 'Digite sua previsão...'
+    ? t('session.input.predict')
     : isSocraticCheck
-    ? 'Raciocínio (opcional) — escolha uma alternativa e envie...'
-    : 'Digite uma mensagem...';
+    ? t('session.input.check')
+    : t('session.input.message');
 
   const handleDockSubmit = () => {
     if (!canSend) return;
@@ -756,33 +748,25 @@ export const SessionView: React.FC<SessionViewProps> = ({
         <div className="flex items-center space-x-2 ml-2 shrink-0">
           <button
             type="button"
-            title="Anexo"
-            aria-label="Anexar arquivo"
-            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
             onClick={handleDockSubmit}
             disabled={!canSend}
             className="flex items-center justify-center rounded-lg bg-ink-600 hover:bg-ink-400 p-1.5 text-gray-300 hover:text-white transition-colors disabled:opacity-40"
             title={
               !session
-                ? (pendingMode === 'practice' ? 'Iniciar Prática' : 'Iniciar Diagnóstico')
-                : 'Enviar'
+                ? t('session.start')
+                : t('session.send')
             }
             aria-label={
               !session
-                ? (pendingMode === 'practice' ? 'Iniciar Prática' : 'Iniciar Diagnóstico')
-                : 'Enviar'
+                ? t('session.start')
+                : t('session.send')
             }
           >
             <CornerDownLeft className="h-4 w-4" />
             <span className="sr-only">
               {!session
-                ? (pendingMode === 'practice' ? 'Iniciar Prática' : 'Iniciar Diagnóstico')
-                : 'Enviar'}
+                ? t('session.start')
+                : t('session.send')}
             </span>
           </button>
         </div>
@@ -812,11 +796,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
               ? 'border-red-600 bg-red-950/60 text-red-400 animate-pulse'
               : 'border-ink-600 bg-ink-850 text-gray-400 hover:border-gray-500 hover:text-gray-200'
           }`}
-          title="Ativar/Desativar Ditado por Voz"
-          aria-label={isListening ? 'Ouvindo...' : isTranscribing ? 'Transcrevendo...' : 'Dictate'}
+          title={t('session.dictate.title')}
+          aria-label={isListening ? t('session.dictate.listening') : isTranscribing ? t('session.dictate.transcribing') : t('session.dictate.label')}
         >
           <Mic className={`h-3 w-3 ${isListening ? 'text-red-400' : 'text-gray-400'}`} />
-          <span>{isListening ? 'Ouvindo...' : isTranscribing ? 'Transcrevendo...' : 'Dictate'}</span>
+          <span>{isListening ? t('session.dictate.listening') : isTranscribing ? t('session.dictate.transcribing') : t('session.dictate.label')}</span>
         </button>
       </div>
 
@@ -828,7 +812,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             type="button"
             onClick={() => setShowModelMenu((prev) => !prev)}
             className="flex items-center space-x-1.5 rounded-full border border-ink-600 bg-ink-850 px-3 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
-            title={`Modelo: ${modelName}. Clique para alterar.`}
+            title={t('session.model.title', { model: modelName })}
           >
             <span className="truncate max-w-[160px]">{modelName}</span>
             <ChevronDown className="h-3 w-3 text-gray-500" />
@@ -842,7 +826,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <div className="relative mb-2">
                 <input
                   type="text"
-                  placeholder="Search models..."
+                  placeholder={t('models.search')}
                   value={modelSearchQuery}
                   onChange={(e) => setModelSearchQuery(e.target.value)}
                   autoFocus
@@ -853,7 +837,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
                 {filteredModels.length === 0 ? (
                   <div className="p-3 text-center text-xs text-gray-500 italic">
-                    Nenhum modelo encontrado.
+                    {t('models.empty')}
                   </div>
                 ) : (
                   filteredModels.map((m) => {
@@ -882,7 +866,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         </div>
                         <div className="text-[10px] font-mono text-gray-500 truncate mt-0.5">
                           {m.provider} · {m.slug.startsWith('~') ? m.slug : `~${m.slug}`} · {m.context}
-                          {m.isReasoning && ' · (Reasoning)'}
+                          {m.isReasoning && ` · ${t('models.reasoning')}`}
                         </div>
                       </div>
                     );
@@ -901,7 +885,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     }}
                     className="flex items-center space-x-1.5 w-full text-left px-2 py-1.5 text-[11px] font-mono text-gray-400 hover:text-gray-100 hover:bg-ink-700 rounded-lg transition-colors"
                   >
-                    <span>⚙ Configurar modelos...</span>
+                    <span>{t('session.model.configure')}</span>
                   </button>
                 </div>
               )}
@@ -915,7 +899,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             type="button"
             onClick={() => setShowThinkingMenu((prev) => !prev)}
             className="flex items-center space-x-1.5 rounded-full border border-ink-600 bg-ink-850 px-2.5 py-0.5 text-[11px] font-mono text-gray-300 hover:border-gray-500 hover:text-white transition-colors"
-            title={`Thinking: ${thinkingLevel}. Clique para alterar.`}
+            title={t('session.effort.title', { level: thinkingLevel })}
           >
             <span>{(thinkingLevel || 'high').toLowerCase()}</span>
             <ChevronDown className="h-3 w-3 text-gray-500" />
@@ -924,7 +908,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           {showThinkingMenu && (
             <div className="absolute right-0 bottom-full mb-1.5 w-32 rounded-xl border border-ink-600 bg-ink-850 p-1.5 shadow-2xl z-30 font-mono text-xs">
               <div className="px-2 py-1 text-[10px] uppercase font-bold text-gray-500">
-                Thinking
+                {t('session.effort.label')}
               </div>
               {(['off', 'low', 'medium', 'high'] as const).map((lvl) => (
                 <button
@@ -957,7 +941,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     <div className="flex h-full w-full flex-col bg-ink-950 text-gray-200 relative">
       {/* Top Session Nav Tabs */}
       <div className="flex items-center justify-between border-b border-ink-700 px-6 py-1.5 bg-ink-950">
-        <span className="label-mono">Sessão</span>
+        <span className="label-mono">{t('session.tabs.label')}</span>
 
         <div className="flex items-center space-x-2">
           <button
@@ -969,7 +953,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             }`}
           >
             <BookOpen className="h-3.5 w-3.5" />
-            <span>Chat Socrático</span>
+            <span>{t('session.tabs.chat')}</span>
           </button>
 
           <button
@@ -984,7 +968,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             }`}
           >
             <BarChart3 className="h-3.5 w-3.5" />
-            <span>Mapa de conceitos ({nodes.length})</span>
+            <span>{t('session.tabs.map', { count: nodes.length })}</span>
           </button>
         </div>
       </div>
@@ -996,11 +980,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
             <div className="flex items-center justify-between bg-ink-900 p-3 rounded-lg border border-ink-700">
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">
-                  Mapa de conceitos
+                  {t('session.map.title')}
                 </h4>
-                <p className="text-[11px] text-gray-400">
-                  Clique em um conceito para ver os detalhes e iniciar o ensino socrático. Falso positivo e fronteira são os melhores pontos de partida.
-                </p>
+                <p className="text-[11px] text-gray-400">{t('session.map.hint')}</p>
               </div>
 
               <button
@@ -1009,7 +991,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 className="flex items-center space-x-1.5 rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                <span>Iniciar Ensino Socrático</span>
+                <span>{t('session.map.start')}</span>
               </button>
             </div>
 
@@ -1047,8 +1029,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     {/HTTP (401|402|403|429)\b/.test(actionError) && (
                       <span className="block font-semibold text-red-100">
                         {/HTTP (402|429)\b/.test(actionError)
-                          ? 'Limite ou créditos do provedor de IA esgotados'
-                          : 'Problema com a chave do provedor de IA'}
+                          ? t('session.err.limit')
+                          : t('session.err.key')}
                       </span>
                     )}
                     <span className="block">{actionError}</span>
@@ -1066,7 +1048,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                        YOU
+                        {t('session.you')}
                       </span>
                       <RichText text={msg.text} className="text-xs text-gray-200 leading-relaxed" />
                     </div>
@@ -1084,11 +1066,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {!isSubmitting && chatMessages.length === 0 && (
                     <div className="pt-8 space-y-1.5 text-center sm:text-left">
                       <h2 className="text-base font-serif font-bold text-gray-100">
-                        Nova sessão
+                        {t('session.empty.title')}
                       </h2>
-                      <p className="text-xs text-gray-400">
-                        O professor vai abrir uma investigação sobre o que você já sabe.
-                      </p>
+                      <p className="text-xs text-gray-400">{t('session.empty.subtitle')}</p>
                     </div>
                   )}
                 </div>
@@ -1101,7 +1081,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                        YOU
+                        {t('session.you')}
                       </span>
                       <RichText text={msg.text} className="text-xs text-gray-200 leading-relaxed" />
                     </div>
@@ -1123,7 +1103,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {answeredScope && (
                     <div className="rounded-xl border border-ink-600 bg-ink-850 p-5 shadow-lg space-y-3">
                       <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                        QUESTION
+                        {t('session.scope.label')}
                       </span>
                       {answeredScope.questionText && (
                         <RichText
@@ -1162,7 +1142,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       {answeredScope.thinkingText && (
                         <div className="border-l-2 border-ink-500 pl-3 pt-0.5">
                           <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
-                            YOUR THINKING
+                            {t('session.yourReasoning')}
                           </span>
                           <RichText
                             text={answeredScope.thinkingText}
@@ -1179,7 +1159,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                        YOU
+                        {t('session.you')}
                       </span>
                       <RichText text={msg.text} className="text-xs text-gray-200 leading-relaxed" />
                     </div>
@@ -1219,7 +1199,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                           className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                         >
                           <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                            YOU
+                            {t('session.you')}
                           </span>
                           <RichText text={msg.text} className="text-xs text-gray-200 leading-relaxed" />
                         </div>
@@ -1239,7 +1219,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       className="rounded-r-md border-l-2 border-ink-400 bg-ink-850/90 px-4 py-2.5 space-y-1"
                     >
                       <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                        YOU
+                        {t('session.you')}
                       </span>
                       <RichText text={msg.text} className="text-xs text-gray-200 leading-relaxed" />
                     </div>
@@ -1267,13 +1247,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {session && session.questionCount >= minQuestions && (
                     <div className="mx-auto max-w-2xl flex items-center justify-between rounded-lg border border-blue-900/60 bg-blue-950/20 p-3.5 text-xs text-blue-300 shadow-sm">
                       <span>
-                        Você atingiu o piso de <strong>{session.questionCount} questões</strong>. Deseja avançar para o plano de ensino?
+                        {t('session.floor.reached', { count: session.questionCount })}
                       </span>
                       <button
                         onClick={handleAdvanceToPlan}
                         className="rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors"
                       >
-                        Ver Plano de Ensino
+                        {t('session.floor.button')}
                       </button>
                     </div>
                   )}
@@ -1287,7 +1267,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   <div className="flex flex-col gap-5 rounded-xl border border-ink-600 bg-ink-850 p-6 shadow-xl">
                     <div className="flex items-center space-x-2.5 border-b border-ink-600 pb-4">
                       <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                      <h2 className="text-base font-bold text-white font-serif">Plano de Ensino</h2>
+                      <h2 className="text-base font-bold text-white font-serif">{t('session.plan.title')}</h2>
                     </div>
                     <RichText text={session?.plan || ''} className="text-sm text-gray-200 leading-relaxed" />
                     <div className="flex items-center justify-between gap-3 pt-2">
@@ -1300,14 +1280,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
                         className="flex items-center space-x-2 rounded border border-ink-500 px-4 py-2.5 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
                       >
                         <BarChart3 className="h-4 w-4" />
-                        <span>Ver mapa de conceitos</span>
+                        <span>{t('session.plan.viewMap')}</span>
                       </button>
                       <button
                         onClick={handleConfirmPlan}
                         className="flex items-center space-x-2 rounded bg-gray-200 px-5 py-2.5 text-xs font-semibold text-ink-950 hover:bg-white transition-colors shadow-md"
                       >
                         <Sparkles className="h-4 w-4" />
-                        <span>Começar ensino</span>
+                        <span>{t('session.plan.start')}</span>
                       </button>
                     </div>
                   </div>
@@ -1318,7 +1298,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {socraticNode && socraticPredictData && (
                 <div className="space-y-4 border-t border-ink-700 pt-4">
                   <AgentThinkingBlock
-                    thinkingText={`Iniciando intervenção socrática cirúrgica no conceito "${socraticNode.title}". Primeiro passo: solicitar que o estudante faça uma predição intuitiva antes da formalização teórica.`}
+                    thinkingText={t('session.thinking.lesson', { concept: socraticNode.title })}
                     defaultExpanded={true}
                   />
                   <SocraticCard
@@ -1350,14 +1330,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 >
                   <div className="flex items-center space-x-2.5">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <h3 className="text-sm font-bold text-white font-serif">Passada de ensino concluída</h3>
+                    <h3 className="text-sm font-bold text-white font-serif">{t('session.passDone.title')}</h3>
                   </div>
                   <p className="text-xs leading-relaxed text-gray-300">
                     {pendingConceptCount === 0
-                      ? 'Todos os conceitos do mapa foram dominados.'
-                      : `${pendingConceptCount} ${
-                          pendingConceptCount === 1 ? 'conceito ainda não está dominado' : 'conceitos ainda não estão dominados'
-                        }. Abra o mapa de conceitos e escolha um para revisar quando quiser.`}
+                      ? t('session.passDone.all')
+                      : pendingConceptCount === 1
+                      ? t('session.passDone.one')
+                      : t('session.passDone.many', { count: pendingConceptCount })}
                   </p>
                   <button
                     type="button"
@@ -1368,7 +1348,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     className="flex items-center space-x-2 rounded border border-ink-500 px-4 py-2 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
                   >
                     <BarChart3 className="h-4 w-4" />
-                    <span>Abrir mapa de conceitos</span>
+                    <span>{t('session.passDone.openMap')}</span>
                   </button>
                 </div>
               )}
@@ -1388,13 +1368,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   >
                     {isScopeMode && session && (
                       <QuestionCard
-                        label="QUESTION"
+                        label={t('session.scope.label')}
                         questionText={session.goalClarificationQuestion || ''}
                         options={scopeOptions}
                         selectedIndex={selectedIdx}
                         onSelect={setSelectedIdx}
                         dashedOption={{
-                          label: 'Insira um escopo personalizado...',
+                          label: t('session.input.scopeCustom'),
                           selected: selectedIdx === null && Boolean(bottomChatInput.trim()),
                           onSelect: () => {
                             setSelectedIdx(null);
@@ -1405,7 +1385,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     )}
                     {isProbeMode && currentQuestion && (
                       <QuestionCard
-                        label={`PROBE #${session?.questionCount || 1}`}
+                        label={t('session.probe.label', { n: session?.questionCount || 1 })}
                         anchor={currentQuestion.anchorConcept}
                         questionText={currentQuestion.questionText}
                         options={currentQuestion.options}
@@ -1415,7 +1395,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                           setIsDontKnow(false);
                         }}
                         dashedOption={{
-                          label: 'Não sei / Ainda não domino este conceito',
+                          label: t('session.probe.dontKnow'),
                           selected: isDontKnow,
                           tone: 'amber',
                           onSelect: () => {
@@ -1428,7 +1408,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     )}
                     {isSocraticCheck && checkQuestion && (
                       <QuestionCard
-                        label="CHECK"
+                        label={t('session.check.label')}
                         questionText={checkQuestion.questionText}
                         options={checkQuestion.options}
                         selectedIndex={selectedIdx}

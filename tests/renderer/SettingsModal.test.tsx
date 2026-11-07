@@ -3,12 +3,19 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SettingsModal, DEFAULT_SETTINGS } from '../../src/renderer/components/SettingsModal';
 import { ModelOption } from '../../src/shared/types';
+import { validateAndFetchModels } from '../../src/main/services/providerValidationService';
+import { validateDeepgramKey } from '../../src/main/services/speechService';
 
 describe('SettingsModal Functional Component', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // The modal validates keys through the main process (IPC); in tests the real services run behind a fake bridge
+    (window as any).api = {
+      validateProvider: (params: any) => validateAndFetchModels(params),
+      validateDeepgramKey: (key: string) => validateDeepgramKey(key),
+    };
   });
 
   afterEach(() => {
@@ -20,31 +27,30 @@ describe('SettingsModal Functional Component', () => {
     const onClose = vi.fn();
     render(<SettingsModal isOpen={false} onClose={onClose} onSave={onSave} />);
 
-    expect(screen.queryByText('Settings')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('renders exactly the 4 navigation tabs and removed Graph and Keyboard', () => {
+  it('renders only the real tabs (Provedores, Modelo, Geral) and none of the placeholder ones', () => {
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} onSave={vi.fn()} initialSettings={DEFAULT_SETTINGS} />);
+
+    expect(screen.getByRole('dialog', { name: 'Configurações' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Provedores' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Modelo' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Geral' })).toBeDefined();
+
+    // Removed: placeholder Appearance tab and fake update checker
+    expect(screen.queryByText(/appearance|aparência/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Geral' }));
+    expect(screen.queryByText(/update|atualiza/i)).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Idioma' })).toBeDefined();
+  });
+
+  it('saves the interface language chosen in Geral', () => {
     const onSave = vi.fn();
-    const onClose = vi.fn();
-
-    render(
-      <SettingsModal
-        isOpen={true}
-        onClose={onClose}
-        onSave={onSave}
-        initialSettings={DEFAULT_SETTINGS}
-      />
-    );
-
-    expect(screen.getByText('Settings')).toBeDefined();
-    expect(screen.getByText('Providers')).toBeDefined();
-    expect(screen.getByText('Agent')).toBeDefined();
-    expect(screen.getByText('Appearance')).toBeDefined();
-    expect(screen.getByText('General')).toBeDefined();
-
-    // Graph and Keyboard should NOT be present
-    expect(screen.queryByText('Graph')).toBeNull();
-    expect(screen.queryByText('Keyboard')).toBeNull();
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} onSave={onSave} initialSettings={DEFAULT_SETTINGS} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Geral' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Idioma' }), { target: { value: 'en' } });
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ language: 'en' }));
   });
 
   it('rejects invalid API key with error banner and DOES NOT save or activate provider', async () => {
@@ -70,17 +76,17 @@ describe('SettingsModal Functional Component', () => {
     );
 
     // Click + Add a provider
-    fireEvent.click(screen.getByText('+ Add a provider'));
+    fireEvent.click(screen.getByText('+ Adicionar provedor'));
 
     // Search input appears
-    const searchInput = screen.getByPlaceholderText('Search providers...');
+    const searchInput = screen.getByPlaceholderText('Buscar provedores...');
     fireEvent.change(searchInput, { target: { value: 'OpenRouter' } });
 
     // Click OpenRouter
     fireEvent.click(screen.getByText('OpenRouter'));
 
     // Type a fake/garbage API key
-    const keyInput = screen.getByPlaceholderText(/insira sua chave/i);
+    const keyInput = screen.getByPlaceholderText(/cole sua chave/i);
     fireEvent.change(keyInput, { target: { value: 'sk-or-invalid-garbage-123' } });
 
     // Click Salvar Chave de API
@@ -89,7 +95,7 @@ describe('SettingsModal Functional Component', () => {
 
     // Wait for error banner to appear
     await waitFor(() => {
-      expect(screen.getByText(/erro de validação/i)).toBeDefined();
+      expect(screen.getByText(/a chave não foi aceita/i)).toBeDefined();
       expect(screen.getByText(/user not found/i)).toBeDefined();
     });
 
@@ -140,13 +146,13 @@ describe('SettingsModal Functional Component', () => {
     );
 
     // Click + Add a provider
-    fireEvent.click(screen.getByText('+ Add a provider'));
+    fireEvent.click(screen.getByText('+ Adicionar provedor'));
 
     // Select OpenRouter
     fireEvent.click(screen.getByText('OpenRouter'));
 
     // Type real key
-    const keyInput = screen.getByPlaceholderText(/insira sua chave/i);
+    const keyInput = screen.getByPlaceholderText(/cole sua chave/i);
     fireEvent.change(keyInput, { target: { value: 'sk-or-v1-valid-key-9876543210' } });
 
     // Click Salvar Chave de API
@@ -174,7 +180,7 @@ describe('SettingsModal Functional Component', () => {
     });
   });
 
-  it('displays warning in Agent tab when no provider is validated', () => {
+  it('displays warning in Modelo tab when no provider is validated', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
@@ -192,11 +198,11 @@ describe('SettingsModal Functional Component', () => {
     );
 
     // Navigate to Agent tab
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
 
     // Warning should be displayed
     expect(screen.getByText(/nenhum provedor configurado com chave de api/i)).toBeDefined();
-    expect(screen.getByRole('button', { name: /ir para a aba providers/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /ir para provedores/i })).toBeDefined();
   });
 
   it('allows searching and selecting models from the live provider models and choosing effort level', () => {
@@ -261,18 +267,18 @@ describe('SettingsModal Functional Component', () => {
     );
 
     // Navigate to Agent tab
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
 
     // Should indicate OpenRouter is active with real models count
     expect(screen.getByText('OpenRouter')).toBeDefined();
-    expect(screen.getByText(/3 modelos reais/i)).toBeDefined();
+    expect(screen.getByText(/\(3 modelos\)/i)).toBeDefined();
 
     // Click the model selection button for Strong (current: 'deepseek/deepseek-r1')
     const strongModelBtn = screen.getByText('deepseek/deepseek-r1');
     fireEvent.click(strongModelBtn);
 
     // Search input appears in the popover
-    const searchModelInput = screen.getByPlaceholderText('Search models...');
+    const searchModelInput = screen.getByPlaceholderText('Buscar modelos...');
     fireEvent.change(searchModelInput, { target: { value: 'Claude 3.7' } });
 
     // Select Claude 3.7 Sonnet from the filtered real models
@@ -303,20 +309,6 @@ describe('SettingsModal Functional Component', () => {
     );
   });
 
-  it('shows "Em Breve" in Appearance tab', () => {
-    render(
-      <SettingsModal
-        isOpen={true}
-        onClose={vi.fn()}
-        onSave={vi.fn()}
-        initialSettings={DEFAULT_SETTINGS}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
-    expect(screen.getByText(/personalização de aparência \(em breve\)/i)).toBeDefined();
-  });
-
   it('allows validating Deepgram API key and selecting voice language in Providers tab', async () => {
     const onSave = vi.fn();
     global.fetch = vi.fn().mockResolvedValueOnce({
@@ -334,7 +326,7 @@ describe('SettingsModal Functional Component', () => {
       />
     );
 
-    const dgInput = screen.getByPlaceholderText(/token deepgram/i);
+    const dgInput = screen.getByPlaceholderText(/chave do deepgram/i);
     fireEvent.change(dgInput, { target: { value: 'dg-secret-key-123456789' } });
     fireEvent.click(screen.getByRole('button', { name: /salvar deepgram/i }));
 
@@ -358,12 +350,12 @@ describe('SettingsModal Functional Component', () => {
     );
   });
 
-  it('lets the user set the minimum probe questions between 3 and 20 in the Agent tab', () => {
+  it('lets the user set the minimum probe questions between 3 and 20 in the Modelo tab', () => {
     const onSave = vi.fn();
     render(<SettingsModal isOpen={true} onClose={vi.fn()} onSave={onSave} initialSettings={DEFAULT_SETTINGS} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
 
-    const slider = screen.getByRole('slider', { name: /mínimo de questões da sondagem/i }) as HTMLInputElement;
+    const slider = screen.getByRole('slider', { name: /mínimo de perguntas do diagnóstico/i }) as HTMLInputElement;
     expect(slider.min).toBe('3');
     expect(slider.max).toBe('20');
     expect(screen.getByTestId('min-questions-value').textContent).toBe('8');
