@@ -170,7 +170,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (nodeId) {
       // Explicit request (e.g. from the concept map): always allowed, even for already-taught concepts
       targetNode = store.getNodeById(nodeId);
-      if (!targetNode) throw new Error('Conceito não encontrado no grafo desta sessão.');
+      if (!targetNode) throw new Error(localize('Conceito não encontrado no grafo desta sessão.', 'Concept not found in this session\'s map.'));
     } else {
       const nextId = fsm.nextTeachingNodeId();
       targetNode = nextId ? store.getNodeById(nextId) : undefined;
@@ -189,7 +189,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
 
   ipcMain.handle('session:submit-prediction', async (_event, text: string) => {
     if (!currentSocraticNode) {
-      throw new Error('Nenhum conceito ativo no ciclo socrático.');
+      throw new Error(localize('Nenhum conceito ativo no ciclo socrático.', 'There is no active lesson.'));
     }
     return foreground(async () => {
       const teachResult = await socratic.submitPrediction(text);
@@ -202,7 +202,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     'session:submit-check',
     async (_event, selectedIndex: number, confidence?: number, thinkingText?: string) => {
     if (!currentCheckData) {
-      throw new Error('Nenhuma pergunta de verificação ativa. Reinicie a etapa socrática deste conceito.');
+      throw new Error(localize('Nenhuma pergunta de verificação ativa. Reinicie a etapa socrática deste conceito.', 'There is no active verification question. Restart this concept\'s lesson.'));
     }
 
     const check = currentCheckData;

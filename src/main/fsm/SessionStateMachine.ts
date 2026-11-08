@@ -155,7 +155,7 @@ export class SessionStateMachine {
 
   getState(): ProbingSession {
     if (!this.session) {
-      throw new Error('Nenhuma sessão ativa.');
+      throw new Error(localize('Nenhuma sessão ativa.', 'There is no active session.'));
     }
     return {
       ...this.session,
@@ -338,17 +338,17 @@ export class SessionStateMachine {
   }> {
     const session = this.requireSession();
     if (session.phase !== 'probing') {
-      throw new Error(`Cannot submit probe answer in phase: ${session.phase}`);
+      throw new Error(localize(`Cannot submit probe answer in phase: ${session.phase}`, `Answers are not accepted in this phase: ${session.phase}`));
     }
 
     const currentQ = session.currentQuestion;
     if (!currentQ) {
-      throw new Error('No active question in session');
+      throw new Error(localize('No active question in session', 'There is no question to answer in this session.'));
     }
 
     const currentNode = this.store.getNodeById(currentQ.nodeId);
     if (!currentNode) {
-      throw new Error('Conceito da questão atual não encontrado no grafo.');
+      throw new Error(localize('Conceito da questão atual não encontrado no grafo.', 'The concept of the current question is not on the map.'));
     }
 
     // High-priority user action: preempt all background speculative LLM calls immediately
@@ -449,10 +449,10 @@ export class SessionStateMachine {
   async advanceToPlan(): Promise<void> {
     const session = this.requireSession();
     if (session.phase !== 'probing') {
-      throw new Error(`Não é possível gerar o plano na fase: ${session.phase}`);
+      throw new Error(localize(`Não é possível gerar o plano na fase: ${session.phase}`, `The plan cannot be generated in this phase: ${session.phase}`));
     }
     if (session.attempts.length < this.minProbeQuestions) {
-      throw new Error(`Avanço manual para o plano requer o piso mínimo de ${this.minProbeQuestions} questões.`);
+      throw new Error(localize(`Avanço manual para o plano requer o piso mínimo de ${this.minProbeQuestions} questões.`, `Answer at least ${this.minProbeQuestions} questions before opening the plan.`));
     }
     await this.enterPlanReview();
     this.persist();
@@ -461,7 +461,7 @@ export class SessionStateMachine {
   confirmPlan(): void {
     const session = this.requireSession();
     if (session.phase !== 'plan_review') {
-      throw new Error(`Não há plano a confirmar na fase: ${session.phase}`);
+      throw new Error(localize(`Não há plano a confirmar na fase: ${session.phase}`, `There is no plan to confirm in this phase: ${session.phase}`));
     }
     session.phase = 'teaching';
     this.teachingDone = new Set();
@@ -487,7 +487,7 @@ export class SessionStateMachine {
   ): Promise<ProbeAttempt['verdict']> {
     const session = this.requireSession();
     const node = this.store.getNodeById(nodeId);
-    if (!node) throw new Error('Conceito do check não encontrado no grafo.');
+    if (!node) throw new Error(localize('Conceito do check não encontrado no grafo.', 'The concept of this verification is not on the map.'));
     const evaluation = await this.judge.evaluate({
       node,
       questionText: check.questionText,
@@ -564,7 +564,7 @@ export class SessionStateMachine {
   }
 
   private requireSession(): ProbingSession {
-    if (!this.session) throw new Error('Nenhuma sessão ativa.');
+    if (!this.session) throw new Error(localize('Nenhuma sessão ativa.', 'There is no active session.'));
     return this.session;
   }
 
@@ -580,7 +580,7 @@ export class SessionStateMachine {
     }
 
     const node = this.store.getNodeById(nodeId);
-    if (!node) throw new Error(`Conceito "${nodeId}" não encontrado.`);
+    if (!node) throw new Error(localize(`Conceito "${nodeId}" não encontrado.`, `Concept "${nodeId}" not found.`));
 
     const question = await this.generator.generateQuestion(node, goal, this.askedQuestions);
     this.questionCache.set(nodeId, question);

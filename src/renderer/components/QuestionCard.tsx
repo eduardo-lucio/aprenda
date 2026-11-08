@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { RichText } from './RichText';
 
 export interface QuestionCardDashedOption {
@@ -35,6 +35,26 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   dashedOption,
 }) => {
   const dashedTone = dashedOption?.tone === 'amber' ? 'amber' : 'emerald';
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const dashedIndex = options.length;
+  const count = options.length + (dashedOption ? 1 : 0);
+  const selectAt = (i: number) => (i === dashedIndex ? dashedOption?.onSelect() : onSelect(i));
+  // One tab stop for the whole group: the chosen option, or the first one
+  const tabStop = dashedOption?.selected ? dashedIndex : selectedIndex ?? 0;
+
+  const handleKeyDown = (e: React.KeyboardEvent, i: number) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      selectAt(i);
+      return;
+    }
+    const delta = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = (i + delta + count) % count;
+    groupRef.current?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+    selectAt(next);
+  };
 
   return (
     <div className="flex flex-col gap-3 text-gray-200">
@@ -49,7 +69,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
 
       <RichText text={questionText} className="text-sm font-semibold leading-relaxed text-gray-100" />
 
-      <div className="flex flex-col gap-2">
+      <div ref={groupRef} role="radiogroup" aria-label={label} className="flex flex-col gap-2">
         {options.map((opt, idx) => {
           const isSelected = selectedIndex === idx;
           return (
@@ -57,15 +77,10 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
               key={idx}
               role="radio"
               aria-checked={isSelected}
-              tabIndex={0}
+              tabIndex={tabStop === idx ? 0 : -1}
               onClick={() => onSelect(idx)}
-              onKeyDown={(e) => {
-                if (e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(idx);
-                }
-              }}
-              className={`flex cursor-pointer items-center space-x-3 rounded-xl border px-4 py-3 text-[13px] transition-all ${
+              onKeyDown={(e) => handleKeyDown(e, idx)}
+              className={`focus-ring flex cursor-pointer items-center space-x-3 rounded-xl border px-4 py-3 text-[13px] transition-colors ${
                 isSelected
                   ? 'border-gray-300 bg-ink-800 text-white'
                   : 'border-ink-600 bg-ink-800 text-gray-300 hover:border-ink-400 hover:bg-ink-700'
@@ -87,9 +102,10 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
           <div
             role="radio"
             aria-checked={dashedOption.selected}
-            tabIndex={0}
+            tabIndex={tabStop === dashedIndex ? 0 : -1}
             onClick={dashedOption.onSelect}
-            className={`flex cursor-pointer items-center space-x-3 rounded-xl border border-dashed px-4 py-3 text-xs transition-all ${
+            onKeyDown={(e) => handleKeyDown(e, dashedIndex)}
+            className={`focus-ring flex cursor-pointer items-center space-x-3 rounded-xl border border-dashed px-4 py-3 text-xs transition-colors ${
               dashedOption.selected
                 ? dashedTone === 'amber'
                   ? 'border-amber-500/80 bg-amber-950/20 text-amber-200'

@@ -17,6 +17,8 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 960,
+    minHeight: 600,
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#0a0a0a',
@@ -40,6 +42,10 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  const sendMaximized = (isMaximized: boolean) => mainWindow?.webContents.send('window:maximized-change', isMaximized);
+  mainWindow.on('maximize', () => sendMaximized(true));
+  mainWindow.on('unmaximize', () => sendMaximized(false));
 
   mainWindow.on('closed', () => {
     mainWindow = null;

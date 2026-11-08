@@ -121,14 +121,14 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
         <div className="flex items-center space-x-3 pt-1">
           <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-ink-600">
             <div
-              className={`h-full rounded-full transition-all ${
+              className={`h-full rounded-full transition-[width] ${
                 pending
                   ? 'bg-ink-400'
                   : attempt.verdict === 'mastered'
                   ? 'bg-emerald-500'
-                  : attempt.verdict === 'false_positive'
+                  : attempt.verdict === 'false_positive' || isCorrectOption || isOwnAnswer
                   ? 'bg-amber-500'
-                  : 'bg-emerald-500/80'
+                  : 'bg-red-500/80'
               }`}
               style={{ width: `${Math.max(4, attempt.confidence)}%` }}
             />

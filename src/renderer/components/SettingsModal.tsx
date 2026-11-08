@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { cleanError } from '../lib/errors';
 import { X, ChevronDown, Check, AlertTriangle, Loader2, AlertCircle } from 'lucide-react';
 import {
@@ -104,6 +104,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const { t } = useI18n();
   const [settings, setSettings] = useState<AppSettings>({ ...DEFAULT_SETTINGS, ...initialSettings });
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null);
 
   // Search & add provider
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
@@ -165,6 +166,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!q) return AVAILABLE_PROVIDERS;
     return AVAILABLE_PROVIDERS.filter((p) => p.name.toLowerCase().includes(q) || p.envKey.toLowerCase().includes(q));
   }, [providerSearch]);
+
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, [isOpen]);
+
+  const handleDialogKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      if (showProviderDropdown || isModelMenuOpen || isEffortMenuOpen) {
+        closeMenus();
+        setShowProviderDropdown(false);
+      } else {
+        onClose();
+      }
+      return;
+    }
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]')
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === dialogRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -327,10 +364,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t('settings.title')}
-        className="flex w-full max-w-4xl h-[620px] flex-col rounded-xl border border-ink-600 bg-ink-850 text-gray-200 shadow-2xl overflow-hidden font-sans"
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
+        className="flex w-full max-w-4xl h-[620px] max-h-full flex-col outline-none rounded-xl border border-ink-600 bg-ink-850 text-gray-200 shadow-2xl overflow-hidden font-sans"
         onClick={(e) => {
           e.stopPropagation();
           closeMenus();
@@ -437,10 +477,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleRemoveProvider(p.id)}
+                                onClick={() => {
+                                  if (confirmingRemoveId === p.id) {
+                                    setConfirmingRemoveId(null);
+                                    handleRemoveProvider(p.id);
+                                  } else {
+                                    setConfirmingRemoveId(p.id);
+                                  }
+                                }}
+                                onBlur={() => setConfirmingRemoveId(null)}
                                 className="text-[11px] text-red-400 hover:text-red-300 font-sans opacity-70 group-hover:opacity-100"
                               >
-                                {t('settings.remove')}
+                                {confirmingRemoveId === p.id ? t('settings.confirmRemove') : t('settings.remove')}
                               </button>
                             </div>
                           </div>
@@ -540,6 +588,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <input
                             id="provider-api-key"
                             type="password"
+                            autoComplete="off"
+                            spellCheck={false}
                             value={editingProvider.apiKey}
                             onChange={(e) => {
                               setEditingProvider({ ...editingProvider, apiKey: e.target.value });
@@ -659,6 +709,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="flex items-center gap-2">
                         <input
                           type="password"
+                            autoComplete="off"
+                            spellCheck={false}
                           value={deepgramDraftKey}
                           onChange={(e) => {
                             setDeepgramDraftKey(e.target.value);
@@ -738,7 +790,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             }`}
                           >
                             <input
-                              type="checkbox"
+                              type="radio"
+                              name="voice-language"
                               checked={checked}
                               onChange={() => updateSettings({ voiceLanguage: opt.code })}
                               className="h-3 w-3 accent-emerald-500 rounded"
@@ -931,7 +984,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       step={1}
                       value={clampProbeQuestions(settings.minQuestions)}
                       onChange={(e) => updateSettings({ minQuestions: clampProbeQuestions(e.target.value) })}
-                      className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400 focus:outline-none"
+                      className="focus-ring mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400"
                     />
                   </div>
                 </div>

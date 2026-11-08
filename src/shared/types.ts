@@ -115,8 +115,21 @@ export interface ProbingSession {
   tokensUsed?: number;
 }
 
+/** A finished lesson, kept so the student can reread it. */
+export interface CompletedLesson {
+  nodeId: string;
+  title: string;
+  predictQuestion: string;
+  prediction: string;
+  teachProse: string;
+  checkQuestion: string;
+  isPassed: boolean;
+  repairExplanation?: string;
+}
+
 export interface PersistedUi {
   chatMessages: ChatTurnMessage[];
+  lessons?: CompletedLesson[];
   answeredScope?: {
     questionText: string;
     options: string[];
@@ -238,6 +251,7 @@ export interface ElectronAPI {
   updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
   validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
+  onMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void;
   onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
   onTokensUpdate?: (callback: (payload: { tokensUsed: number }) => void) => () => void;
 }

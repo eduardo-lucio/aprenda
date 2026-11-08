@@ -124,7 +124,7 @@ export function parseLLMJson<T = any>(raw: string): T {
   }
   const end = text.lastIndexOf(endChar);
   if (start === -1 || end === -1 || end < start) {
-    throw new Error('A resposta do modelo não contém JSON válido.');
+    throw new Error(localize('A resposta do modelo não contém JSON válido.', 'The model answer has no valid JSON.'));
   }
   return JSON.parse(text.slice(start, end + 1)) as T;
 }
@@ -428,7 +428,7 @@ async function readResponseOrStream(
       const code = Number(streamError.code) || 0;
       const detail = String(streamError.message || '');
       if ([401, 402, 403, 429].includes(code)) throwProviderLimit(code, detail);
-      throw new Error(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`);
+      throw new Error(localize(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`, `AI provider error${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`));
     }
 
     if (shouldEmitLiveThinking) {
@@ -456,7 +456,7 @@ async function readResponseOrStream(
     const code = Number(data.error.code) || 0;
     const detail = String(data.error.message || '');
     if ([401, 402, 403, 429].includes(code)) throwProviderLimit(code, detail);
-    throw new Error(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`);
+    throw new Error(localize(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`, `AI provider error${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`));
   }
   const msg = data?.choices?.[0]?.message;
   const content = String(msg?.content || '');
@@ -614,7 +614,7 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
       detail = body?.error?.message || body?.message || '';
     } catch {}
     if ([401, 402, 403, 429].includes(res.status)) throwProviderLimit(res.status, detail);
-    throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
+    throw new Error(localize(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`, `AI provider error (HTTP ${res.status})${detail ? `: ${detail}` : ''}`));
   }
 
   let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
@@ -642,7 +642,7 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
   }
 
   if (!content || typeof content !== 'string' || !content.trim()) {
-    throw new Error('O modelo retornou uma resposta vazia.');
+    throw new Error(localize('O modelo retornou uma resposta vazia.', 'The model returned an empty answer.'));
   }
 
   if (nativeReasoning && !/<think>/i.test(content)) {

@@ -12,6 +12,8 @@ interface SocraticCardProps {
   predictQuestion: string;
   promptGoal?: string;
   teachProse?: string;
+  /** What the student guessed, kept in view while reading the explanation. */
+  prediction?: string;
   checkResult?: { isPassed: boolean; repairExplanation?: string } | null;
   isLoading?: boolean;
   onAdvanceToCheck: () => void;
@@ -28,6 +30,7 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   predictQuestion,
   promptGoal,
   teachProse = '',
+  prediction = '',
   checkResult = null,
   isLoading = false,
   onAdvanceToCheck,
@@ -67,7 +70,16 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
         </div>
       )}
 
-      {step === 'teach' && (
+      {step !== 'predict' && prediction && (
+        <div className="border-l-2 border-ink-500 pl-3">
+          <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
+            {t('lesson.yourPrediction')}
+          </span>
+          <RichText text={prediction} className="mt-1 text-xs leading-relaxed text-gray-300" />
+        </div>
+      )}
+
+      {(step === 'teach' || step === 'check') && (
         <div className="flex flex-col gap-4">
           <div className="rounded border border-blue-900/60 bg-blue-950/20 p-4">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 block mb-1">
@@ -76,6 +88,7 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
             <RichText text={teachProse} className="text-xs leading-relaxed text-gray-200" />
           </div>
 
+          {step === 'teach' && (
           <div className="flex justify-end">
             <button
               type="button"
@@ -86,6 +99,7 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
+          )}
         </div>
       )}
 

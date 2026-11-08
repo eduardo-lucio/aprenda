@@ -179,7 +179,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
     return { stroke: '#a1a1aa', opacity: 0.05, width: 1.2, dash: undefined };
   };
 
-  const goalLines = wrapTitle(goal || 'Objetivo', 15, 3);
+  const goalLines = wrapTitle(goal || t('graph.goal'), 15, 3);
 
   return (
     <div className="flex h-full min-h-0 w-full bg-ink-950">
@@ -224,7 +224,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
             <g aria-label={t('graph.goalAria', { goal: goal || '' })}>
               <circle r={CENTER_RADIUS} fill="#181818" stroke="#52525b" strokeWidth={1.5} />
               <text textAnchor="middle" y={-CENTER_RADIUS + 20} fontSize={9} className="font-mono" fill="#71717a" letterSpacing="0.14em">
-                OBJETIVO
+                {t('graph.goal').toUpperCase()}
               </text>
               <text textAnchor="middle" fontSize={12} fontWeight={600} fill="#f4f4f5" className="font-serif">
                 {goalLines.map((line, i) => (
@@ -313,7 +313,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
             </span>
           ))}
           <span className="font-mono text-[10px] tracking-wider text-gray-500">
-            Passe o mouse: linha sólida = pré-requisitos · tracejada = libera
+            {t('graph.hoverHint')}
           </span>
         </div>
 
@@ -336,7 +336,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
             className="flex h-7 items-center gap-1.5 rounded px-2 font-mono text-[10px] uppercase tracking-wider text-gray-400 hover:bg-ink-700 hover:text-white"
           >
             <Maximize2 className="h-3.5 w-3.5" />
-            Ajustar
+            {t('graph.fitLabel')}
           </button>
         </div>
       </div>

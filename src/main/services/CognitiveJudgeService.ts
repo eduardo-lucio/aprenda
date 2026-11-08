@@ -64,7 +64,7 @@ export class CognitiveJudgeService {
         const parsed = parseLLMJson<any>(rawResponse);
 
         if (!parsed?.verdict || !(VERDICTS as readonly string[]).includes(parsed.verdict)) {
-          lastErr = new Error('veredito ausente ou inválido na resposta do modelo');
+          lastErr = new Error(localize('veredito ausente ou inválido na resposta do modelo', 'the model answer has a missing or invalid verdict'));
           continue;
         }
         if (!this.isCoherent(parsed.verdict, kind, isCorrectOption)) {

@@ -59,3 +59,16 @@ describe('response language', () => {
     expect(all).not.toMatch(/socr[aá]tic|trilha|cirúrgic|surgical|juiz cognitivo|cognitive judge|agent'?s thinking/i);
   });
 });
+
+describe('I9: main-process errors follow the interface language', () => {
+  it('reports state errors in English', async () => {
+    const { setResponseLanguage } = await import('../../src/main/services/llmClient');
+    const { SessionStateMachine } = await import('../../src/main/fsm/SessionStateMachine');
+    setResponseLanguage('en');
+    try {
+      expect(() => new SessionStateMachine().getState()).toThrow('There is no active session.');
+    } finally {
+      setResponseLanguage('pt');
+    }
+  });
+});

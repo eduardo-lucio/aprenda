@@ -22,7 +22,7 @@ describe('Sidebar Component', () => {
 
   it('filters sessions by the search text', () => {
     render(<Sidebar sessions={sessions} activeSessionId="1" onSelectSession={vi.fn()} onNewSession={vi.fn()} />);
-    fireEvent.change(screen.getByPlaceholderText('Buscar...'), { target: { value: 'cidr' } });
+    fireEvent.change(screen.getByPlaceholderText('Buscar…'), { target: { value: 'cidr' } });
     expect(screen.getByText('Cálculo de Sub-redes CIDR')).toBeDefined();
     expect(screen.queryByText('Camada 3 Modelo OSI')).toBeNull();
   });

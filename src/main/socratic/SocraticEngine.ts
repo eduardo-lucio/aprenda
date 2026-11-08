@@ -48,7 +48,7 @@ export class SocraticEngine {
   async submitPrediction(studentPrediction: string): Promise<{ teachProse: string; checkQuestion: CheckQuestionData }> {
     const node = this.currentNode;
     if (!node) {
-      throw new Error('Nenhum conceito ativo selecionado para o ciclo socrático.');
+      throw new Error(localize('Nenhum conceito ativo selecionado para o ciclo socrático.', 'No concept is selected for this lesson.'));
     }
 
     const { systemPrompt, prompt } = buildSocraticTeachPrompt(node, studentPrediction);

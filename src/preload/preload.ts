@@ -64,6 +64,14 @@ const api: ElectronAPI = {
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) =>
     ipcRenderer.invoke('speech:transcribe', params),
 
+  onMaximizedChange: (callback: (isMaximized: boolean) => void) => {
+    const handler = (_event: any, isMaximized: boolean) => callback(isMaximized);
+    ipcRenderer.on('window:maximized-change', handler);
+    return () => {
+      ipcRenderer.removeListener('window:maximized-change', handler);
+    };
+  },
+
   onThinkingStream: (callback: (payload: { text: string; done?: boolean }) => void) => {
     const handler = (_event: any, payload: { text: string; done?: boolean }) => {
       callback(payload);

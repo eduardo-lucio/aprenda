@@ -79,7 +79,7 @@ describe('SettingsModal Functional Component', () => {
     fireEvent.click(screen.getByText('+ Adicionar provedor'));
 
     // Search input appears
-    const searchInput = screen.getByPlaceholderText('Buscar provedores...');
+    const searchInput = screen.getByPlaceholderText('Buscar provedores…');
     fireEvent.change(searchInput, { target: { value: 'OpenRouter' } });
 
     // Click OpenRouter
@@ -278,7 +278,7 @@ describe('SettingsModal Functional Component', () => {
     fireEvent.click(strongModelBtn);
 
     // Search input appears in the popover
-    const searchModelInput = screen.getByPlaceholderText('Buscar modelos...');
+    const searchModelInput = screen.getByPlaceholderText('Buscar modelos…');
     fireEvent.change(searchModelInput, { target: { value: 'Claude 3.7' } });
 
     // Select Claude 3.7 Sonnet from the filtered real models
@@ -408,6 +408,8 @@ describe('SettingsModal providers', () => {
     const onSave = vi.fn();
     render(<SettingsModal isOpen onClose={vi.fn()} onSave={onSave} initialSettings={{ ...base, activeProviderId: 'b', strongModel: 'b-1' }} />);
     fireEvent.click(screen.getAllByText('remover')[0]);
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('confirmar?'));
     const saved = onSave.mock.calls[onSave.mock.calls.length - 1][0];
     expect(saved.activeProviderId).toBe('b');
     expect(saved.providers.map((p: any) => p.id)).toEqual(['b']);

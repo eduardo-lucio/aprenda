@@ -198,7 +198,7 @@ export class CurriculumGenerator {
           }
           return { question, options, agentThinking: this.lastGoalThinking };
         }
-        lastErr = new Error('A IA não retornou opções de escopo válidas.');
+        lastErr = new Error(localize('A IA não retornou opções de escopo válidas.', 'The AI did not return valid focus options.'));
       } catch (err) {
         console.error(`[CurriculumGenerator] Falha ao gerar opções de escopo via IA (tentativa ${attempt + 1}):`, err);
         lastErr = err;
@@ -206,7 +206,7 @@ export class CurriculumGenerator {
       }
     }
     throw new Error(
-      `Não foi possível gerar as opções de escopo com a IA: ${String((lastErr as any)?.message || lastErr)}`
+      localize(`Não foi possível gerar as opções de escopo com a IA: ${String((lastErr as any)?.message || lastErr)}`, `The focus options could not be generated: ${String((lastErr as any)?.message || lastErr)}`)
     );
   }
 
@@ -272,7 +272,7 @@ export class CurriculumGenerator {
           agentThinking: graphThinking,
         };
       }
-      lastErr = new Error('A IA retornou um grafo conceitual inválido.');
+      lastErr = new Error(localize('A IA retornou um grafo conceitual inválido.', 'The AI returned an invalid concept map.'));
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
       lastErr = err;
@@ -282,7 +282,7 @@ export class CurriculumGenerator {
     }
     }
     throw new Error(
-      `Não foi possível gerar o grafo de conceitos com a IA: ${String((lastErr as any)?.message || lastErr)}`
+      localize(`Não foi possível gerar o grafo de conceitos com a IA: ${String((lastErr as any)?.message || lastErr)}`, `The concept map could not be generated: ${String((lastErr as any)?.message || lastErr)}`)
     );
   }
 

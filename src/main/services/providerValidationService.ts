@@ -1,3 +1,4 @@
+import { localize } from './llmClient';
 import { ModelOption } from '../../shared/types';
 import { fetchWithTimeout } from './http';
 
@@ -27,7 +28,7 @@ export async function validateAndFetchModels(params: {
   const keyTrimmed = apiKey.trim();
 
   if (!keyTrimmed && providerId !== 'ollama' && providerId !== 'custom') {
-    throw new Error('A Chave de API não pode estar em branco.');
+    throw new Error(localize('A Chave de API não pode estar em branco.', 'The API key cannot be blank.'));
   }
 
   const masked =
@@ -53,7 +54,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await authRes.json();
         errorMsg = errJson?.error?.message || errJson?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave OpenRouter inválida: ${errorMsg} (Erro ${authRes.status})`);
+      throw new Error(localize(`Chave OpenRouter inválida: ${errorMsg} (Erro ${authRes.status})`, `Invalid OpenRouter key: ${errorMsg} (Error ${authRes.status})`));
     }
 
     // 1b. Fetch real live models from OpenRouter
@@ -65,7 +66,7 @@ export async function validateAndFetchModels(params: {
     });
 
     if (!modelsRes.ok) {
-      throw new Error(`Falha ao buscar modelos do OpenRouter: HTTP ${modelsRes.status}`);
+      throw new Error(localize(`Falha ao buscar modelos do OpenRouter: HTTP ${modelsRes.status}`, `Could not fetch OpenRouter models: HTTP ${modelsRes.status}`));
     }
 
     const modelsData: any = await modelsRes.json();
@@ -132,7 +133,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await res.json();
         errorMsg = errJson?.error?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave OpenAI inválida: ${errorMsg} (Erro ${res.status})`);
+      throw new Error(localize(`Chave OpenAI inválida: ${errorMsg} (Erro ${res.status})`, `Invalid OpenAI key: ${errorMsg} (Error ${res.status})`));
     }
 
     const data: any = await res.json();
@@ -186,7 +187,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await res.json();
         errorMsg = errJson?.error?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave Google Gemini inválida: ${errorMsg} (Erro ${res.status})`);
+      throw new Error(localize(`Chave Google Gemini inválida: ${errorMsg} (Erro ${res.status})`, `Invalid Google Gemini key: ${errorMsg} (Error ${res.status})`));
     }
 
     const data: any = await res.json();
@@ -239,7 +240,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await res.json();
         errorMsg = errJson?.error?.message || errJson?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave DeepSeek inválida: ${errorMsg} (Erro ${res.status})`);
+      throw new Error(localize(`Chave DeepSeek inválida: ${errorMsg} (Erro ${res.status})`, `Invalid DeepSeek key: ${errorMsg} (Error ${res.status})`));
     }
 
     const data: any = await res.json();
@@ -286,7 +287,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await res.json();
         errorMsg = errJson?.error?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave Groq inválida: ${errorMsg} (Erro ${res.status})`);
+      throw new Error(localize(`Chave Groq inválida: ${errorMsg} (Erro ${res.status})`, `Invalid Groq key: ${errorMsg} (Error ${res.status})`));
     }
 
     const data: any = await res.json();
@@ -331,7 +332,7 @@ export async function validateAndFetchModels(params: {
         const errJson: any = await res.json();
         errorMsg = errJson?.error?.message || errJson?.message || errorMsg;
       } catch {}
-      throw new Error(`Chave Anthropic inválida: ${errorMsg} (Erro ${res.status})`);
+      throw new Error(localize(`Chave Anthropic inválida: ${errorMsg} (Erro ${res.status})`, `Invalid Anthropic key: ${errorMsg} (Error ${res.status})`));
     }
 
     const data: any = await res.json();
@@ -367,11 +368,11 @@ export async function validateAndFetchModels(params: {
     try {
       res = await fetchWithTimeout(`${url}/api/tags`);
     } catch (e: any) {
-      throw new Error(`Não foi possível conectar ao Ollama em ${url}: ${e?.message || 'Servidor inacessível'}`);
+      throw new Error(localize(`Não foi possível conectar ao Ollama em ${url}: ${e?.message || 'Servidor inacessível'}`, `Could not reach Ollama at ${url}: ${e?.message || 'server unreachable'}`));
     }
 
     if (!res.ok) {
-      throw new Error(`Ollama respondeu com erro HTTP ${res.status}`);
+      throw new Error(localize(`Ollama respondeu com erro HTTP ${res.status}`, `Ollama answered with HTTP error ${res.status}`));
     }
 
     const data: any = await res.json();
@@ -379,7 +380,7 @@ export async function validateAndFetchModels(params: {
 
     if (rawList.length === 0) {
       throw new Error(
-        `Conexão com Ollama bem-sucedida, mas nenhum modelo foi encontrado instalado. Execute 'ollama pull <modelo>' no terminal.`
+        localize(`Conexão com Ollama bem-sucedida, mas nenhum modelo foi encontrado instalado. Execute 'ollama pull <modelo>' no terminal.`, `Connected to Ollama, but no model is installed. Run 'ollama pull <model>' in a terminal.`)
       );
     }
 
@@ -421,7 +422,7 @@ export async function validateAndFetchModels(params: {
       const errJson: any = await customRes.json();
       errorMsg = errJson?.error?.message || errJson?.message || errorMsg;
     } catch {}
-    throw new Error(`Endpoint customizado (${modelsUrl}) rejeitou a chave: ${errorMsg}`);
+    throw new Error(localize(`Endpoint customizado (${modelsUrl}) rejeitou a chave: ${errorMsg}`, `The custom endpoint (${modelsUrl}) rejected the key: ${errorMsg}`));
   }
 
   const customData: any = await customRes.json();
@@ -430,7 +431,7 @@ export async function validateAndFetchModels(params: {
   );
   if (rawList.length === 0) {
     throw new Error(
-      `${modelsUrl} respondeu, mas não devolveu uma lista de modelos que o APRENDA reconheça. Confira o endereço.`
+      localize(`${modelsUrl} respondeu, mas não devolveu uma lista de modelos que o APRENDA reconheça. Confira o endereço.`, `${modelsUrl} answered, but not with a model list APRENDA recognizes. Check the address.`)
     );
   }
 

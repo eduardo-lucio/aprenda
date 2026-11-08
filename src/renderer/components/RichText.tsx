@@ -97,23 +97,45 @@ const KEYWORDS = new Set(
   ).split(' ')
 );
 
-const TOKEN_RE =
-  /(\/\/.*|#.*|--.*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g;
+const HASH_COMMENT = ['python', 'py', 'bash', 'sh', 'shell', 'ruby', 'rb', 'yaml'];
+const SLASH_COMMENT = ['javascript', 'js', 'typescript', 'ts', 'tsx', 'jsx', 'java', 'c', 'cpp', 'csharp', 'cs', 'go', 'rust', 'rs', 'kotlin', 'swift'];
+
+/** What starts a comment depends on the language; with none declared, the two common forms apply. */
+function commentPattern(lang: string): string {
+  if (lang === 'sql') return '--.*';
+  if (lang === 'php') return '\\/\\/.*|#.*';
+  if (lang === '') return '\\/\\/.*|#.*';
+  if (HASH_COMMENT.includes(lang)) return '#.*';
+  if (SLASH_COMMENT.includes(lang)) return '\\/\\/.*';
+  return '(?!)';
+}
+
+const TOKEN_RES = new Map<string, RegExp>();
+function tokenRe(lang: string): RegExp {
+  let re = TOKEN_RES.get(lang);
+  if (!re) {
+    re = new RegExp(
+      `(${commentPattern(lang)})|("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\`(?:\\\\.|[^\`\\\\])*\`)|(\\b\\d+(?:\\.\\d+)?\\b)|([A-Za-z_$][\\w$]*)`,
+      'g'
+    );
+    TOKEN_RES.set(lang, re);
+  }
+  return re;
+}
 
 function highlightLine(line: string, lang: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const hashIsComment = ['python', 'py', 'bash', 'sh', 'shell', 'ruby', 'rb', 'yaml', ''].includes(lang);
   let last = 0;
   let m: RegExpExecArray | null;
-  TOKEN_RE.lastIndex = 0;
+  const re = tokenRe(lang);
+  re.lastIndex = 0;
 
-  while ((m = TOKEN_RE.exec(line)) !== null) {
+  while ((m = re.exec(line)) !== null) {
     if (m.index > last) nodes.push(line.slice(last, m.index));
     const [tok, comment, str, num, ident] = m;
     const key = `${m.index}-${tok}`;
     if (comment !== undefined) {
-      if (comment.startsWith('#') && !hashIsComment) nodes.push(tok);
-      else nodes.push(<span key={key} className="text-gray-500 italic">{tok}</span>);
+      nodes.push(<span key={key} className="text-gray-500 italic">{tok}</span>);
     } else if (str !== undefined) {
       nodes.push(<span key={key} className="text-[#a5d6ff]">{tok}</span>);
     } else if (num !== undefined) {
@@ -160,9 +182,10 @@ export const InlineCode: React.FC<{ children: React.ReactNode }> = ({ children }
 /**
  * Math delimiters: $$…$$ and \[…\] (display), \(…\) and $…$ (inline).
  * Inline `$…$` follows the Pandoc rule so prices like "R$ 5 e R$ 10" stay plain text:
- * no space right after the opening `$`, none right before the closing one, and no digit after it.
+ * no space right after the opening `$`, none right before the closing one, and no digit or letter after it
+ * (which also keeps shell variables like `$HOME/$USER` as text).
  */
-const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])((?:\\\$|[^$\n])+?)(?<![\s\\])\$(?!\d)/g;
+const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])((?:\\\$|[^$\n])+?)(?<![\s\\])\$(?!\w)/g;
 
 export type MathPart = { type: 'text'; value: string } | { type: 'math'; value: string; display: boolean };
 

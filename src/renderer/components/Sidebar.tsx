@@ -99,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sessions header + search */}
       <div className="flex items-center gap-2 px-5 pb-3">
         <span className="label-mono">{t('sidebar.sessions')}</span>
-        <div className="flex flex-1 items-center rounded border border-ink-600 bg-ink-850 px-2 py-1">
+        <div className="flex flex-1 items-center rounded border border-ink-600 bg-ink-850 px-2 py-1 focus-within:border-gray-400">
           <Search className="mr-1.5 h-3 w-3 text-gray-500" />
           <input
             type="text"
@@ -122,18 +122,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={s.id}
-                onClick={() => {
-                  if (!locked) onSelectSession(s.id);
-                }}
                 onMouseLeave={() => setConfirmingDeleteId((id) => (id === s.id ? null : id))}
-                aria-disabled={locked || undefined}
-                title={locked ? t('sidebar.locked') : undefined}
-                className={`group relative flex flex-col rounded-lg px-3 py-2.5 transition-colors ${
-                  locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                } ${isActive ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'}`}
+                className={`group relative rounded-lg transition-colors ${
+                  isActive ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
+                } ${locked ? 'opacity-60' : ''}`}
               >
-                <span className="truncate pr-5 text-sm font-medium">{s.title}</span>
-                <span className="mt-1 font-mono text-[10px] text-gray-500">{s.date}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectSession(s.id)}
+                  disabled={locked}
+                  aria-current={isActive ? 'true' : undefined}
+                  title={locked ? t('sidebar.locked') : s.title}
+                  className="focus-ring flex w-full flex-col rounded-lg px-3 py-2.5 text-left disabled:cursor-not-allowed"
+                >
+                  <span className="block w-full truncate pr-5 text-sm font-medium">{s.title}</span>
+                  <span className="mt-1 font-mono text-[10px] text-gray-500">{s.date}</span>
+                </button>
 
                 {onDeleteSession && !locked && confirmingDeleteId === s.id && (
                   <button
@@ -158,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     title={t('sidebar.delete')}
                     aria-label={t('sidebar.delete')}
-                    className="absolute right-2 top-2 hidden h-5 w-5 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-950 hover:text-red-400 group-hover:flex"
+                    className="focus-ring absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded text-gray-500 opacity-0 transition-colors hover:bg-red-950 hover:text-red-400 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>

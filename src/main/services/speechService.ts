@@ -17,7 +17,7 @@ async function readDeepgramError(res: Response): Promise<string> {
 /** Validates a Deepgram API key against the live API. Throws with a readable message when invalid. */
 export async function validateDeepgramKey(apiKey: string): Promise<{ isValid: true; keyMasked: string }> {
   const key = apiKey.trim();
-  if (!key) throw new Error('A chave do Deepgram não pode estar em branco.');
+  if (!key) throw new Error(localize('A chave do Deepgram não pode estar em branco.', 'The Deepgram key cannot be blank.'));
 
   let res: Response;
   try {
@@ -26,13 +26,13 @@ export async function validateDeepgramKey(apiKey: string): Promise<{ isValid: tr
       headers: { Authorization: `Token ${key}` },
     });
   } catch (e: any) {
-    throw new Error(`Não foi possível conectar ao Deepgram: ${e?.message || 'sem conexão'}`);
+    throw new Error(localize(`Não foi possível conectar ao Deepgram: ${e?.message || 'sem conexão'}`, `Could not reach Deepgram: ${e?.message || 'no connection'}`));
   }
 
   // 403 = authenticated but key lacks the project-listing scope → still a real key
   if (!res.ok && res.status !== 403) {
     const msg = await readDeepgramError(res);
-    throw new Error(`Chave Deepgram inválida: ${msg} (Erro ${res.status})`);
+    throw new Error(localize(`Chave Deepgram inválida: ${msg} (Erro ${res.status})`, `Invalid Deepgram key: ${msg} (Error ${res.status})`));
   }
 
   return {
@@ -78,7 +78,7 @@ export async function transcribeWithDeepgram(params: {
 
   if (!res.ok) {
     const msg = await readDeepgramError(res);
-    throw new Error(`Falha na transcrição do Deepgram: ${msg}`);
+    throw new Error(localize(`Falha na transcrição do Deepgram: ${msg}`, `Deepgram transcription failed: ${msg}`));
   }
 
   const data: any = await res.json();

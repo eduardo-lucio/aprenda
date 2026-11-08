@@ -299,7 +299,7 @@ describe('SessionView Integration', () => {
     fireEvent.click(modelPillBtn);
 
     // Search bar matching Image 3 is visible
-    const searchInput = screen.getByPlaceholderText('Buscar modelos...');
+    const searchInput = screen.getByPlaceholderText('Buscar modelos…');
     expect(searchInput).toBeDefined();
 
     // Model items matching Image 3 are displayed
@@ -311,14 +311,14 @@ describe('SessionView Integration', () => {
     expect(screen.getByText('$0.05/$0.50')).toBeDefined();
 
     // Configure models button at bottom is present
-    const configureBtn = screen.getByText(/configurar modelos\.\.\./i);
+    const configureBtn = screen.getByText(/configurar modelos…/i);
     expect(configureBtn).toBeDefined();
     fireEvent.click(configureBtn);
     expect(onOpenSettingsMock).toHaveBeenCalled();
 
     // Reopen and search
     fireEvent.click(modelPillBtn);
-    const searchInput2 = screen.getByPlaceholderText('Buscar modelos...');
+    const searchInput2 = screen.getByPlaceholderText('Buscar modelos…');
     fireEvent.change(searchInput2, { target: { value: 'Particle' } });
 
     // Filtered results

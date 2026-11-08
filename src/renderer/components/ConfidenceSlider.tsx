@@ -28,7 +28,7 @@ export const ConfidenceSlider: React.FC<ConfidenceSliderProps> = ({ value, onCha
         aria-valuetext={`${value}%`}
         value={stopIndex}
         onChange={(e) => onChange(CONFIDENCE_STOPS[Number(e.target.value)])}
-        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400 focus:outline-none"
+        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400 focus-ring"
       />
 
       <span className="w-10 text-right font-mono text-xs font-semibold text-gray-200 shrink-0">

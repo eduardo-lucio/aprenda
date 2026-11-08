@@ -64,7 +64,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
           className="w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="font-mono text-[10px] text-gray-600">{t('probe.keysHint')}</span>
+          <span className="font-mono text-[10px] text-gray-400">{t('probe.keysHint')}</span>
           <button
             type="button"
             onClick={onSubmit}

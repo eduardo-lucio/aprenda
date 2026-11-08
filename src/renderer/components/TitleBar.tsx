@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 
 interface TitleBarProps {
@@ -10,13 +10,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
   const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
 
+  // The window also changes by double-clicking the bar or by the system: the main process is the source of truth
+  useEffect(() => window.api?.onMaximizedChange?.(setIsMaximized), []);
+
   const handleWindowAction = (action: 'minimize' | 'maximize' | 'close') => {
-    if (window.api?.windowAction) {
-      window.api.windowAction(action);
-      if (action === 'maximize') {
-        setIsMaximized((prev) => !prev);
-      }
-    }
+    window.api?.windowAction?.(action);
   };
 
   return (
@@ -24,7 +22,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
       className="flex h-14 w-full shrink-0 select-none items-center justify-between gap-4 border-b border-ink-700 bg-ink-950 px-6 text-xs text-gray-400"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
-      <h1 className="min-w-0 flex-1 truncate font-serif text-2xl font-semibold text-gray-100">
+      <h1 title={title} className="min-w-0 flex-1 truncate font-serif text-2xl font-semibold text-gray-100">
         {title}
       </h1>
 
@@ -46,7 +44,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
         <button
           type="button"
           onClick={() => handleWindowAction('minimize')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus-ring"
           title={t('window.minimize')}
           aria-label={t('window.minimize')}
         >
@@ -58,7 +56,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
         <button
           type="button"
           onClick={() => handleWindowAction('maximize')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-ink-400 active:bg-ink-400 transition-colors focus-ring"
           title={isMaximized ? t('window.restore') : t('window.maximize')}
           aria-label={isMaximized ? t('window.restore') : t('window.maximize')}
         >
@@ -76,7 +74,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
         <button
           type="button"
           onClick={() => handleWindowAction('close')}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-[#c73838] hover:text-white active:bg-[#a82828] transition-colors focus:outline-none"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-ink-600 text-[#e0e0e0] hover:bg-[#c73838] hover:text-white active:bg-[#a82828] transition-colors focus-ring"
           title={t('window.close')}
           aria-label={t('window.close')}
         >

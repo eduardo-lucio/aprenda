@@ -36,6 +36,10 @@ export default function App() {
   const lang = normalizeLang(settings.language);
   const t = (key: MessageKey, vars?: Record<string, string | number>) => translate(lang, key, vars);
 
+  useEffect(() => {
+    document.documentElement.lang = localeOf(lang);
+  }, [lang]);
+
   // Load persisted sessions (survive app restarts)
   useEffect(() => {
     if (!window.api?.listSessions) return;
