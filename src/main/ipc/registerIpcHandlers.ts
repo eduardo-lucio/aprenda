@@ -121,6 +121,10 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     return foreground(() => fsm.submitGoalClarification(option, thinkingText));
   });
 
+  ipcMain.handle('session:request-orientation', async (_event, thinkingText?: string) => {
+    return foreground(() => fsm.requestOrientation(thinkingText));
+  });
+
   ipcMain.handle(
     'session:submit-probe',
     async (
@@ -153,6 +157,14 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
 
   ipcMain.handle('session:socratic-start', async (_event, nodeId?: string) => {
     const state = fsm.getState();
+    if (state.phase !== 'teaching') {
+      throw new Error(
+        localize(
+          'As aulas começam depois do diagnóstico e da confirmação do plano.',
+          'Lessons start after the diagnosis and once the plan is confirmed.'
+        )
+      );
+    }
     let targetNode: ConceptNode | undefined;
 
     if (nodeId) {

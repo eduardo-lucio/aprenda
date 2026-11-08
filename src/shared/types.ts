@@ -47,6 +47,11 @@ export interface ProbeAttempt {
   agentThinking?: string;
 }
 
+/** The "something else / not sure yet" focus option: the student is asking for guidance, not naming a focus. */
+export function isOrientationOption(option: string): boolean {
+  return /\b(outro|other|something else)\b/i.test(option) && /(n[ãa]o sei|not sure)/i.test(option);
+}
+
 export const MIN_PROBE_QUESTIONS = 8;
 export const PROBE_QUESTIONS_RANGE = { min: 3, max: 20 } as const;
 
@@ -214,6 +219,8 @@ export interface ElectronAPI {
   ) => Promise<{ node: ConceptNode; questionText: string; promptGoal: string } | null>;
   submitPrediction: (text: string) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData }>;
   submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) => Promise<{ isPassed: boolean; repairExplanation?: string; session: ProbingSession }>;
+  /** Replaces the focus options with simpler entry points (the student asked for guidance). */
+  requestOrientation: (thinkingText?: string) => Promise<ProbingSession>;
   /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */
   cancelOperation: () => Promise<void>;
   listSessions: () => Promise<SessionSummary[]>;

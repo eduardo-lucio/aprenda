@@ -3,7 +3,7 @@ import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
 import { CognitiveJudgeService } from '../../src/main/services/CognitiveJudgeService';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 import { emitTokenUsage } from '../../src/main/services/llmClient';
 
 describe('SessionStateMachine', () => {
@@ -12,7 +12,7 @@ describe('SessionStateMachine', () => {
 
   beforeEach(() => {
     store = new KnowledgeStore();
-    fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
   });
 
   it('initializes session in goal_orientation phase', async () => {
@@ -51,7 +51,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('honours a configurable minimum of probe questions (clamped to 3–20)', async () => {
-    const f = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const f = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     f.setMinProbeQuestions(3);
     expect(f.getMinProbeQuestions()).toBe(3);
     f.setMinProbeQuestions(1);
@@ -72,7 +72,7 @@ describe('SessionStateMachine', () => {
   });
 
   it('allows manual advanceToPlan only after question 8, then confirmPlan starts teaching', async () => {
-    const f = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const f = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     await f.startSession('teaching', 'Redes Camada 3');
     await f.submitGoalClarification('Foco total em Camada 3');
 
@@ -220,7 +220,7 @@ describe('SessionStateMachine rollback when the next question cannot be generate
 
 describe('SessionStateMachine probing regressions', () => {
   const newFsm = (judge = mockJudge()) =>
-    new SessionStateMachine(new KnowledgeStore(), judge, new CurriculumGenerator(mockLLM));
+    new SessionStateMachine(new KnowledgeStore(), judge, new CurriculumGenerator(mockLLM, noShuffle));
 
   it('never asks the same question twice when the floor exceeds the number of concepts', async () => {
     const f = newFsm();
@@ -303,7 +303,7 @@ describe('SessionStateMachine teaching pass', () => {
   };
 
   async function toTeaching() {
-    const f = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM));
+    const f = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     await f.startSession('teaching', 'Redes');
     await f.submitGoalClarification('TCP e UDP');
     for (let i = 0; i < 8; i++) {
@@ -348,7 +348,7 @@ describe('SessionStateMachine teaching pass', () => {
     expect([first, second]).not.toContain(third);
 
     // Resume from disk: the concepts already taught are not offered again
-    const restored = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM));
+    const restored = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     restored.restoreSnapshot(JSON.parse(JSON.stringify(f.getSnapshot())));
     expect(restored.nextTeachingNodeId()).toBe(third);
   });

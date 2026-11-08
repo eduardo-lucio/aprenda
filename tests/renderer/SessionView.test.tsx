@@ -201,6 +201,7 @@ describe('SessionView Integration', () => {
           confidence: 100,
           thinkingText: 'A camada 3 roteia pacotes entre sub-redes distintas.',
           verdict: 'mastered',
+          agentThinking: 'Nota do tutor sobre esta resposta.',
           judgeReasoning: 'Raciocínio causal perfeito sobre roteamento inter-redes.',
         },
       ],
@@ -377,7 +378,7 @@ describe('SessionView Integration', () => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
         selectedOptionIndex: 0,
         confidence: 90,
-        thinkingText: '(O aluno não explicou o raciocínio.)',
+        thinkingText: '',
       });
     });
   });
@@ -424,7 +425,7 @@ describe('SessionView Integration', () => {
         selectedOptionIndex: -1,
         answerKind: 'own_answer',
         confidence: 50,
-        thinkingText: '[Resposta própria] O pacote some e o roteador avisa a origem.',
+        thinkingText: 'O pacote some e o roteador avisa a origem.',
       });
     });
   });

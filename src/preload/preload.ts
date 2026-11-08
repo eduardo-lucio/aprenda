@@ -8,6 +8,9 @@ const api: ElectronAPI = {
   submitGoalClarification: (option: string, thinkingText?: string) =>
     ipcRenderer.invoke('session:submit-goal', option, thinkingText),
 
+  requestOrientation: (thinkingText?: string) =>
+    ipcRenderer.invoke('session:request-orientation', thinkingText),
+
   submitProbeAnswer: (data: {
     selectedOptionIndex: number;
     answerKind?: ProbeAnswerKind;

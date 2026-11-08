@@ -53,39 +53,38 @@ export function reloadPrompts(): void {
   promptCache.clear();
 }
 
-/** Composes the shared base instructions for all agents (voice, accuracy, mental model, LaTeX/questions). */
-export function getSharedBaseInstructions(): string {
-  const systemPrompt = loadPromptFile('system-prompt.md');
-  const voice = loadPromptFile('shared/10-voice.md');
-  const accuracy = loadPromptFile('shared/15-accuracy.md');
-  const mentalModel = loadPromptFile('shared/16-mental-model.md');
-  const questionTools = loadPromptFile('shared/20-question-tools.md');
-  const confidence = loadPromptFile('shared/25-confidence.md');
-  const formatting = loadPromptFile('shared/40-formatting.md');
-
-  return [systemPrompt, voice, accuracy, mentalModel, questionTools, confidence, formatting]
+function compose(files: string[]): string {
+  return files
+    .map((f) => loadPromptFile(f))
     .filter(Boolean)
     .join('\n\n---\n\n');
 }
 
-/** Composes the Prober agent doctrine (diagnostic edge-finding, bracketing). */
-export function getProberInstructions(): string {
-  const shared = getSharedBaseInstructions();
-  const proberDoctrine = loadPromptFile('prober/10-probe-doctrine.md');
+// Each agent receives only what it uses: every extra document is paid for on every call.
+const VOICE = 'shared/10-voice.md';
+const ACCURACY = 'shared/15-accuracy.md';
+const MENTAL_MODEL = 'shared/16-mental-model.md';
+const QUESTIONS = 'shared/20-question-tools.md';
+const CONFIDENCE = 'shared/25-confidence.md';
+const FORMATTING = 'shared/40-formatting.md';
+const PROBE = 'prober/10-probe-doctrine.md';
+const METHOD = 'teacher/05-method.md';
+const PLANNING = 'teacher/10-planning.md';
+const TEACHING = 'teacher/20-teaching.md';
+const PREDICTIONS = 'teacher/28-predictions.md';
+const QUESTION_PRINCIPLES = 'teacher/30-question-principles.md';
 
-  return [shared, proberDoctrine].filter(Boolean).join('\n\n---\n\n');
-}
+export const getOrientationInstructions = (): string => compose([VOICE, ACCURACY]);
 
-/** Composes the Teacher agent doctrine (unconditional truths, motivated discovery, predict/check). */
-export function getTeacherInstructions(): string {
-  const shared = getSharedBaseInstructions();
-  const method = loadPromptFile('teacher/05-method.md');
-  const planning = loadPromptFile('teacher/10-planning.md');
-  const teaching = loadPromptFile('teacher/20-teaching.md');
-  const predictions = loadPromptFile('teacher/28-predictions.md');
-  const questionPrinciples = loadPromptFile('teacher/30-question-principles.md');
+export const getGraphInstructions = (): string =>
+  compose(['system-prompt.md', ACCURACY, QUESTIONS, FORMATTING, PROBE, METHOD]);
 
-  return [shared, method, planning, teaching, predictions, questionPrinciples]
-    .filter(Boolean)
-    .join('\n\n---\n\n');
-}
+export const getProberInstructions = (): string =>
+  compose([VOICE, ACCURACY, MENTAL_MODEL, QUESTIONS, CONFIDENCE, FORMATTING, PROBE]);
+
+export const getPredictInstructions = (): string => compose([VOICE, ACCURACY, FORMATTING, PREDICTIONS]);
+
+export const getPlanInstructions = (): string => compose([VOICE, ACCURACY, FORMATTING, METHOD, PLANNING]);
+
+export const getTeachInstructions = (): string =>
+  compose([VOICE, ACCURACY, FORMATTING, TEACHING, QUESTION_PRINCIPLES]);

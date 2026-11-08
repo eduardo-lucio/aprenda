@@ -3,7 +3,7 @@ import { registerIpcHandlers } from '../../src/main/ipc/registerIpcHandlers';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 
 describe('IPC Handlers', () => {
@@ -24,8 +24,8 @@ describe('IPC Handlers', () => {
       }),
     };
     store = new KnowledgeStore();
-    fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
-    socratic = new SocraticEngine(mockLLM);
+    fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
+    socratic = new SocraticEngine(mockLLM, new CurriculumGenerator(mockLLM, noShuffle));
   });
 
   it('registers all required IPC channels on ipcMain', () => {
@@ -99,6 +99,15 @@ describe('IPC Handlers', () => {
     await handlers['session:start']({}, 'teaching', 'Redes');
     await handlers['session:submit-goal']({}, 'TCP e UDP');
     const nodeId = store.getNodes()[0].id;
+
+    // I7: lessons wait for the diagnosis and the plan
+    await expect(handlers['session:socratic-start']({}, nodeId)).rejects.toThrow(/depois do diagnóstico/i);
+    for (let i = 0; i < 8; i++) {
+      const res = await handlers['session:submit-probe']({}, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+      if (res.nextAction === 'transition_plan') break;
+    }
+    if (fsm.getState().phase === 'probing') await handlers['session:advance-plan']({});
+    await handlers['session:confirm-plan']({});
 
     const step = await handlers['session:socratic-start']({}, nodeId);
     expect(step.node.id).toBe(nodeId);

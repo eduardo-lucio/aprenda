@@ -209,7 +209,10 @@ export class SessionStateMachine {
     const session = this.requireSession();
 
     // 1 single combined call generates the DAG and the first probe question together
-    const graph = await this.generator.generateGraph(selectedOption);
+    const graph = await this.generator.generateGraph(selectedOption, {
+      topic: session.topic,
+      justification: studentThinking?.trim() || undefined,
+    });
     this.assertActive(session);
     // Sort by level ascending (increasing difficulty: foundational Level 1 first -> Level 4)
     const byLevel = [...graph.nodes].sort((a, b) => a.level - b.level);
@@ -259,6 +262,26 @@ export class SessionStateMachine {
 
     this.persist();
     return firstQuestion;
+  }
+
+  /** The student asked for guidance instead of naming a focus: offers simpler entry points to the same topic. */
+  async requestOrientation(studentThinking?: string): Promise<ProbingSession> {
+    const session = this.requireSession();
+    if (session.phase !== 'goal_orientation') {
+      throw new Error(localize(`Não há foco a escolher na fase: ${session.phase}`, `There is no focus to choose in phase: ${session.phase}`));
+    }
+    const res = await this.generator.generateGoalOptions(session.topic ?? session.goal, {
+      justification: studentThinking?.trim() || undefined,
+    });
+    this.assertActive(session);
+    session.goalClarificationQuestion = res.question;
+    session.goalClarificationOptions = res.options;
+    if (res.agentThinking) {
+      session.goalThinking = res.agentThinking;
+      session.agentThinking = res.agentThinking;
+    }
+    this.persist();
+    return this.getState();
   }
 
   /**
@@ -472,7 +495,7 @@ export class SessionStateMachine {
       selectedOptionIndex: data.selectedOptionIndex,
       correctOptionIndex: check.correctOptionIndex,
       confidence: data.confidence,
-      thinkingText: data.thinkingText || '(O aluno não explicou o raciocínio.)',
+      thinkingText: data.thinkingText || '',
     });
     this.assertActive(session);
     session.nodesState[nodeId] = evaluation.verdict;
@@ -574,12 +597,21 @@ export class SessionStateMachine {
     const untested = this.strandNodes.find((n) => session.nodesState[n.id] === 'untested');
     if (untested) return untested.id;
 
-    const retry =
-      this.strandNodes.find((n) => session.nodesState[n.id] === 'false_positive') ||
-      this.strandNodes.find((n) => session.nodesState[n.id] === 'frontier') ||
-      this.strandNodes.find((n) => session.nodesState[n.id] === 'blind_spot');
+    // Everything was tested once: revisit what is not mastered, spreading the questions around
+    const askedFor = (id: string) => session.attempts.filter((a) => a.nodeId === id).length;
+    const priority: ConceptNode['status'][] = ['false_positive', 'frontier', 'blind_spot'];
+    const currentId = session.currentQuestion?.nodeId;
+    const retry = this.strandNodes
+      .filter((n) => priority.includes(session.nodesState[n.id]) && n.id !== currentId)
+      .sort(
+        (a, b) =>
+          askedFor(a.id) - askedFor(b.id) ||
+          priority.indexOf(session.nodesState[a.id]) - priority.indexOf(session.nodesState[b.id])
+      )[0];
     if (retry) return retry.id;
 
-    return this.strandNodes[this.strandNodes.length - 1].id;
+    return currentId && session.nodesState[currentId] !== 'mastered'
+      ? currentId
+      : this.strandNodes[this.strandNodes.length - 1].id;
   }
 }

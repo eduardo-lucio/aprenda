@@ -1,7 +1,7 @@
 import { CheckQuestionData, ConceptNode } from '../../shared/types';
 import { buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
 import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
-import { CurriculumGenerator } from '../services/CurriculumGenerator';
+import { CurriculumGenerator, parseCorrectIndex } from '../services/CurriculumGenerator';
 
 export class SocraticEngine {
   private currentNode?: ConceptNode;
@@ -57,20 +57,18 @@ export class SocraticEngine {
         const raw = await this.llm({ systemPrompt, prompt, temperature: 0.3, jsonMode: true, timeoutMs: 60000 });
         const parsed = parseLLMJson<any>(raw);
         const cq = parsed.checkQuestion;
-        const validCheck =
-          cq &&
-          typeof cq.questionText === 'string' &&
-          Array.isArray(cq.options) &&
-          cq.options.length >= 2 &&
-          Number(cq.correctOptionIndex) >= 0 &&
-          Number(cq.correctOptionIndex) < cq.options.length;
-        if (parsed.teachProse && validCheck) {
+        const correct =
+          cq && typeof cq.questionText === 'string' && Array.isArray(cq.options) && cq.options.length >= 2
+            ? parseCorrectIndex(cq.correctOptionIndex, cq.options.length)
+            : null;
+        if (parsed.teachProse && correct !== null) {
+          const arranged = this.generator.arrangeOptions(cq.options.map((o: unknown) => String(o)), correct);
           return {
             teachProse: String(parsed.teachProse),
             checkQuestion: {
               questionText: cq.questionText,
-              options: cq.options.map((o: unknown) => String(o)),
-              correctOptionIndex: Number(cq.correctOptionIndex),
+              options: arranged.options,
+              correctOptionIndex: arranged.correctOptionIndex,
               explanation: String(cq.explanation || node.unconditionalTruth),
             },
           };

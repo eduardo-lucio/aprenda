@@ -21,7 +21,7 @@ import { cleanError as toDisplayError, isCancelled, isSessionChanged } from '../
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
 import { useI18n } from '../i18n';
-import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions } from '../../shared/types';
+import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions, isOrientationOption } from '../../shared/types';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -375,6 +375,25 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   };
 
+  const handleRequestOrientation = async (studentThinking: string, draft: string) => {
+    setStreamingThinking('');
+    setSubmittingLabel(t('session.status.orientation'));
+    setAgentThinking(t('session.status.orientation'));
+    setIsSubmitting(true);
+    clearError();
+    try {
+      const updated = await window.api.requestOrientation(studentThinking);
+      setSession(updated);
+      if (onSessionUpdate) onSessionUpdate(updated);
+      setSelectedIdx(null);
+    } catch (err: any) {
+      reportError(err);
+      setBottomChatInput(draft);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSelectGoalOption = async (option: string, studentThinking: string | undefined, draft: string) => {
     setCustomScopeInput('');
     setStreamingThinking('');
@@ -675,6 +694,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
       const chosen = selectedIdx !== null ? scopeOptions[selectedIdx] : text;
       const reasoning = selectedIdx !== null ? text : '';
       setBottomChatInput('');
+      if (selectedIdx !== null && isOrientationOption(chosen)) {
+        handleRequestOrientation(reasoning, text);
+        return;
+      }
       handleSelectGoalOption(chosen, reasoning, text);
       return;
     }
@@ -688,12 +711,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         // -1 alone is ambiguous: tell the judge the student wrote their own answer (vs. "não sei")
         ...(isOwnAnswer ? { answerKind: 'own_answer' as const } : {}),
         confidence: isDontKnow ? undefined : confidence,
-        thinkingText: isOwnAnswer
-          ? `[Resposta própria] ${text}`
-          : text ||
-            (isDontKnow
-              ? 'Não sei responder esta questão / ainda não domino o conceito.'
-              : '(O aluno não explicou o raciocínio.)'),
+        thinkingText: text,
         },
         text
       );
@@ -1018,12 +1036,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">
                   {t('session.map.title')}
                 </h4>
-                <p className="text-[11px] text-gray-400">{t('session.map.hint')}</p>
+                <p className="text-[11px] text-gray-400">
+                  {phase === 'teaching' || phase === 'plan_review' ? t('session.map.hint') : t('session.map.teachLocked')}
+                </p>
               </div>
 
               <button
-                onClick={() => handleStartSocraticCycle()}
-                disabled={nodes.length === 0 || isBusy}
+                onClick={() => (phase === 'plan_review' ? handleConfirmPlan() : handleStartSocraticCycle())}
+                disabled={nodes.length === 0 || isBusy || (phase !== 'teaching' && phase !== 'plan_review')}
                 className="flex items-center space-x-1.5 rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
@@ -1035,7 +1055,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <KnowledgeGraph
                 nodes={nodes}
                 goal={session?.goal}
-                onStartSocratic={(id) => handleStartSocraticCycle(id)}
+                onStartSocratic={phase === 'teaching' && !isBusy ? (id) => handleStartSocraticCycle(id) : undefined}
               />
             </div>
           </div>
@@ -1201,9 +1221,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {/* HISTORICAL ANSWERED QUESTIONS IN THE CHAT FEED */}
               {session?.attempts &&
                 session.attempts.map((attempt, idx) => {
-                  const turnThinking =
-                    attempt.agentThinking ||
-                    attempt.judgeReasoning;
+                  const turnThinking = attempt.agentThinking;
                   const turnMessages = chatMessages.filter((m) => m.afterAttemptCount === idx + 1);
 
                   return (

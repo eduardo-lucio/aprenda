@@ -6,7 +6,7 @@ import { SessionRepository } from '../../src/main/persistence/SessionRepository'
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 
 describe('session persistence', () => {
   let dir: string;
@@ -20,7 +20,7 @@ describe('session persistence', () => {
 
   it('saves a session, its chat UI, and reloads them in a new repository + state machine', async () => {
     const repo = new SessionRepository(file);
-    const fsm = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     fsm.setPersistence((snap) => repo.saveSnapshot(snap));
 
     await fsm.startSession('teaching', 'Redes');
@@ -38,7 +38,7 @@ describe('session persistence', () => {
     const rec = repo2.get(id)!;
     expect(rec.ui.chatMessages[0].text).toBe('oi');
 
-    const fsm2 = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm2 = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     fsm2.restoreSnapshot(rec.snapshot);
     const state = fsm2.getState();
     expect(state.phase).toBe('probing');

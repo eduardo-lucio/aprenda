@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import { ConceptNode, CheckQuestionData } from '../../src/shared/types';
-import { mockLLM } from '../helpers/mockLLM';
+import { mockLLM, noShuffle } from '../helpers/mockLLM';
 
 describe('SocraticEngine', () => {
   let engine: SocraticEngine;
@@ -16,7 +17,7 @@ describe('SocraticEngine', () => {
   };
 
   beforeEach(() => {
-    engine = new SocraticEngine(mockLLM);
+    engine = new SocraticEngine(mockLLM, new CurriculumGenerator(mockLLM, noShuffle));
   });
 
   it('generates motivating prediction nudge before teaching', async () => {

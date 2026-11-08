@@ -1,4 +1,4 @@
-import { ConceptNode, QuestionData } from '../../shared/types';
+import { ConceptNode, QuestionData, isOrientationOption } from '../../shared/types';
 import {
   buildGoalOptionsPrompt,
   buildGraphPrompt,
@@ -121,6 +121,15 @@ function describeGenerationFailure(err: unknown): string {
 
 const CANCELLED_BY_ORCHESTRATOR = 'Operação cancelada pelo orquestrador.';
 
+/** The answer-key index, only if it is really an index into `length` options (null, 1.5 and "" are not). */
+export function parseCorrectIndex(value: unknown, length: number): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 0 && n < length ? n : null;
+}
+
+/** These only make sense in the position the author wrote them. */
+const POSITIONAL_OPTION = /\b(todas|nenhuma|ambas)\b.*\b(anteriores|acima)\b|\b(all|none|both)\b.*\b(above|previous)\b/i;
+
 function defaultPredictGoal(): string {
   return localize('Dê seu palpite antes da explicação.', 'Make a guess before the explanation.');
 }
@@ -128,7 +137,21 @@ function defaultPredictGoal(): string {
 export class CurriculumGenerator {
   private lastGoalThinking?: string;
 
-  constructor(private llm: LLMCaller = callLLM) {}
+  constructor(
+    private llm: LLMCaller = callLLM,
+    private random: () => number = Math.random
+  ) {}
+
+  /** Models favor one position for the right answer: its place on screen must carry no information. */
+  arrangeOptions(options: string[], correctIndex: number): { options: string[]; correctOptionIndex: number } {
+    if (options.some((o) => POSITIONAL_OPTION.test(o))) return { options, correctOptionIndex: correctIndex };
+    const order = options.map((_o, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(this.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return { options: order.map((i) => options[i]), correctOptionIndex: order.indexOf(correctIndex) };
+  }
 
   getLastGoalThinking(): string | undefined {
     return this.lastGoalThinking;
@@ -138,8 +161,8 @@ export class CurriculumGenerator {
     return isFatalLLMError(err);
   }
 
-  async generateGoalOptions(goal: string): Promise<GoalClarificationResult> {
-    const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal);
+  async generateGoalOptions(goal: string, orientation?: { justification?: string }): Promise<GoalClarificationResult> {
+    const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal, orientation);
     let lastErr: unknown;
 
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -167,7 +190,7 @@ export class CurriculumGenerator {
 
         if (rawOpts.length >= 5 && question) {
           let options = rawOpts;
-          if (!options.some((o) => /outro|não sei|other|not sure/i.test(o))) {
+          if (!options.some(isOrientationOption)) {
             options = [
               ...options.slice(0, 8),
               localize('Outro / ainda não sei — quero ajuda para escolher', "Something else / not sure yet — help me choose"),
@@ -187,11 +210,11 @@ export class CurriculumGenerator {
     );
   }
 
-  async generateGraph(goal: string): Promise<GeneratedGraphResult> {
+  async generateGraph(goal: string, context?: { topic?: string; justification?: string }): Promise<GeneratedGraphResult> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { systemPrompt, prompt } = buildGraphPrompt(goal);
+      const { systemPrompt, prompt } = buildGraphPrompt(goal, context);
       const raw = await this.llm({
         systemPrompt,
         prompt,
@@ -209,21 +232,21 @@ export class CurriculumGenerator {
       if (nodes.length >= 3) {
         let firstQuestion: QuestionData | undefined;
         const rawQ = parsed?.firstQuestion;
+        const firstCorrect = Array.isArray(rawQ?.options) ? parseCorrectIndex(rawQ.correctOptionIndex, rawQ.options.length) : null;
+        const lowestLevel = Math.min(...nodes.map((n) => n.level));
+        // Ids are normalized by sanitizeGraph, so the model's id may only match as a slug
+        const targetNode = rawQ?.nodeId
+          ? nodes.find((n) => n.id === rawQ.nodeId) || nodes.find((n) => n.id === slugify(String(rawQ.nodeId)))
+          : undefined;
+        // A question written for another concept is never reassigned: the caller generates a proper one
         if (
-          rawQ &&
-          rawQ.questionText &&
-          Array.isArray(rawQ.options) &&
+          rawQ?.questionText &&
           rawQ.options.length === 4 &&
-          Number(rawQ.correctOptionIndex) >= 0 &&
-          Number(rawQ.correctOptionIndex) < 4
+          firstCorrect !== null &&
+          targetNode &&
+          targetNode.level <= lowestLevel
         ) {
-          const sortedAsc = [...nodes].sort((a, b) => a.level - b.level);
-          const candidateNode = nodes.find((n) => n.id === rawQ.nodeId);
-          // Ensure the first question targets a foundational (lowest level) node
-          const targetNode =
-            candidateNode && candidateNode.level <= sortedAsc[0].level
-              ? candidateNode
-              : sortedAsc[0];
+          const arranged = this.arrangeOptions(rawQ.options.map((o: unknown) => String(o)), firstCorrect);
           const qThink =
             (typeof rawQ.agentThinking === 'string' && rawQ.agentThinking.trim()) ||
             graphThinking;
@@ -231,8 +254,8 @@ export class CurriculumGenerator {
             id: `q-${targetNode.id}-${Date.now()}`,
             nodeId: targetNode.id,
             questionText: String(rawQ.questionText),
-            options: rawQ.options.map((o: unknown) => String(o)),
-            correctOptionIndex: Number(rawQ.correctOptionIndex),
+            options: arranged.options,
+            correctOptionIndex: arranged.correctOptionIndex,
             anchorConcept: String(rawQ.anchorConcept || targetNode.title),
             difficulty: Number(rawQ.difficulty) || targetNode.level,
             agentThinking: qThink,
@@ -292,15 +315,16 @@ export class CurriculumGenerator {
         const options: string[] = Array.isArray(parsed.options)
           ? parsed.options.map((o: unknown) => String(o)).filter((o: string) => o.trim())
           : [];
-        const correct = Number(parsed.correctOptionIndex);
-        if (parsed.questionText && options.length >= 2 && options.length <= 6 && correct >= 0 && correct < options.length) {
+        const correct = parseCorrectIndex(parsed.correctOptionIndex, options.length);
+        if (parsed.questionText && options.length >= 2 && options.length <= 6 && correct !== null) {
+          const arranged = this.arrangeOptions(options, correct);
           const qThink = (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) || undefined;
           return {
             id: `q-${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             nodeId: node.id,
             questionText: String(parsed.questionText),
-            options,
-            correctOptionIndex: correct,
+            options: arranged.options,
+            correctOptionIndex: arranged.correctOptionIndex,
             anchorConcept: String(parsed.anchorConcept || node.title),
             difficulty: Number(parsed.difficulty) || node.level,
             agentThinking: qThink,

@@ -81,6 +81,7 @@ export function installMockApi(): void {
   const api: Partial<ElectronAPI> = {
     listSessions: async () => [{ id: session.id, title: session.goal, mode: 'teaching', updatedAt: Date.now() }],
     cancelOperation: async () => {},
+    requestOrientation: async () => structuredClone(session),
     loadSession: async () => ({ session: structuredClone(session), ui }),
     getSession: async () => null,
     getGraphState: async () => nodes,

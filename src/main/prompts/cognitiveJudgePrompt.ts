@@ -19,6 +19,11 @@ export function buildCognitiveJudgePrompt(params: {
       : kind === 'own_answer'
       ? '[Resposta própria / O aluno NÃO escolheu nenhuma alternativa e respondeu com as próprias palavras — o texto de autoexplicação abaixo É a resposta]'
       : `[${params.selectedOptionIndex}] ${params.options[params.selectedOptionIndex] || 'N/A'}`;
+  const reasoning =
+    params.thinkingText.trim() ||
+    (kind === 'dont_know'
+      ? '(O aluno disse que não sabe e não acrescentou nada.)'
+      : '(O aluno não explicou o raciocínio.)');
   const correctnessText = kind === 'option' ? String(isCorrect) : 'não se aplica (sem alternativa escolhida)';
 
   const systemPrompt = `Você é o Juiz Cognitivo do APRENDA.
@@ -71,7 +76,7 @@ ${params.options.map((opt, idx) => `[${idx}] ${opt} ${idx === params.correctOpti
 EVIDÊNCIA SUBMETIDA PELO ALUNO:
 Alternativa Escolhida: ${chosenText} (É correta: ${correctnessText})
 Nível de Certeza Declarado: ${params.confidence === undefined ? 'não informado' : params.confidence + '%'}
-Autoexplicação ("Your Thinking"): "${params.thinkingText}"
+Autoexplicação ("Your Thinking"): "${reasoning}"
 
 Analise o modelo mental à luz da evidência e emita o veredito em JSON:`;
 

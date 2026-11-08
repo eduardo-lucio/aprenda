@@ -1,17 +1,33 @@
 import { ConceptNode, QuestionData } from '../../shared/types';
-import { getProberInstructions, getSharedBaseInstructions, getTeacherInstructions } from './promptLoader';
+import {
+  getGraphInstructions,
+  getOrientationInstructions,
+  getPlanInstructions,
+  getPredictInstructions,
+  getProberInstructions,
+} from './promptLoader';
 
-export function buildGoalOptionsPrompt(goal: string): { systemPrompt: string; prompt: string } {
-  const shared = getSharedBaseInstructions();
+export function buildGoalOptionsPrompt(
+  goal: string,
+  orientation?: { justification?: string }
+): { systemPrompt: string; prompt: string } {
+  const shared = getOrientationInstructions();
+  const orientationBlock = orientation
+    ? `
+
+O ALUNO PEDIU ORIENTAÇÃO: ele não reconheceu seu objetivo nas opções anteriores e não sabe por onde começar.${
+        orientation.justification ? ` O que ele disse: "${orientation.justification}".` : ''
+      } Agora as 8 primeiras opções devem ser pontos de entrada mais simples, descritos pelo que o aluno vai conseguir fazer ou entender, em linguagem de quem ainda não conhece os termos técnicos do tema.`
+    : '';
 
   const systemPrompt = `Você é o Orientador Pedagógico e Investigador de Fronteira do APRENDA.
 ${shared}
 
 O estudante escreveu o seguinte pedido inicial (texto bruto, pode ser uma frase completa): "${goal}".
 PRIMEIRO identifique o TEMA central do pedido (ex.: "eu quero aprender sobre tcp/udp" → "TCP e UDP"). NUNCA copie a frase do estudante dentro da pergunta ou das opções; use apenas o nome limpo do tema.
-Como o objetivo é amplo ou pode abranger diferentes recortes, sua tarefa é formular uma pergunta direta de clarificação E propor exatamente 9 alternativas técnicas, concretas e distintas para delimitar com precisão o objetivo de aprendizagem.
+Como o objetivo é amplo ou pode abranger diferentes recortes, sua tarefa é formular uma pergunta direta de clarificação E propor exatamente 9 alternativas técnicas, concretas e distintas para delimitar com precisão o objetivo de aprendizagem.${orientationBlock}
 
-DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES (LEARNHARNESS ASK_USER_QUESTION):
+DIRETRIZES OBRIGATÓRIAS DAS 9 OPÇÕES:
 1. A pergunta ("question") deve seguir o padrão: "O que exatamente você quer aprender sobre <TEMA>? Escolha a opção que melhor descreve seu objetivo:", onde <TEMA> é o tema limpo que você identificou.
 1b. TODAS as opções devem ser geradas por você, específicas e tecnicamente corretas para o tema real (nada genérico; não assuma que o tema é uma linguagem de programação).
 2. As 8 primeiras opções devem mapear recortes concretos e técnicos indispensáveis do tema, cobrindo desde os fundamentos primitivos, passando pelos mecanismos estruturais, até aplicações, ecossistemas ou tópicos avançados.
@@ -40,16 +56,14 @@ Responda EXCLUSIVAMENTE em formato JSON:
   return { systemPrompt, prompt };
 }
 
-export function buildGraphPrompt(goal: string): { systemPrompt: string; prompt: string } {
-  const proberInstructions = getProberInstructions();
-  const teacherInstructions = getTeacherInstructions();
+export function buildGraphPrompt(
+  goal: string,
+  context?: { topic?: string; justification?: string }
+): { systemPrompt: string; prompt: string } {
+  const instructions = getGraphInstructions();
 
   const systemPrompt = `Você é o Arquiteto Curricular do APRENDA.
-${proberInstructions}
-
----
-
-${teacherInstructions}
+${instructions}
 
 Sua tarefa é decompor o objetivo "${goal}" em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós, Níveis 1 a 4) em ordem estritamente crescente de complexidade, E formular a PRIMEIRA questão diagnóstica para o nó FUNDAMENTAL DE BASE (Nível 1).
 
@@ -88,13 +102,19 @@ Responda SOMENTE em JSON no formato:
     "nodeId": "slug-base",
     "questionText": "Enunciado contextualizado com cenário real...",
     "options": ["Afirmação A", "Afirmação B", "Afirmação C", "Afirmação D"],
-    "correctOptionIndex": 0,
+    "correctOptionIndex": 2,
     "anchorConcept": "Título do Conceito",
     "difficulty": 1
   }
 }`;
 
-  const prompt = `Objetivo de estudo: "${goal}"\nGere o grafo em ordem crescente (Nível 1 a 4), a nota do tutor e a primeira questão de Nível 1 em JSON:`;
+  const contextLines = [
+    context?.topic && context.topic !== goal ? `Tema que o aluno digitou: "${context.topic}"` : '',
+    context?.justification ? `Por que o aluno escolheu esse foco: "${context.justification}"` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const prompt = `Objetivo de estudo: "${goal}"${contextLines ? `\n${contextLines}` : ''}\nGere o grafo em ordem crescente (Nível 1 a 4), a nota do tutor e a primeira questão de Nível 1 em JSON:`;
   return { systemPrompt, prompt };
 }
 
@@ -123,7 +143,7 @@ Responda SOMENTE em JSON:
   "agentThinking": "Nota curta do tutor, em primeira pessoa e linguagem simples...",
   "questionText": "Enunciado prático contextualizado...",
   "options": ["Opção 0", "Opção 1", "Opção 2", "Opção 3"],
-  "correctOptionIndex": 0,
+  "correctOptionIndex": 3,
   "anchorConcept": "${node.title}",
   "difficulty": ${node.level || 2}
 }`;
@@ -141,7 +161,7 @@ Gere a questão diagnóstica e a nota do tutor em JSON:`;
 }
 
 export function buildPredictPrompt(node: ConceptNode, goal: string): { systemPrompt: string; prompt: string } {
-  const teacherInstructions = getTeacherInstructions();
+  const teacherInstructions = getPredictInstructions();
 
   const systemPrompt = `Você é o professor do APRENDA.
 ${teacherInstructions}
@@ -172,12 +192,12 @@ export function buildPlanPrompt(params: {
   nodes: ConceptNode[];
   attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
 }): { systemPrompt: string; prompt: string } {
-  const teacherInstructions = getTeacherInstructions();
+  const teacherInstructions = getPlanInstructions();
 
   const systemPrompt = `Você é o Planejador do APRENDA.
 ${teacherInstructions}
 
-Com base no que a sondagem revelou, escreva o PLANO DE ENSINO apresentado ao aluno: um texto curto (no máximo 120 palavras, em português, segunda pessoa) com a abordagem escolhida e a ordem em que os conceitos serão trabalhados, justificando brevemente por que começar pelo que está frágil ou ausente. Não repita o que já está dominado. Cite os conceitos pelo título.
+Com base no que a sondagem revelou, escreva o PLANO DE ENSINO apresentado ao aluno: um texto curto (no máximo 120 palavras, na segunda pessoa) com a abordagem escolhida e a ordem em que os conceitos serão trabalhados, justificando brevemente por que começar pelo que está frágil ou ausente. Não repita o que já está dominado. Cite os conceitos pelo título.
 
 Responda SOMENTE em JSON:
 {

@@ -4,7 +4,7 @@ import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import { LLMCancelledError, LLMNotConfiguredError, type CallLLMOptions, type LLMCaller } from '../../src/main/services/llmClient';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 import type { ConceptNode } from '../../src/shared/types';
 
 const node: ConceptNode = {
@@ -35,14 +35,14 @@ describe('no canned text pretending to be the AI (I8, E10)', () => {
   });
 
   it('submitPrediction reports the failure', async () => {
-    const engine = new SocraticEngine(failing, new CurriculumGenerator(mockLLM));
+    const engine = new SocraticEngine(failing, new CurriculumGenerator(mockLLM, noShuffle));
     await engine.generatePredictStep(node, 'Tema');
     await expect(engine.submitPrediction('palpite')).rejects.toThrow(/explicação|explanation/i);
   });
 
   it('submitPrediction fails when the verification question is unusable', async () => {
     const noCheck: LLMCaller = async () => JSON.stringify({ teachProse: 'Texto.', checkQuestion: { questionText: 'Q', options: ['só uma'], correctOptionIndex: 0 } });
-    const engine = new SocraticEngine(noCheck, new CurriculumGenerator(mockLLM));
+    const engine = new SocraticEngine(noCheck, new CurriculumGenerator(mockLLM, noShuffle));
     await engine.generatePredictStep(node, 'Tema');
     await expect(engine.submitPrediction('palpite')).rejects.toThrow();
   });
@@ -107,7 +107,7 @@ describe('state machine failures leave the session usable', () => {
   });
 
   it('I13: with everything mastered the plan is honest and does not call the AI', async () => {
-    const generator = new CurriculumGenerator(mockLLM);
+    const generator = new CurriculumGenerator(mockLLM, noShuffle);
     const store = new KnowledgeStore();
     const fsm = new SessionStateMachine(store, mockJudge(), generator);
     fsm.setMinProbeQuestions(3);
@@ -123,7 +123,7 @@ describe('state machine failures leave the session usable', () => {
   });
 
   it('F2: when the first question cannot be generated nothing is committed', async () => {
-    const generator = new CurriculumGenerator(mockLLM);
+    const generator = new CurriculumGenerator(mockLLM, noShuffle);
     vi.spyOn(generator, 'generateGraph').mockResolvedValue({
       discipline: 'D',
       nodes: [node, { ...node, id: 'n2' }, { ...node, id: 'n3' }],

@@ -1,4 +1,5 @@
 import { ConceptNode } from '../../shared/types';
+import { getTeachInstructions } from './promptLoader';
 
 export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: string): {
   systemPrompt: string;
@@ -6,6 +7,10 @@ export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: s
 } {
   const systemPrompt = `Você é o professor do APRENDA.
 Sua missão é instalar compreensão profunda e auto-preservável no cérebro do estudante, guiando-o da intuição à maestria conceitual.
+
+${getTeachInstructions()}
+
+---
 
 METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):
 1. O objetivo é a compreensão real, nunca a memorização mecânica. Fatos soltos colapsam em estruturas geradoras quando o estudante descobre o "porquê" por trás do "o quê".
@@ -27,7 +32,7 @@ Retorne SOMENTE em JSON:
   "checkQuestion": {
     "questionText": "Problema ou aplicação prática para verificar se a ideia se fixou...",
     "options": ["Alternativa A", "Alternativa B", "Alternativa C", "Alternativa D"],
-    "correctOptionIndex": 0,
+    "correctOptionIndex": 1,
     "explanation": "Razão causal pela qual esta alternativa expressa o funcionamento correto"
   }
 }`;

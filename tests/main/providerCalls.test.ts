@@ -15,7 +15,7 @@ import { registerIpcHandlers } from '../../src/main/ipc/registerIpcHandlers';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import type { ConceptNode, QuestionData } from '../../src/shared/types';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 
 const okJson = (content: string) => ({
   ok: true,
@@ -151,7 +151,7 @@ describe('prefetch targets (F15)', () => {
   it('spends quota only on untested concepts, next in the queue first', async () => {
     const store = new KnowledgeStore([mk('a', 1), mk('b', 1), mk('c', 2, ['a', 'b']), mk('d', 3), mk('e', 3)]);
     const generated: string[] = [];
-    const gen = new CurriculumGenerator(mockLLM);
+    const gen = new CurriculumGenerator(mockLLM, noShuffle);
     vi.spyOn(gen, 'generateQuestion').mockImplementation(async (n) => {
       generated.push(n.id);
       return { id: n.id, nodeId: n.id, questionText: n.id, options: ['1', '2'], correctOptionIndex: 0, anchorConcept: '', difficulty: 1 };
@@ -230,7 +230,7 @@ describe('OPENAI_* environment (I18)', () => {
     const store = new KnowledgeStore();
     registerIpcHandlers(
       { handle: (c: string, l: Function) => (handlers[c] = l), on: (c: string, l: Function) => (handlers[c] = l) } as any,
-      { fsm: new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM)), store, socratic: new SocraticEngine(mockLLM) }
+      { fsm: new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle)), store, socratic: new SocraticEngine(mockLLM, new CurriculumGenerator(mockLLM, noShuffle)) }
     );
   });
   afterEach(() => {

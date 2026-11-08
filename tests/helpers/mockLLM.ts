@@ -89,3 +89,6 @@ export async function mockLLM(options: CallLLMOptions): Promise<string> {
     },
   });
 }
+
+/** Keeps the alternatives in the order the mock wrote them, so tests know where the right one is. */
+export const noShuffle = () => 0.9999;

@@ -1,5 +1,7 @@
 import React from 'react';
 import katex from 'katex';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Segment = { type: 'text'; value: string } | { type: 'code'; lang: string; value: string };
 
@@ -197,45 +199,141 @@ export const MathFormula: React.FC<{ tex: string; display?: boolean }> = ({ tex,
   );
 };
 
-function renderTextWithMath(text: string, keyPrefix: string): React.ReactNode[] {
-  return splitMath(text).map((part, i) =>
-    part.type === 'math' ? (
-      <MathFormula key={`${keyPrefix}-m${i}`} tex={part.value} display={part.display} />
-    ) : (
-      <React.Fragment key={`${keyPrefix}-t${i}`}>{part.value}</React.Fragment>
+// Private-use characters mark where a formula goes, so `_` and `*` inside LaTeX never reach the Markdown parser
+const MATH_MARK = /\uE000(\d+)\uE001/g;
+
+/** Swaps formulas (outside inline code) for marks and returns them by index. */
+function protectMath(text: string): { text: string; formulas: Array<{ value: string; display: boolean }> } {
+  const formulas: Array<{ value: string; display: boolean }> = [];
+  const protectedText = text
+    .split(/(`[^`\n]+`)/g)
+    .map((part) =>
+      part.startsWith('`')
+        ? part
+        : splitMath(part)
+            .map((p) => {
+              if (p.type === 'text') return p.value;
+              formulas.push({ value: p.value, display: p.display });
+              return `\uE000${formulas.length - 1}\uE001`;
+            })
+            .join('')
     )
-  );
+    .join('');
+  return { text: protectedText, formulas };
 }
 
-function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  return text.split(/(`[^`\n]+`)/g).flatMap((part, i) =>
-    part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
-      <InlineCode key={`${keyPrefix}-${i}`}>{part.slice(1, -1)}</InlineCode>
-    ) : (
-      renderTextWithMath(part, `${keyPrefix}-${i}`)
-    )
-  );
+const CALLOUT = /^\[!(IMPORTANT|NOTE|TIP|WARNING|CAUTION)\]\s*/i;
+
+/** Remark transform: formula marks become elements, and GitHub-style callouts get flagged. */
+function remarkAprenda() {
+  const visit = (node: any): void => {
+    if (node.type === 'blockquote') {
+      const first = node.children?.[0]?.children?.[0];
+      if (first?.type === 'text' && CALLOUT.test(first.value)) {
+        first.value = first.value.replace(CALLOUT, '');
+        node.data = { hProperties: { 'data-callout': 'true' } };
+      }
+    }
+    if (!Array.isArray(node.children)) return;
+    node.children = node.children.flatMap((child: any) => {
+      if (child.type !== 'text' || !child.value.includes('\uE000')) return [child];
+      const out: any[] = [];
+      let last = 0;
+      for (const m of child.value.matchAll(MATH_MARK) as Iterable<RegExpMatchArray>) {
+        if (m.index! > last) out.push({ type: 'text', value: child.value.slice(last, m.index) });
+        out.push({ type: 'mathMark', data: { hName: 'span', hProperties: { 'data-math': m[1] } } });
+        last = m.index! + m[0].length;
+      }
+      if (last < child.value.length) out.push({ type: 'text', value: child.value.slice(last) });
+      return out;
+    });
+    node.children.forEach(visit);
+  };
+  return visit;
 }
+
+const textOf = (node: React.ReactNode): string =>
+  typeof node === 'string' || typeof node === 'number'
+    ? String(node)
+    : Array.isArray(node)
+    ? node.map(textOf).join('')
+    : React.isValidElement(node)
+    ? textOf((node.props as { children?: React.ReactNode }).children)
+    : '';
+
+const STATIC_COMPONENTS: Components = {
+  h1: ({ children }) => <h3 className="mb-2 mt-4 font-serif text-base font-semibold text-gray-100 first:mt-0">{children}</h3>,
+  h2: ({ children }) => <h3 className="mb-2 mt-4 font-serif text-base font-semibold text-gray-100 first:mt-0">{children}</h3>,
+  h3: ({ children }) => <h4 className="mb-1.5 mt-3 font-semibold text-gray-100 first:mt-0">{children}</h4>,
+  h4: ({ children }) => <h5 className="mb-1 mt-3 font-semibold text-gray-200 first:mt-0">{children}</h5>,
+  p: ({ children }) => <p className="my-2 whitespace-pre-line first:mt-0 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 first:mt-0 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 first:mt-0 last:mb-0">{children}</ol>,
+  strong: ({ children }) => <strong className="font-semibold text-gray-100">{children}</strong>,
+  hr: () => <hr className="my-3 border-ink-600" />,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+      {children}
+    </a>
+  ),
+  table: ({ children }) => (
+    <div className="my-3 overflow-x-auto first:mt-0 last:mb-0">
+      <table className="w-full border-collapse text-left">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-ink-600 bg-ink-800 px-2.5 py-1.5 font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-ink-600 px-2.5 py-1.5 align-top">{children}</td>,
+  blockquote: ({ children, ...props }) =>
+    (props as Record<string, unknown>)['data-callout'] ? (
+      <div data-testid="callout" className="my-3 rounded-lg border border-gray-400 p-3 first:mt-0 last:mb-0">
+        {children}
+      </div>
+    ) : (
+      <blockquote className="my-2 border-l-2 border-ink-500 pl-3 text-gray-300 first:mt-0 last:mb-0">{children}</blockquote>
+    ),
+  code: ({ children }) => <InlineCode>{children}</InlineCode>,
+  pre: ({ children }) => <CodeBlock code={textOf(children).replace(/\n+$/, '')} />,
+};
+
+const REMARK_PLUGINS = [remarkGfm, remarkAprenda];
+
+const MarkdownText: React.FC<{ text: string }> = ({ text }) => {
+  const { text: source, formulas } = React.useMemo(() => protectMath(text), [text]);
+  const components = React.useMemo<Components>(
+    () => ({
+      ...STATIC_COMPONENTS,
+      span: ({ children, ...props }) => {
+        const index = (props as Record<string, unknown>)['data-math'];
+        const formula = index === undefined ? undefined : formulas[Number(index)];
+        return formula ? <MathFormula tex={formula.value} display={formula.display} /> : <span>{children}</span>;
+      },
+    }),
+    [formulas]
+  );
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components} disallowedElements={['img']}>
+      {source}
+    </ReactMarkdown>
+  );
+};
 
 interface RichTextProps {
   text: string;
   className?: string;
 }
 
-/** Renders text with fenced code blocks (line numbers + highlighting), inline `code` chips and LaTeX math (KaTeX). */
-export const RichText: React.FC<RichTextProps> = ({ text, className }) => {
-  const segments = parseSegments(text || '');
+/** Renders Markdown with fenced code blocks (line numbers + highlighting), inline `code` chips and LaTeX math (KaTeX). */
+export const RichText: React.FC<RichTextProps> = React.memo(({ text, className }) => {
+  const segments = React.useMemo(() => parseSegments(text || ''), [text]);
   return (
     <div className={className}>
       {segments.map((seg, i) =>
         seg.type === 'code' ? (
           <CodeBlock key={i} code={seg.value} lang={seg.lang} />
         ) : (
-          <span key={i} className="whitespace-pre-wrap">
-            {renderInline(seg.value.replace(/^\n+|\n+$/g, (m) => (i === 0 || i === segments.length - 1 ? '' : m)), String(i))}
-          </span>
+          <MarkdownText key={i} text={seg.value} />
         )
       )}
     </div>
   );
-};
+});

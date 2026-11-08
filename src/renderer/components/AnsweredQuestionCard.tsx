@@ -11,6 +11,15 @@ interface AnsweredQuestionCardProps {
   pending?: boolean;
 }
 
+/** Sessions saved by older versions stored internal placeholders and prefixes in the student's text. */
+function displayThinking(text: string): string {
+  return (text || '')
+    .replace(/^\[Resposta própria\]\s*/, '')
+    .replace(/^\(O aluno não explicou o raciocínio\.\)$/, '')
+    .replace(/^Não sei responder esta questão \/ ainda não domino o conceito\.$/, '')
+    .trim();
+}
+
 export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.memo(({ attempt, pending = false }) => {
   const { t } = useI18n();
   const [showUserThinking, setShowUserThinking] = useState(true);
@@ -46,6 +55,8 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
   };
 
   const badge = getBadgeConfig();
+  const studentText = displayThinking(attempt.thinkingText);
+  const showDiagnosis = !pending && Boolean(attempt.judgeReasoning || attempt.identifiedMisconception);
 
   return (
     <div className="card p-5 space-y-4">
@@ -129,6 +140,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
       )}
 
       {/* Collapsible YOUR THINKING */}
+      {studentText && (
       <div className="border-l-2 border-ink-500 pl-3 pt-0.5">
         <button
           type="button"
@@ -144,9 +156,27 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
         </button>
 
         {showUserThinking && (
-          <RichText text={attempt.thinkingText} className="mt-1.5 text-xs text-gray-300 leading-relaxed" />
+          <RichText text={studentText} className="mt-1.5 text-xs text-gray-300 leading-relaxed" />
         )}
       </div>
+      )}
+
+      {/* What the judge concluded */}
+      {showDiagnosis && (
+        <div className="space-y-1.5 rounded-lg border border-ink-600 bg-ink-800/40 p-3">
+          <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
+            {t('answered.diagnosis')}
+          </span>
+          {attempt.judgeReasoning && (
+            <RichText text={attempt.judgeReasoning} className="text-xs leading-relaxed text-gray-200" />
+          )}
+          {attempt.identifiedMisconception && (
+            <p className="text-xs leading-relaxed text-amber-200">
+              {t('answered.misconception', { text: attempt.identifiedMisconception })}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 });

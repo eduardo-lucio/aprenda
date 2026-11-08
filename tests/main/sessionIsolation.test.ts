@@ -6,7 +6,7 @@ import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import { SessionRepository } from '../../src/main/persistence/SessionRepository';
 import type { CallLLMOptions, LLMCaller } from '../../src/main/services/llmClient';
-import { mockJudge, mockLLM } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 import { CognitiveJudgeService } from '../../src/main/services/CognitiveJudgeService';
 import fs from 'fs';
 import os from 'os';
@@ -81,7 +81,7 @@ describe('session isolation', () => {
       }
       return mockLLM(o);
     };
-    const fsm = new SessionStateMachine(store, new CognitiveJudgeService(judgeLLM), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, new CognitiveJudgeService(judgeLLM), new CurriculumGenerator(mockLLM, noShuffle));
 
     await fsm.startSession('teaching', 'Sessão A');
     await fsm.submitGoalClarification('Foco de A');
@@ -107,7 +107,7 @@ describe('session isolation', () => {
   });
 
   it('F12: a new session never inherits the previous graph', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     await fsm.startSession('teaching', 'Sessão A');
     await fsm.submitGoalClarification('Foco de A');
     expect(store.getNodes().length).toBeGreaterThan(0);
@@ -119,7 +119,7 @@ describe('session isolation', () => {
   });
 
   it('I12: keeps the typed topic apart from the chosen focus', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     await fsm.startSession('teaching', 'Quero aprender redes');
     await fsm.submitGoalClarification('Foco em TTL');
     expect(fsm.getState().topic).toBe('Quero aprender redes');
@@ -146,7 +146,7 @@ describe('session isolation', () => {
   });
 
   it('endSession drops the active session and its graph', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     await fsm.startSession('teaching', 'Sessão A');
     await fsm.submitGoalClarification('Foco de A');
     fsm.endSession();
@@ -175,11 +175,11 @@ describe('session IPC lifecycle', () => {
     handlers = {};
     store = new KnowledgeStore();
     repository = tempRepo();
-    socratic = new SocraticEngine(mockLLM);
+    socratic = new SocraticEngine(mockLLM, new CurriculumGenerator(mockLLM, noShuffle));
   });
 
   it('F6: deleting the active session ends it, so nothing writes it back', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     registerIpcHandlers(ipc(), { fsm, store, socratic, repository });
     const s = await handlers['session:start']({}, 'teaching', 'Tema');
     expect(repository.get(s.id)).toBeDefined();
@@ -192,7 +192,7 @@ describe('session IPC lifecycle', () => {
   });
 
   it('F6: deleting another session leaves the active one alone', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     registerIpcHandlers(ipc(), { fsm, store, socratic, repository });
     const a = await handlers['session:start']({}, 'teaching', 'A');
     await new Promise((r) => setTimeout(r, 2));
@@ -202,7 +202,7 @@ describe('session IPC lifecycle', () => {
   });
 
   it('F5: loading the active session returns its saved UI without restoring over it', async () => {
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     registerIpcHandlers(ipc(), { fsm, store, socratic, repository });
     const s = await handlers['session:start']({}, 'teaching', 'Tema');
     await handlers['session:save-ui']({}, s.id, { chatMessages: [{ id: 'm', role: 'user', text: 'oi', timestamp: 1 }] });
