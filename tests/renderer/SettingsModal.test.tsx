@@ -365,3 +365,72 @@ describe('SettingsModal Functional Component', () => {
     expect(screen.getByTestId('min-questions-value').textContent).toBe('12');
   });
 });
+describe('SettingsModal providers', () => {
+  const model = (id: string, defaultEffort: ModelOption['defaultEffort'] = 'medium'): ModelOption => ({
+    id, name: id, provider: 'p', slug: id, price: 'Free', context: '1k', defaultEffort,
+  });
+  const provider = (id: string, name: string, models: ModelOption[], over = {}) => ({
+    id, name, keyMasked: '...1234', apiKey: `key-${id}`, isValidated: true, models, ...over,
+  });
+  const base = {
+    ...DEFAULT_SETTINGS,
+    activeProviderId: 'a',
+    strongModel: 'a-1',
+    model: 'a-1',
+    providers: [provider('a', 'Prov A', [model('a-1')], { isActive: true }), provider('b', 'Prov B', [model('b-1', 'high')])],
+  };
+
+  it('F8: adding another provider switches to its default model', async () => {
+    (window as any).api = {
+      validateProvider: async () => ({ isValid: true, providerId: 'groq', providerName: 'Groq', keyMasked: 'x', models: [model('groq-1')] }),
+    };
+    const onSave = vi.fn();
+    render(<SettingsModal isOpen onClose={vi.fn()} onSave={onSave} initialSettings={base} />);
+    fireEvent.click(screen.getByText('+ Adicionar provedor'));
+    fireEvent.click(screen.getByText('Groq'));
+    fireEvent.change(document.querySelector('input[type=password]')!, { target: { value: 'segredo-muito-longo' } });
+    fireEvent.click(screen.getByText('Salvar chave de API'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ activeProviderId: 'groq', strongModel: 'groq-1', model: 'groq-1' })));
+  });
+
+  it('I5: a saved provider can be activated without validating again', () => {
+    (window as any).api = { validateProvider: vi.fn() };
+    const onSave = vi.fn();
+    render(<SettingsModal isOpen onClose={vi.fn()} onSave={onSave} initialSettings={base} />);
+    fireEvent.click(screen.getByRole('button', { name: /ativar prov b/i }));
+    expect((window as any).api.validateProvider).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeProviderId: 'b', apiKey: 'key-b', strongModel: 'b-1', model: 'b-1', strongThinking: 'high' })
+    );
+  });
+
+  it('I5: removing an inactive provider keeps the active one', () => {
+    const onSave = vi.fn();
+    render(<SettingsModal isOpen onClose={vi.fn()} onSave={onSave} initialSettings={{ ...base, activeProviderId: 'b', strongModel: 'b-1' }} />);
+    fireEvent.click(screen.getAllByText('remover')[0]);
+    const saved = onSave.mock.calls[onSave.mock.calls.length - 1][0];
+    expect(saved.activeProviderId).toBe('b');
+    expect(saved.providers.map((p: any) => p.id)).toEqual(['b']);
+  });
+
+  it('F14: a validated Ollama counts as configured in the Model tab', () => {
+    render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        initialSettings={{ ...DEFAULT_SETTINGS, activeProviderId: 'ollama', providers: [provider('ollama', 'Ollama', [model('llama')], { apiKey: '' })] }}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
+    expect(screen.queryByText(/nenhum provedor configurado/i)).toBeNull();
+  });
+
+  it('I3: offers the same effort levels as the chat selector', () => {
+    render(<SettingsModal isOpen onClose={vi.fn()} onSave={vi.fn()} initialSettings={base} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
+    fireEvent.click(screen.getAllByRole('button', { name: /high/i })[0]);
+    expect(screen.queryByText('minimal')).toBeNull();
+    expect(screen.getByText('medium')).toBeDefined();
+  });
+});

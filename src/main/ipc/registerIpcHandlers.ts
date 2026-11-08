@@ -12,6 +12,7 @@ import {
 import { validateAndFetchModels } from '../services/providerValidationService';
 import {
   localize,
+  resetLLMConnectionToEnv,
   resolveChatBaseUrl,
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
@@ -226,16 +227,15 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   );
 
   ipcMain.handle('settings:update', async (_event, payload: SettingsUpdatePayload) => {
-    if (payload.providerId !== undefined || payload.baseUrl !== undefined) {
+    if (payload.providerId || payload.apiKey) {
       updateDefaultLLMConfig({
         baseURL: resolveChatBaseUrl(payload.providerId, payload.baseUrl),
+        apiKey: payload.apiKey || (payload.providerId === 'ollama' ? 'ollama' : ''),
+        model: payload.model || '',
       });
-    }
-    if (payload.apiKey !== undefined) {
-      updateDefaultLLMConfig({ apiKey: payload.apiKey || (payload.providerId === 'ollama' ? 'ollama' : '') });
-    }
-    if (payload.model !== undefined) {
-      updateDefaultLLMConfig({ model: payload.model });
+    } else if (payload.providerId !== undefined || payload.apiKey !== undefined) {
+      // Nothing configured in the app: whatever the environment provides still applies
+      resetLLMConnectionToEnv();
     }
     if (payload.effortLevel !== undefined) {
       updateDefaultLLMConfig({ effortLevel: payload.effortLevel as any });

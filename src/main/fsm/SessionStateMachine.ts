@@ -254,6 +254,7 @@ export class SessionStateMachine {
       questionCache: this.questionCache,
       askedQuestions: this.askedQuestions,
       goal: session.goal,
+      nodesState: session.nodesState,
     });
 
     this.persist();
@@ -415,6 +416,7 @@ export class SessionStateMachine {
       questionCache: this.questionCache,
       askedQuestions: this.askedQuestions,
       goal: session.goal,
+      nodesState: session.nodesState,
     });
 
     this.persist();

@@ -23,6 +23,8 @@ export const pt = {
   'sidebar.sessions': 'Sessões',
   'sidebar.search': 'Buscar...',
   'sidebar.empty': 'Nenhuma sessão ainda.',
+  'settings.activate': 'Ativar',
+  'settings.activateAria': 'Ativar {name}',
   'sidebar.delete': 'Excluir sessão',
   'sidebar.confirmDelete': 'Confirmar?',
   'sidebar.locked': 'Aguarde a IA terminar para trocar de sessão',

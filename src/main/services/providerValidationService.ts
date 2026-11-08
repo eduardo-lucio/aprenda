@@ -1,4 +1,13 @@
 import { ModelOption } from '../../shared/types';
+import { fetchWithTimeout } from './http';
+
+/** Providers validated by the generic OpenAI-compatible path below. */
+const COMPATIBLE_PROVIDER_NAMES: Record<string, string> = {
+  cerebras: 'Cerebras',
+  together: 'Together AI',
+  mistral: 'Mistral AI',
+  custom: 'Custom endpoint',
+};
 
 export interface ProviderValidationResult {
   isValid: boolean;
@@ -17,7 +26,7 @@ export async function validateAndFetchModels(params: {
   const { providerId, apiKey } = params;
   const keyTrimmed = apiKey.trim();
 
-  if (!keyTrimmed && providerId !== 'ollama') {
+  if (!keyTrimmed && providerId !== 'ollama' && providerId !== 'custom') {
     throw new Error('A Chave de API não pode estar em branco.');
   }
 
@@ -31,7 +40,7 @@ export async function validateAndFetchModels(params: {
   // 1. OPENROUTER
   if (providerId === 'openrouter') {
     // 1a. Validate key against OpenRouter auth endpoint
-    const authRes = await fetch('https://openrouter.ai/api/v1/auth/key', {
+    const authRes = await fetchWithTimeout('https://openrouter.ai/api/v1/auth/key', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${keyTrimmed}`,
@@ -48,7 +57,7 @@ export async function validateAndFetchModels(params: {
     }
 
     // 1b. Fetch real live models from OpenRouter
-    const modelsRes = await fetch('https://openrouter.ai/api/v1/models', {
+    const modelsRes = await fetchWithTimeout('https://openrouter.ai/api/v1/models', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${keyTrimmed}`,
@@ -110,7 +119,7 @@ export async function validateAndFetchModels(params: {
 
   // 2. OPENAI
   if (providerId === 'openai') {
-    const res = await fetch('https://api.openai.com/v1/models', {
+    const res = await fetchWithTimeout('https://api.openai.com/v1/models', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${keyTrimmed}`,
@@ -163,10 +172,11 @@ export async function validateAndFetchModels(params: {
 
   // 3. GOOGLE GEMINI
   if (providerId === 'google') {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${keyTrimmed}`,
+    const res = await fetchWithTimeout(
+      'https://generativelanguage.googleapis.com/v1beta/models',
       {
         method: 'GET',
+        headers: { 'x-goog-api-key': keyTrimmed },
       }
     );
 
@@ -216,7 +226,7 @@ export async function validateAndFetchModels(params: {
 
   // 4. DEEPSEEK
   if (providerId === 'deepseek') {
-    const res = await fetch('https://api.deepseek.com/models', {
+    const res = await fetchWithTimeout('https://api.deepseek.com/models', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${keyTrimmed}`,
@@ -263,7 +273,7 @@ export async function validateAndFetchModels(params: {
 
   // 5. GROQ
   if (providerId === 'groq') {
-    const res = await fetch('https://api.groq.com/openai/v1/models', {
+    const res = await fetchWithTimeout('https://api.groq.com/openai/v1/models', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${keyTrimmed}`,
@@ -307,7 +317,7 @@ export async function validateAndFetchModels(params: {
 
   // 6. ANTHROPIC
   if (providerId === 'anthropic') {
-    const res = await fetch('https://api.anthropic.com/v1/models', {
+    const res = await fetchWithTimeout('https://api.anthropic.com/v1/models', {
       method: 'GET',
       headers: {
         'x-api-key': keyTrimmed,
@@ -352,10 +362,10 @@ export async function validateAndFetchModels(params: {
 
   // 7. OLLAMA (Local)
   if (providerId === 'ollama') {
-    const url = (params.baseUrl || 'http://localhost:11434').replace(/\/+$/, '');
+    const url = (params.baseUrl || 'http://localhost:11434').replace(/\/+$/, '').replace(/\/v1$/, '');
     let res: Response;
     try {
-      res = await fetch(`${url}/api/tags`);
+      res = await fetchWithTimeout(`${url}/api/tags`);
     } catch (e: any) {
       throw new Error(`Não foi possível conectar ao Ollama em ${url}: ${e?.message || 'Servidor inacessível'}`);
     }
@@ -400,7 +410,7 @@ export async function validateAndFetchModels(params: {
   const targetBaseUrl = (params.baseUrl || 'http://localhost:8000/v1').replace(/\/+$/, '');
   const modelsUrl = targetBaseUrl.endsWith('/models') ? targetBaseUrl : `${targetBaseUrl}/models`;
 
-  const customRes = await fetch(modelsUrl, {
+  const customRes = await fetchWithTimeout(modelsUrl, {
     method: 'GET',
     headers: keyTrimmed ? { Authorization: `Bearer ${keyTrimmed}` } : {},
   });
@@ -415,10 +425,17 @@ export async function validateAndFetchModels(params: {
   }
 
   const customData: any = await customRes.json();
-  const rawList: any[] = customData?.data || customData?.models || [];
+  const rawList: any[] = (Array.isArray(customData) ? customData : customData?.data || customData?.models || []).filter(
+    (m: any) => m?.id || m?.name
+  );
+  if (rawList.length === 0) {
+    throw new Error(
+      `${modelsUrl} respondeu, mas não devolveu uma lista de modelos que o APRENDA reconheça. Confira o endereço.`
+    );
+  }
 
-  const models: ModelOption[] = (rawList.length > 0 ? rawList : [{ id: 'default-model' }]).map((m: any) => {
-    const id = m.id || m.name || 'custom-model';
+  const models: ModelOption[] = rawList.map((m: any) => {
+    const id = m.id || m.name;
     return {
       id,
       name: `Custom: ${id}`,
@@ -433,7 +450,7 @@ export async function validateAndFetchModels(params: {
   return {
     isValid: true,
     providerId,
-    providerName: providerId,
+    providerName: COMPATIBLE_PROVIDER_NAMES[providerId] || providerId,
     keyMasked: masked,
     models,
   };

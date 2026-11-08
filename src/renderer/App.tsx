@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
-import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
+import { SettingsModal, AppSettings, DEFAULT_SETTINGS, normalizeEffort } from './components/SettingsModal';
 import { ErrorNotice } from './components/ErrorNotice';
 import { cleanError } from './lib/errors';
 import { ProbingSession, ModelOption, PersistedUi } from '../shared/types';
@@ -28,7 +28,7 @@ export default function App() {
       const saved = localStorage.getItem('aprenda_settings');
       if (saved) {
         const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-        return { ...parsed, language: normalizeLang(parsed.language) };
+        return { ...parsed, language: normalizeLang(parsed.language), strongThinking: normalizeEffort(parsed.strongThinking) };
       }
     } catch {}
     return DEFAULT_SETTINGS;

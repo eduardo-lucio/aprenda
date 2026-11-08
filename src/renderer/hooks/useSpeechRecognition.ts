@@ -1,3 +1,4 @@
+import { cleanError } from '../lib/errors';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useI18n } from '../i18n';
 
@@ -196,11 +197,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
               setError(t('voice.err.noSpeech'));
             }
           } catch (err: any) {
-            const cleanMsg = String(err?.message || err || t('voice.err.generic')).replace(
-              /^Error invoking remote method '[^']+': (Error: )?/,
-              ''
-            );
-            setError(cleanMsg);
+            setError(cleanError(err, t('voice.err.generic')));
           } finally {
             setIsTranscribing(false);
           }

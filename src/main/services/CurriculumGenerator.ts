@@ -6,7 +6,7 @@ import {
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
+import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
 function slugify(text: string): string {
   return (
@@ -152,13 +152,12 @@ export class CurriculumGenerator {
           effortLevel: 'low',
           timeoutMs: 60000,
         });
-        const nativeThink = extractLLMThinking(raw);
         const parsed = parseLLMJson<{ options?: unknown; question?: unknown; agentThinking?: unknown }>(raw);
         const jsonThink =
           typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
             ? parsed.agentThinking.trim()
             : undefined;
-        this.lastGoalThinking = jsonThink || nativeThink;
+        this.lastGoalThinking = jsonThink;
 
         const rawOpts = Array.isArray(parsed.options)
           ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 9)
@@ -199,16 +198,13 @@ export class CurriculumGenerator {
         temperature: 0.2,
         jsonMode: true,
         maxTokens: 4096,
-        effortLevel: 'low',
         timeoutMs: 45000,
       });
-      const nativeThink = extractLLMThinking(raw);
       const parsed = parseLLMJson<any>(raw);
       const rawNodes = Array.isArray(parsed) ? parsed : parsed?.nodes;
       const nodes = sanitizeGraph(rawNodes);
       const graphThinking =
-        (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) ||
-        nativeThink;
+        (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) || undefined;
 
       if (nodes.length >= 3) {
         let firstQuestion: QuestionData | undefined;
@@ -292,16 +288,13 @@ export class CurriculumGenerator {
           signal: callOpts?.signal,
           isBackground: Boolean(callOpts?.signal || callOpts?.isBackground),
         });
-        const nativeThink = extractLLMThinking(raw);
         const parsed = parseLLMJson<any>(raw);
         const options: string[] = Array.isArray(parsed.options)
           ? parsed.options.map((o: unknown) => String(o)).filter((o: string) => o.trim())
           : [];
         const correct = Number(parsed.correctOptionIndex);
         if (parsed.questionText && options.length >= 2 && options.length <= 6 && correct >= 0 && correct < options.length) {
-          const qThink =
-            (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) ||
-            nativeThink;
+          const qThink = (typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()) || undefined;
           return {
             id: `q-${node.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             nodeId: node.id,
@@ -395,7 +388,6 @@ export class CurriculumGenerator {
           temperature: 0.3,
           jsonMode: true,
           maxTokens: 800,
-          effortLevel: 'low',
           timeoutMs: 45000,
         });
         const parsed = parseLLMJson<any>(raw);

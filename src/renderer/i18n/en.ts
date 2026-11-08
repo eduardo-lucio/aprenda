@@ -25,6 +25,8 @@ export const en: Record<keyof typeof pt, string> = {
   'sidebar.sessions': 'Sessions',
   'sidebar.search': 'Search...',
   'sidebar.empty': 'No sessions yet.',
+  'settings.activate': 'Activate',
+  'settings.activateAria': 'Activate {name}',
   'sidebar.delete': 'Delete session',
   'sidebar.confirmDelete': 'Confirm?',
   'sidebar.locked': 'Wait for the AI to finish before switching sessions',

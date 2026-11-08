@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { cleanError } from '../lib/errors';
 import { X, ChevronDown, Check, AlertTriangle, Loader2, AlertCircle } from 'lucide-react';
 import {
   ModelOption,
@@ -10,7 +11,7 @@ import {
 } from '../../shared/types';
 import { Lang, useI18n } from '../i18n';
 
-type Effort = 'off' | 'minimal' | 'low' | 'medium' | 'high';
+type Effort = 'off' | 'low' | 'medium' | 'high';
 
 export interface AppSettings {
   // Legacy / backwards compatibility fields
@@ -74,7 +75,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'pt',
 };
 
-const EFFORT_LEVELS: Effort[] = ['off', 'minimal', 'low', 'medium', 'high'];
+const EFFORT_LEVELS: Effort[] = ['off', 'low', 'medium', 'high'];
+
+/** Older versions could save 'minimal', and model metadata may still report it. */
+export function normalizeEffort(value: unknown): Effort {
+  return EFFORT_LEVELS.includes(value as Effort) ? (value as Effort) : value === 'minimal' ? 'low' : 'high';
+}
+
+/** Providers that can work without an API key. */
+const KEYLESS_PROVIDERS = new Set(['ollama', 'custom']);
 const QUICK_VOICE_LANGUAGES = ['pt-BR', 'en-US', 'es'];
 
 type SettingsTab = 'providers' | 'model' | 'general';
@@ -85,9 +94,6 @@ interface SettingsModalProps {
   onSave: (settings: AppSettings) => void;
   initialSettings?: AppSettings;
 }
-
-const cleanIpcError = (err: any, fallback: string) =>
-  String(err?.message || err || fallback).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -172,7 +178,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!editingProvider) return;
     const key = editingProvider.apiKey.trim();
 
-    if (!key && editingProvider.id !== 'ollama') {
+    if (!key && !KEYLESS_PROVIDERS.has(editingProvider.id)) {
       setValidationError(t('settings.providers.errEmptyKey'));
       return;
     }
@@ -203,35 +209,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       const existing = (settings.providers || []).filter((p) => p.id !== editingProvider.id);
       const defaultModel = result.models[0]?.id || '';
-      const defaultEffort = result.models[0]?.defaultEffort || 'high';
+      const defaultEffort = normalizeEffort(result.models[0]?.defaultEffort);
+      // A model id only means something to the provider that listed it
+      const keepModel =
+        editingProvider.id === settings.activeProviderId && result.models.some((m) => m.id === settings.strongModel);
 
       updateSettings({
         providers: [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))],
         activeProviderId: editingProvider.id,
         apiKey: key,
         baseUrl: editingProvider.baseUrl || settings.baseUrl,
-        strongModel: settings.strongModel || defaultModel,
-        model: settings.model || defaultModel,
-        strongThinking: settings.strongThinking || defaultEffort,
+        strongModel: keepModel ? settings.strongModel : defaultModel,
+        model: keepModel ? settings.strongModel : defaultModel,
+        strongThinking: keepModel ? settings.strongThinking : defaultEffort,
       });
 
       setEditingProvider(null);
       setShowProviderDropdown(false);
       setValidationError(null);
     } catch (err: any) {
-      setValidationError(cleanIpcError(err, t('settings.providers.errGeneric')));
+      setValidationError(cleanError(err, t('settings.providers.errGeneric')));
     } finally {
       setIsValidatingKey(false);
     }
   };
 
+  const activationFor = (provider: ProviderConfig, providers: ProviderConfig[]): Partial<AppSettings> => {
+    const firstModel = provider.models?.[0];
+    return {
+      providers: providers.map((p) => ({ ...p, isActive: p.id === provider.id })),
+      activeProviderId: provider.id,
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl || '',
+      strongModel: firstModel?.id || '',
+      model: firstModel?.id || '',
+      strongThinking: normalizeEffort(firstModel?.defaultEffort),
+    };
+  };
+
+  const handleActivateProvider = (provider: ProviderConfig) => {
+    updateSettings(activationFor(provider, settings.providers || []));
+  };
+
   const handleRemoveProvider = (id: string) => {
     const updated = (settings.providers || []).filter((p) => p.id !== id);
-    updateSettings({
-      providers: updated,
-      activeProviderId: updated.length > 0 ? updated[0].id : '',
-      apiKey: updated[0]?.apiKey || '',
-    });
+    if (id !== settings.activeProviderId) {
+      updateSettings({ providers: updated });
+    } else if (updated.length > 0) {
+      updateSettings(activationFor(updated[0], updated));
+    } else {
+      updateSettings({ providers: [], activeProviderId: '', apiKey: '', baseUrl: '', strongModel: '', model: '' });
+    }
   };
 
   const handleSaveDeepgramKey = async () => {
@@ -250,7 +278,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsEditingDeepgram(false);
       setDeepgramDraftKey('');
     } catch (err: any) {
-      setDeepgramError(cleanIpcError(err, t('settings.voice.errInvalid')));
+      setDeepgramError(cleanError(err, t('settings.voice.errInvalid')));
     } finally {
       setIsValidatingDeepgram(false);
     }
@@ -269,8 +297,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     updateSettings({
       strongModel: modelOption.id,
       model: modelOption.id,
-      strongThinking: modelOption.defaultEffort,
-      thinkingLevel: capitalize(modelOption.defaultEffort),
+      strongThinking: normalizeEffort(modelOption.defaultEffort),
+      thinkingLevel: capitalize(normalizeEffort(modelOption.defaultEffort)),
     });
     setIsModelMenuOpen(false);
     setModelSearchQuery('');
@@ -381,6 +409,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                             <div className="flex items-center space-x-3">
                               <span className="text-gray-400 font-mono text-[11px]">{p.keyMasked}</span>
+                              {!isCurrentActive && p.isValidated && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateProvider(p)}
+                                  aria-label={t('settings.activateAria', { name: p.name })}
+                                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-sans underline"
+                                >
+                                  {t('settings.activate')}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -732,7 +770,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </div>
 
-                  {(!activeProvider || !activeProvider.isValidated || !activeProvider.apiKey) && (
+                  {(!activeProvider || !activeProvider.isValidated) && (
                     <div className="rounded-lg border border-amber-900/60 bg-amber-950/25 p-4 mb-5 text-xs space-y-2">
                       <div className="flex items-center space-x-2 text-amber-300 font-semibold">
                         <AlertTriangle className="h-4 w-4" />

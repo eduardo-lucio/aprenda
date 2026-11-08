@@ -11,7 +11,7 @@ interface AnsweredQuestionCardProps {
   pending?: boolean;
 }
 
-export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt, pending = false }) => {
+export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.memo(({ attempt, pending = false }) => {
   const { t } = useI18n();
   const [showUserThinking, setShowUserThinking] = useState(true);
 
@@ -149,4 +149,4 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       </div>
     </div>
   );
-};
+});

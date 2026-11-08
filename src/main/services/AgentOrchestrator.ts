@@ -68,28 +68,26 @@ export class AgentOrchestrator {
     questionCache: Map<string, QuestionData>;
     askedQuestions: string[];
     goal: string;
+    /** Concepts already evaluated are not worth a question (absent id = untested). */
+    nodesState?: Record<string, ConceptNode['status']>;
   }): void {
-    const { currentNodeId, candidateQueue, strandNodes, questionCache, askedQuestions, goal } = params;
+    const { currentNodeId, candidateQueue, strandNodes, questionCache, askedQuestions, goal, nodesState = {} } = params;
+    const worthFetching = (id: string) =>
+      id !== currentNodeId && !questionCache.has(id) && (nodesState[id] ?? 'untested') === 'untested';
 
-    // 1. Zoom-In Branch: Untested direct prerequisites of current node (if student struggles)
-    const prereqNodes = this.store.getPrerequisites(currentNodeId);
-    const zoomInTargets = prereqNodes
-      .filter((n) => !questionCache.has(n.id))
-      .map((n) => n.id);
+    // 1. Success Branch: the next candidate is the most likely question
+    const successTargets = candidateQueue.filter(worthFetching);
 
-    // 2. Success Branch: Next candidate in topological order (if student succeeds)
-    const successTargets = candidateQueue.filter((id) => !questionCache.has(id));
+    // 2. Zoom-In Branch: untested prerequisites of the current node (if the student struggles)
+    const zoomInTargets = this.store.getPrerequisites(currentNodeId).map((n) => n.id).filter(worthFetching);
 
     // 3. Remaining untested nodes in strand
-    const strandTargets = strandNodes
-      .filter((n) => !questionCache.has(n.id))
-      .map((n) => n.id);
+    const strandTargets = strandNodes.map((n) => n.id).filter(worthFetching);
 
-    // Prioritized, deduplicated target list — cap to immediate next 2 branches to preserve API quota
-    const combined = Array.from(new Set([...zoomInTargets, ...successTargets, ...strandTargets])).slice(
-      0,
-      2
-    );
+    // Prioritized, deduplicated target list — cap to the immediate next 2 to preserve API quota
+    const combined = Array.from(
+      new Set([...successTargets.slice(0, 1), ...zoomInTargets, ...successTargets, ...strandTargets])
+    ).slice(0, 2);
 
     for (const nodeId of combined) {
       if (questionCache.has(nodeId)) continue;

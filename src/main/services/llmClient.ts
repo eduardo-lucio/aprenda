@@ -41,6 +41,15 @@ export function updateDefaultLLMConfig(newConfig: Partial<LLMConfig>): void {
   Object.assign(defaultLLMConfig, newConfig);
 }
 
+/** Back to what the environment provided (OPENAI_*): used when no provider is configured in the app. */
+export function resetLLMConnectionToEnv(): void {
+  updateDefaultLLMConfig({
+    baseURL: process.env.OPENAI_BASE_URL || '',
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL || '',
+  });
+}
+
 export function isLLMConfigured(): boolean {
   return Boolean(defaultLLMConfig.baseURL && defaultLLMConfig.model);
 }
@@ -161,18 +170,11 @@ export function emitTokenUsage(usage: TokenUsage): void {
   }
 }
 
-/** Extracts partial or complete thinking from an accumulating LLM stream buffer. */
+/**
+ * Extracts the student-facing "agentThinking" field from an accumulating JSON answer.
+ * Raw model reasoning stays out: it ignores the prompts' language rules and may state the answer.
+ */
 export function extractPartialThinkingFromBuffer(raw: string): string | undefined {
-  // 1. Check for <think>...</think> (even if unclosed while streaming)
-  const thinkOpenIdx = raw.search(/<think>/i);
-  if (thinkOpenIdx !== -1) {
-    const afterOpen = raw.slice(thinkOpenIdx + 7);
-    const thinkCloseIdx = afterOpen.search(/<\/think>/i);
-    const inner = thinkCloseIdx !== -1 ? afterOpen.slice(0, thinkCloseIdx) : afterOpen;
-    if (inner.trim()) return inner.trim();
-  }
-
-  // 2. Check for "agentThinking": "..." inside JSON buffer while streaming
   const jsonMatch = raw.match(/"agentThinking"\s*:\s*"((?:\\.|[^"\\])*)/);
   if (jsonMatch && jsonMatch[1]) {
     try {
@@ -275,7 +277,9 @@ async function doRequest(
   options: CallLLMOptions,
   useJsonMode: boolean,
   useStream: boolean,
-  guard: CallGuard
+  guard: CallGuard,
+  /** Provider refused the request: send only what every endpoint must accept. */
+  bare = false
 ): Promise<Response> {
   guard.touch();
 
@@ -285,18 +289,21 @@ async function doRequest(
   }
   messages.push({ role: 'user', content: options.prompt });
 
-  const isReasoningModel = /\b(o1|o3|o4)\b/i.test(config.model);
   const isOpenRouter = config.baseURL.includes('openrouter.ai');
+  // OpenRouter translates parameters for GPT-5 itself; called directly, the family rejects temperature and max_tokens
+  const isReasoningModel = /\b(o1|o3|o4)\b/i.test(config.model) || (!isOpenRouter && /\bgpt-5/i.test(config.model));
 
-  const bodyPayload: any = {
-    model: config.model,
-    messages,
-    ...(isReasoningModel ? {} : { temperature: options.temperature ?? 0.2 }),
-    ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
-    ...(useStream ? { stream: true, stream_options: { include_usage: true } } : {}),
-  };
+  const bodyPayload: any = bare
+    ? { model: config.model, messages, ...(useStream ? { stream: true } : {}) }
+    : {
+        model: config.model,
+        messages,
+        ...(isReasoningModel ? {} : { temperature: options.temperature ?? 0.2 }),
+        ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(useStream ? { stream: true, stream_options: { include_usage: true } } : {}),
+      };
 
-  if (options.maxTokens) {
+  if (options.maxTokens && !bare) {
     if (isReasoningModel) {
       bodyPayload.max_completion_tokens = options.maxTokens;
     } else {
@@ -308,7 +315,7 @@ async function doRequest(
   // OpenAI o1/o3/o4 accepts reasoning_effort. OpenRouter accepts reasoning object.
   // Standard models on OpenAI (gpt-4o), Groq, Gemini, DeepSeek reject these with HTTP 400.
   const effort = options.effortLevel ?? config.effortLevel;
-  if (effort) {
+  if (effort && !bare) {
     if (effort === 'off') {
       if (isOpenRouter) {
         bodyPayload.reasoning = { effort: 'none' };
@@ -336,6 +343,8 @@ async function doRequest(
   });
 }
 
+const LIVE_THINKING_INTERVAL_MS = 100;
+
 async function readResponseOrStream(
   res: Response,
   shouldEmitLiveThinking: boolean,
@@ -354,6 +363,8 @@ async function readResponseOrStream(
     let reasoningAcc = '';
     let reportedUsage: TokenUsage | null = null;
     let streamError: any = null;
+    let lastEmitAt = 0;
+    let lastEmitted = '';
 
     try {
     while (true) {
@@ -395,10 +406,11 @@ async function readResponseOrStream(
           if (rChunk) reasoningAcc += String(rChunk);
           if (cChunk) contentAcc += String(cChunk);
 
-          if (shouldEmitLiveThinking) {
-            const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
-            const liveThinking = (partialFromContent || reasoningAcc.trim()).trim();
-            if (liveThinking) {
+          if (shouldEmitLiveThinking && Date.now() - lastEmitAt >= LIVE_THINKING_INTERVAL_MS) {
+            const liveThinking = extractPartialThinkingFromBuffer(contentAcc);
+            if (liveThinking && liveThinking !== lastEmitted) {
+              lastEmitAt = Date.now();
+              lastEmitted = liveThinking;
               emitThinkingStream(liveThinking, false);
             }
           }
@@ -420,8 +432,7 @@ async function readResponseOrStream(
     }
 
     if (shouldEmitLiveThinking) {
-      const partialFromContent = extractPartialThinkingFromBuffer(contentAcc);
-      const finalThinking = (partialFromContent || reasoningAcc.trim()).trim();
+      const finalThinking = extractPartialThinkingFromBuffer(contentAcc);
       if (finalThinking) {
         emitThinkingStream(finalThinking, true);
       }
@@ -470,10 +481,9 @@ async function readResponseOrStream(
   emitTokenUsage(reportedUsage);
 
   if (shouldEmitLiveThinking) {
-    const extracted = extractPartialThinkingFromBuffer(content) || extractLLMThinking(content);
-    const combined = (extracted || nativeReasoning).trim();
-    if (combined) {
-      emitThinkingStream(combined, true);
+    const extracted = extractPartialThinkingFromBuffer(content);
+    if (extracted) {
+      emitThinkingStream(extracted, true);
     }
   }
 
@@ -594,7 +604,7 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
 
   // If provider rejects specialized payload (400/422), retry once with clean baseline payload
   if (!res.ok && (res.status === 400 || res.status === 422)) {
-    res = await doRequest(config, { ...options, effortLevel: 'off' }, false, shouldStreamLive, guard);
+    res = await doRequest(config, options, false, shouldStreamLive, guard, true);
   }
 
   if (!res.ok) {

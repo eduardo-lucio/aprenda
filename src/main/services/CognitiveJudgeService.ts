@@ -5,7 +5,7 @@ import {
   resolveAnswerKind,
 } from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
+import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
 const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
 type Verdict = (typeof VERDICTS)[number];
@@ -47,7 +47,7 @@ export class CognitiveJudgeService {
     const isCorrectOption = kind === 'option' && attempt.selectedOptionIndex === attempt.correctOptionIndex;
 
     let lastErr: unknown;
-    let incoherent: { parsed: any; nativeThink?: string } | undefined;
+    let incoherent: { parsed: any } | undefined;
 
     for (let tryNo = 0; tryNo < MAX_TRIES; tryNo++) {
       try {
@@ -58,11 +58,9 @@ export class CognitiveJudgeService {
           temperature: 0.1,
           jsonMode: true,
           maxTokens: 1024,
-          effortLevel: 'minimal',
           timeoutMs: 30000,
         });
 
-        const nativeThink = extractLLMThinking(rawResponse);
         const parsed = parseLLMJson<any>(rawResponse);
 
         if (!parsed?.verdict || !(VERDICTS as readonly string[]).includes(parsed.verdict)) {
@@ -70,7 +68,7 @@ export class CognitiveJudgeService {
           continue;
         }
         if (!this.isCoherent(parsed.verdict, kind, isCorrectOption)) {
-          incoherent = { parsed, nativeThink };
+          incoherent = { parsed };
           continue;
         }
 
@@ -80,7 +78,7 @@ export class CognitiveJudgeService {
           confidenceLevel: attempt.confidence,
           reasoningDiagnosis: parsed.reasoningDiagnosis || 'Avaliação cognitiva gerada pelo modelo.',
           identifiedMisconception: parsed.identifiedMisconception || undefined,
-          agentThinking: this.pickThinking(parsed, nativeThink),
+          agentThinking: this.pickThinking(parsed),
         };
       } catch (err) {
         // Quota/credit/key failures and missing configuration must reach the user right away
@@ -113,7 +111,7 @@ export class CognitiveJudgeService {
     attempt: { confidence?: number },
     kind: ProbeAnswerKind,
     isCorrectOption: boolean,
-    source: { parsed: any; nativeThink?: string }
+    source: { parsed: any }
   ): JudgeEvaluationResult {
     const verdict: Verdict = kind === 'option' && isCorrectOption ? 'false_positive' : 'frontier';
     const note =
@@ -126,14 +124,13 @@ export class CognitiveJudgeService {
       confidenceLevel: attempt.confidence,
       reasoningDiagnosis: [source.parsed?.reasoningDiagnosis, note].filter(Boolean).join(' '),
       identifiedMisconception: source.parsed?.identifiedMisconception || undefined,
-      agentThinking: this.pickThinking(source.parsed, source.nativeThink),
+      agentThinking: this.pickThinking(source.parsed),
     };
   }
 
-  private pickThinking(parsed: any, nativeThink?: string): string | undefined {
+  private pickThinking(parsed: any): string | undefined {
     return (
       (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) ||
-      nativeThink ||
       parsed?.reasoningDiagnosis ||
       undefined
     );

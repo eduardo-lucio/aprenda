@@ -1,4 +1,5 @@
 export { VOICE_LANGUAGES } from '../../shared/types';
+import { fetchWithTimeout } from './http';
 
 import { localize } from './llmClient';
 
@@ -20,7 +21,7 @@ export async function validateDeepgramKey(apiKey: string): Promise<{ isValid: tr
 
   let res: Response;
   try {
-    res = await fetch(`${DEEPGRAM_BASE}/projects`, {
+    res = await fetchWithTimeout(`${DEEPGRAM_BASE}/projects`, {
       method: 'GET',
       headers: { Authorization: `Token ${key}` },
     });
@@ -66,14 +67,14 @@ export async function transcribeWithDeepgram(params: {
 
   const body = params.audio instanceof Uint8Array ? params.audio : new Uint8Array(params.audio);
 
-  const res = await fetch(`${DEEPGRAM_BASE}/listen?${query.toString()}`, {
+  const res = await fetchWithTimeout(`${DEEPGRAM_BASE}/listen?${query.toString()}`, {
     method: 'POST',
     headers: {
       Authorization: `Token ${key}`,
       'Content-Type': (params.mimeType || 'audio/webm').split(';')[0],
     },
     body: body as any,
-  });
+  }, 60000);
 
   if (!res.ok) {
     const msg = await readDeepgramError(res);
