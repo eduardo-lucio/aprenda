@@ -205,24 +205,79 @@ export interface CallLLMOptions {
 
 export type LLMCaller = (options: CallLLMOptions) => Promise<string>;
 
+/** Hard limit for one call, even if the provider keeps the connection alive forever. */
+const MAX_CALL_MS = 5 * 60 * 1000;
+
+/**
+ * Owns the abort signal of one call from the request until the last byte of the response.
+ * `idleMs` is a silence limit: a slow answer that keeps streaming must not be cut off.
+ */
+class CallGuard {
+  private controller = new AbortController();
+  private idleTimer?: NodeJS.Timeout;
+  private hardTimer: NodeJS.Timeout;
+  private cancelled = false;
+  private timedOut = false;
+  private onExternalAbort = () => this.controller.abort();
+
+  readonly signal = this.controller.signal;
+
+  constructor(private idleMs: number, private external?: AbortSignal) {
+    external?.addEventListener('abort', this.onExternalAbort, { once: true });
+    this.hardTimer = setTimeout(() => this.expire(), MAX_CALL_MS);
+    this.touch();
+  }
+
+  private expire(): void {
+    this.timedOut = true;
+    this.controller.abort();
+  }
+
+  /** Data arrived (or a request is starting): the silence limit starts over. */
+  touch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.expire(), this.idleMs);
+  }
+
+  cancel(): void {
+    this.cancelled = true;
+    this.controller.abort();
+  }
+
+  /** Replaces the low-level abort error by the reason the call was actually stopped. */
+  explain(err: unknown): unknown {
+    if (this.cancelled) return new LLMCancelledError();
+    if (this.external?.aborted) return new Error('Operação cancelada pelo orquestrador.');
+    if (this.timedOut) {
+      return new Error(
+        localize('Tempo limite excedido aguardando resposta do modelo.', 'Timed out waiting for the model to answer.')
+      );
+    }
+    return err;
+  }
+
+  dispose(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    clearTimeout(this.hardTimer);
+    this.external?.removeEventListener('abort', this.onExternalAbort);
+  }
+}
+
+const foregroundCalls = new Set<CallGuard>();
+
+/** Stops every call the student is waiting on (background prefetching keeps running). */
+export function cancelForegroundLLM(): void {
+  for (const guard of foregroundCalls) guard.cancel();
+}
+
 async function doRequest(
   config: LLMConfig,
   options: CallLLMOptions,
   useJsonMode: boolean,
-  useStream = false
+  useStream: boolean,
+  guard: CallGuard
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? config.timeoutMs);
-
-  let onExternalAbort: (() => void) | undefined;
-  if (options.signal) {
-    if (options.signal.aborted) {
-      clearTimeout(timeoutId);
-      throw new Error('Operação cancelada pelo orquestrador.');
-    }
-    onExternalAbort = () => controller.abort();
-    options.signal.addEventListener('abort', onExternalAbort, { once: true });
-  }
+  guard.touch();
 
   const messages: Array<{ role: string; content: string }> = [];
   if (options.systemPrompt) {
@@ -268,39 +323,25 @@ async function doRequest(
     }
   }
 
-  try {
-    return await fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey || 'none'}`,
-        'HTTP-Referer': 'https://aprenda.app',
-        'X-Title': 'APRENDA',
-      },
-      body: JSON.stringify(bodyPayload),
-      signal: controller.signal,
-    });
-  } catch (err: any) {
-    if (options.signal?.aborted) {
-      throw new Error('Operação cancelada pelo orquestrador.');
-    }
-    if (err?.name === 'AbortError') {
-      throw new Error('Tempo limite excedido aguardando resposta do modelo.');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-    if (options.signal && onExternalAbort) {
-      options.signal.removeEventListener('abort', onExternalAbort);
-    }
-  }
+  return fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey || 'none'}`,
+      'HTTP-Referer': 'https://aprenda.app',
+      'X-Title': 'APRENDA',
+    },
+    body: JSON.stringify(bodyPayload),
+    signal: guard.signal,
+  });
 }
 
 async function readResponseOrStream(
   res: Response,
   shouldEmitLiveThinking: boolean,
-  messages: Array<{ role: string; content: string }> = [],
-  model = ''
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+  guard: CallGuard
 ): Promise<{ content: string; nativeReasoning: string }> {
   const contentType = res.headers?.get?.('content-type') || '';
   const isSSE = contentType.includes('text/event-stream') && res.body && typeof res.body.getReader === 'function';
@@ -314,9 +355,11 @@ async function readResponseOrStream(
     let reportedUsage: TokenUsage | null = null;
     let streamError: any = null;
 
+    try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      guard.touch();
       sseBuffer += decoder.decode(value, { stream: true });
 
       const lines = sseBuffer.split('\n');
@@ -364,8 +407,12 @@ async function readResponseOrStream(
         }
       }
     }
+    } finally {
+      reader.cancel().catch(() => {});
+    }
 
-    if (streamError && !contentAcc.trim()) {
+    // Text received before the error is an unusable fragment: the real cause is what matters
+    if (streamError) {
       const code = Number(streamError.code) || 0;
       const detail = String(streamError.message || '');
       if ([401, 402, 403, 429].includes(code)) throwProviderLimit(code, detail);
@@ -464,9 +511,17 @@ export class LLMNotConfiguredError extends Error {
   }
 }
 
-/** Errors for which a retry is pointless (quota/key/credits or missing configuration). */
+/** The student stopped the call: the app must not retry nor report it as a failure. */
+export class LLMCancelledError extends Error {
+  constructor() {
+    super(localize('Operação cancelada.', 'Operation cancelled.'));
+    this.name = 'LLMCancelledError';
+  }
+}
+
+/** Errors for which a retry is pointless (quota/key/credits, missing configuration or a cancel). */
 export function isFatalLLMError(err: unknown): boolean {
-  return isProviderLimitError(err) || err instanceof LLMNotConfiguredError;
+  return isProviderLimitError(err) || err instanceof LLMNotConfiguredError || err instanceof LLMCancelledError;
 }
 
 function throwProviderLimit(status: number, detail: string): never {
@@ -507,7 +562,23 @@ export const callLLM: LLMCaller = async (options) => {
   if (!config.baseURL || !config.model) {
     throw new LLMNotConfiguredError();
   }
+  if (options.signal?.aborted) {
+    throw new Error('Operação cancelada pelo orquestrador.');
+  }
 
+  const guard = new CallGuard(options.timeoutMs ?? config.timeoutMs, options.signal);
+  if (!options.isBackground) foregroundCalls.add(guard);
+  try {
+    return await runCall(config, options, guard);
+  } catch (err) {
+    throw guard.explain(err);
+  } finally {
+    guard.dispose();
+    foregroundCalls.delete(guard);
+  }
+};
+
+async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGuard): Promise<string> {
   if (responseLanguage === 'en') {
     options = { ...options, systemPrompt: `${options.systemPrompt || ''}${ENGLISH_OUTPUT_RULE}` };
   }
@@ -519,11 +590,11 @@ export const callLLM: LLMCaller = async (options) => {
   messages.push({ role: 'user', content: options.prompt });
 
   const shouldStreamLive = !options.isBackground && Boolean(globalThinkingListener);
-  let res = await doRequest(config, options, Boolean(options.jsonMode), shouldStreamLive);
+  let res = await doRequest(config, options, Boolean(options.jsonMode), shouldStreamLive, guard);
 
   // If provider rejects specialized payload (400/422), retry once with clean baseline payload
   if (!res.ok && (res.status === 400 || res.status === 422)) {
-    res = await doRequest(config, { ...options, effortLevel: 'off' }, false, shouldStreamLive);
+    res = await doRequest(config, { ...options, effortLevel: 'off' }, false, shouldStreamLive, guard);
   }
 
   if (!res.ok) {
@@ -536,7 +607,7 @@ export const callLLM: LLMCaller = async (options) => {
     throw new Error(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
   }
 
-  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model);
+  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
 
   // If a reasoning model exhausted max_tokens inside <think> and returned empty content, retry once without maxTokens cap
   if ((!content || !content.trim()) && options.maxTokens) {
@@ -544,10 +615,11 @@ export const callLLM: LLMCaller = async (options) => {
       config,
       { ...options, maxTokens: undefined, effortLevel: 'off' },
       false,
-      shouldStreamLive
+      shouldStreamLive,
+      guard
     );
     if (retryRes.ok) {
-      const retried = await readResponseOrStream(retryRes, shouldStreamLive, messages, config.model);
+      const retried = await readResponseOrStream(retryRes, shouldStreamLive, messages, config.model, guard);
       content = retried.content;
       nativeReasoning = retried.nativeReasoning || nativeReasoning;
     }
@@ -567,4 +639,4 @@ export const callLLM: LLMCaller = async (options) => {
     return `<think>${nativeReasoning}</think>\n${content}`;
   }
   return content;
-};
+}

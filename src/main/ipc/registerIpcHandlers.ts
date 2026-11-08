@@ -16,6 +16,7 @@ import {
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
   addGlobalTokenListener,
+  cancelForegroundLLM,
   setResponseLanguage,
 } from '../services/llmClient';
 import { SessionRepository } from '../persistence/SessionRepository';
@@ -82,6 +83,10 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     refuseWhileBusy();
     forgetLesson();
     return foreground(() => fsm.startSession(mode, goal));
+  });
+
+  ipcMain.handle('session:cancel', async () => {
+    cancelForegroundLLM();
   });
 
   ipcMain.handle('session:list', async () => (repository ? repository.list() : []));
@@ -173,12 +178,10 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (!currentSocraticNode) {
       throw new Error('Nenhum conceito ativo no ciclo socrático.');
     }
-    const node = currentSocraticNode;
     return foreground(async () => {
       const teachResult = await socratic.submitPrediction(text);
-      const checkQuestion = teachResult.checkQuestion || (await socratic.generateCheckQuestion(node));
-      currentCheckData = checkQuestion;
-      return { teachProse: teachResult.teachProse, checkQuestion };
+      currentCheckData = teachResult.checkQuestion;
+      return teachResult;
     });
   });
 

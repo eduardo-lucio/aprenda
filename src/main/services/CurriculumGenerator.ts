@@ -6,7 +6,7 @@ import {
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, extractLLMThinking, isProviderLimitError, LLMCaller, localize, parseLLMJson } from './llmClient';
+import { callLLM, extractLLMThinking, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
 function slugify(text: string): string {
   return (
@@ -111,13 +111,15 @@ export interface GoalClarificationResult {
 /** Short, human reason for a failed generation attempt. */
 function describeGenerationFailure(err: unknown): string {
   const msg = String((err as any)?.message || err || '');
-  if (/Tempo limite|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
+  if (/Tempo limite|timed out|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
   if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');
   if (/JSON|Unexpected token|parse/i.test(msg)) return localize('a IA respondeu num formato inesperado', 'the AI answered in an unexpected format');
   return msg
     ? localize(`erro do provedor de IA (${msg.slice(0, 120)})`, `AI provider error (${msg.slice(0, 120)})`)
     : localize('erro desconhecido do provedor de IA', 'unknown AI provider error');
 }
+
+const CANCELLED_BY_ORCHESTRATOR = 'Operação cancelada pelo orquestrador.';
 
 function defaultPredictGoal(): string {
   return localize('Dê seu palpite antes da explicação.', 'Make a guess before the explanation.');
@@ -133,7 +135,7 @@ export class CurriculumGenerator {
   }
 
   private isFatalProviderError(err: any): boolean {
-    return isProviderLimitError(err);
+    return isFatalLLMError(err);
   }
 
   async generateGoalOptions(goal: string): Promise<GoalClarificationResult> {
@@ -276,7 +278,7 @@ export class CurriculumGenerator {
     let lastReason = localize('a resposta da IA veio vazia ou num formato inesperado', 'the AI answer was empty or in an unexpected format');
     for (let attempt = 0; attempt < 3; attempt++) {
       if (callOpts?.signal?.aborted) {
-        throw new Error('Operação cancelada pelo orquestrador.');
+        throw new Error(CANCELLED_BY_ORCHESTRATOR);
       }
       try {
         const raw = await this.llm({
@@ -342,39 +344,39 @@ export class CurriculumGenerator {
     goal: string,
     callOpts?: { signal?: AbortSignal }
   ): Promise<{ questionText: string; promptGoal: string }> {
-    try {
-      if (callOpts?.signal?.aborted) {
-        throw new Error('Operação cancelada pelo orquestrador.');
+    const { systemPrompt, prompt } = buildPredictPrompt(node, goal);
+    let reason = localize('a resposta da IA veio incompleta', 'the AI answer was incomplete');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (callOpts?.signal?.aborted) throw new Error(CANCELLED_BY_ORCHESTRATOR);
+      try {
+        const raw = await this.llm({
+          systemPrompt,
+          prompt,
+          temperature: 0.5,
+          jsonMode: true,
+          maxTokens: 600,
+          timeoutMs: 45000,
+          signal: callOpts?.signal,
+          isBackground: Boolean(callOpts?.signal),
+        });
+        const parsed = parseLLMJson<any>(raw);
+        if (parsed.questionText) {
+          return {
+            questionText: String(parsed.questionText),
+            promptGoal: String(parsed.promptGoal || defaultPredictGoal()),
+          };
+        }
+      } catch (err) {
+        if (this.isFatalProviderError(err)) throw err;
+        reason = describeGenerationFailure(err);
       }
-      const { systemPrompt, prompt } = buildPredictPrompt(node, goal);
-      const raw = await this.llm({
-        systemPrompt,
-        prompt,
-        temperature: 0.5,
-        jsonMode: true,
-        maxTokens: 300,
-        timeoutMs: 20000,
-        signal: callOpts?.signal,
-        isBackground: Boolean(callOpts?.signal),
-      });
-      const parsed = parseLLMJson<any>(raw);
-      if (parsed.questionText) {
-        return {
-          questionText: String(parsed.questionText),
-          promptGoal: String(parsed.promptGoal || defaultPredictGoal()),
-        };
-      }
-    } catch (err) {
-      if (this.isFatalProviderError(err)) throw err;
-      // Fallback
     }
-    return {
-      questionText: localize(
-        `Antes da explicação sobre "${node.title}": ${node.summary} O que você acha que acontece, e por quê?`,
-        `Before the explanation of "${node.title}": ${node.summary} What do you think happens, and why?`
-      ),
-      promptGoal: defaultPredictGoal(),
-    };
+    throw new Error(
+      localize(
+        `Não foi possível preparar a aula de "${node.title}": ${reason}.`,
+        `The lesson on "${node.title}" could not be prepared: ${reason}.`
+      )
+    );
   }
 
   /** Short teaching plan + suggested node order, derived from what probing revealed. */
@@ -383,42 +385,38 @@ export class CurriculumGenerator {
     nodes: ConceptNode[];
     attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
   }): Promise<{ plan: string; order: string[] }> {
-    try {
-      const { systemPrompt, prompt } = buildPlanPrompt(params);
-      const raw = await this.llm({
-        systemPrompt,
-        prompt,
-        temperature: 0.3,
-        jsonMode: true,
-        maxTokens: 800,
-        effortLevel: 'low',
-        timeoutMs: 30000,
-      });
-      const parsed = parseLLMJson<any>(raw);
-      if (typeof parsed?.plan === 'string' && parsed.plan.trim()) {
-        const known = new Set(params.nodes.map((n) => n.id));
-        const order = Array.isArray(parsed.order)
-          ? parsed.order.map(String).filter((id: string) => known.has(id))
-          : [];
-        return { plan: parsed.plan.trim(), order };
+    const { systemPrompt, prompt } = buildPlanPrompt(params);
+    let reason = localize('a resposta da IA veio incompleta', 'the AI answer was incomplete');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await this.llm({
+          systemPrompt,
+          prompt,
+          temperature: 0.3,
+          jsonMode: true,
+          maxTokens: 800,
+          effortLevel: 'low',
+          timeoutMs: 45000,
+        });
+        const parsed = parseLLMJson<any>(raw);
+        if (typeof parsed?.plan === 'string' && parsed.plan.trim()) {
+          const known = new Set(params.nodes.map((n) => n.id));
+          const order = Array.isArray(parsed.order)
+            ? parsed.order.map(String).filter((id: string) => known.has(id))
+            : [];
+          return { plan: parsed.plan.trim(), order };
+        }
+      } catch (err) {
+        console.error('[CurriculumGenerator] Falha ao gerar plano via IA:', err);
+        if (this.isFatalProviderError(err)) throw err;
+        reason = describeGenerationFailure(err);
       }
-    } catch (err) {
-      console.error('[CurriculumGenerator] Falha ao gerar plano via IA:', err);
-      if (this.isFatalProviderError(err)) throw err;
     }
-    const pending = params.nodes.filter((n) => n.status !== 'mastered').sort((a, b) => a.level - b.level);
-    const list = pending.map((n) => n.title).join(', ');
-    return {
-      plan: pending.length
-        ? localize(
-            `Vamos estudar, nesta ordem, o que ainda não está firme: ${list}.`,
-            `We'll study, in this order, what isn't solid yet: ${list}.`
-          )
-        : localize(
-            'Você mostrou que domina os conceitos do mapa. Vamos reforçar os mais avançados.',
-            'You showed you know the concepts on the map. Let’s reinforce the most advanced ones.'
-          ),
-      order: pending.map((n) => n.id),
-    };
+    throw new Error(
+      localize(
+        `Não foi possível montar o plano de estudo: ${reason}. Suas respostas continuam salvas: tente de novo.`,
+        `The study plan could not be built: ${reason}. Your answers are still saved: try again.`
+      )
+    );
   }
 }

@@ -141,7 +141,7 @@ export class CognitiveJudgeService {
 
   private describeFailure(err: unknown): string {
     const msg = String((err as any)?.message || err || '');
-    if (/Tempo limite|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
+    if (/Tempo limite|timed out|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
     if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');
     if (/JSON|Unexpected token|parse/i.test(msg)) return localize('a IA respondeu num formato inesperado', 'the AI answered in an unexpected format');
     return msg ? msg.slice(0, 120) : localize('erro desconhecido do provedor de IA', 'unknown AI provider error');

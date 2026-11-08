@@ -214,6 +214,8 @@ export interface ElectronAPI {
   ) => Promise<{ node: ConceptNode; questionText: string; promptGoal: string } | null>;
   submitPrediction: (text: string) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData }>;
   submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) => Promise<{ isPassed: boolean; repairExplanation?: string; session: ProbingSession }>;
+  /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */
+  cancelOperation: () => Promise<void>;
   listSessions: () => Promise<SessionSummary[]>;
   loadSession: (id: string) => Promise<{ session: ProbingSession; ui: PersistedUi }>;
   deleteSession: (id: string) => Promise<void>;

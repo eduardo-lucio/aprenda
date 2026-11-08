@@ -63,10 +63,10 @@ describe('SessionStateMachine', () => {
     await f.startSession('teaching', 'Redes Camada 3');
     await f.submitGoalClarification('Foco total em Camada 3');
     await expect(f.advanceToPlan()).rejects.toThrow(/3 questões/);
-    for (let i = 1; i <= 2; i++) {
+    for (let i = 1; i <= 3; i++) {
       await f.submitProbeAnswer({ selectedOptionIndex: 0, confidence: 70, thinkingText: 'Raciocínio.' });
     }
-    expect(f.getState().questionCount).toBe(3);
+    expect(f.getState().attempts).toHaveLength(3);
     await f.advanceToPlan();
     expect(f.getState().phase).toBe('plan_review');
   });
@@ -82,8 +82,11 @@ describe('SessionStateMachine', () => {
       await f.submitProbeAnswer({ selectedOptionIndex: 0, confidence: 70, thinkingText: 'Raciocínio detalhado.' });
     }
     expect(f.getState().questionCount).toBe(8);
+    // The question on screen does not count until it is answered
+    await expect(f.advanceToPlan()).rejects.toThrow();
 
-    await f.advanceToPlan();
+    await f.submitProbeAnswer({ selectedOptionIndex: 0, confidence: 70, thinkingText: 'Raciocínio detalhado.' });
+    if (f.getState().phase === 'probing') await f.advanceToPlan();
     const planned = f.getState();
     expect(planned.phase).toBe('plan_review');
     expect(planned.plan).toBeTruthy();

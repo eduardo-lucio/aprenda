@@ -30,6 +30,8 @@ const api: ElectronAPI = {
   submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) =>
     ipcRenderer.invoke('session:submit-check', selectedIndex, confidence, thinkingText),
 
+  cancelOperation: () => ipcRenderer.invoke('session:cancel'),
+
   listSessions: () => ipcRenderer.invoke('session:list'),
 
   loadSession: (id: string) => ipcRenderer.invoke('session:load', id),

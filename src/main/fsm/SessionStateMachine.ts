@@ -15,7 +15,7 @@ import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
 import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
-import { addGlobalTokenListener } from '../services/llmClient';
+import { addGlobalTokenListener, localize } from '../services/llmClient';
 
 export { MIN_PROBE_QUESTIONS };
 
@@ -211,29 +211,24 @@ export class SessionStateMachine {
     // 1 single combined call generates the DAG and the first probe question together
     const graph = await this.generator.generateGraph(selectedOption);
     this.assertActive(session);
+    // Sort by level ascending (increasing difficulty: foundational Level 1 first -> Level 4)
+    const byLevel = [...graph.nodes].sort((a, b) => a.level - b.level);
+    let firstQuestion = graph.firstQuestion;
+    if (!firstQuestion || !graph.nodes.some((n) => n.id === firstQuestion!.nodeId)) {
+      firstQuestion = await this.generator.generateQuestion(byLevel[0], selectedOption, []);
+      this.assertActive(session);
+    }
+    const firstNodeId = firstQuestion.nodeId;
+
+    // Nothing is committed before this point: a failed generation leaves the session as it was
     this.store.setNodes(graph.nodes);
     this.strandNodes = this.store.getStrand();
-
     const nodesState: Record<string, ConceptNode['status']> = {};
     for (const n of this.strandNodes) {
       nodesState[n.id] = 'untested';
     }
-
-    // Sort by level ascending (increasing difficulty: foundational Level 1 first -> Level 4)
-    this.candidateQueue = [...this.strandNodes].sort((a, b) => a.level - b.level).map((n) => n.id);
-
-    let firstQuestion = graph.firstQuestion;
-    let firstNodeId: string;
-
-    if (firstQuestion && this.store.getNodeById(firstQuestion.nodeId)) {
-      firstNodeId = firstQuestion.nodeId;
-      this.candidateQueue = this.candidateQueue.filter((id) => id !== firstNodeId);
-      this.questionCache.set(firstQuestion.nodeId, firstQuestion);
-    } else {
-      firstNodeId = this.candidateQueue.shift()!;
-      firstQuestion = await this.getOrGenerateQuestionFor(firstNodeId, selectedOption);
-      this.assertActive(session);
-    }
+    this.candidateQueue = byLevel.map((n) => n.id).filter((id) => id !== firstNodeId);
+    this.questionCache.set(firstNodeId, firstQuestion);
 
     if (!firstQuestion.agentThinking && graph.agentThinking) {
       firstQuestion.agentThinking = graph.agentThinking;
@@ -431,7 +426,7 @@ export class SessionStateMachine {
     if (session.phase !== 'probing') {
       throw new Error(`Não é possível gerar o plano na fase: ${session.phase}`);
     }
-    if (session.questionCount < this.minProbeQuestions) {
+    if (session.attempts.length < this.minProbeQuestions) {
       throw new Error(`Avanço manual para o plano requer o piso mínimo de ${this.minProbeQuestions} questões.`);
     }
     await this.enterPlanReview();
@@ -502,18 +497,26 @@ export class SessionStateMachine {
 
   private async enterPlanReview(): Promise<void> {
     const session = this.requireSession();
-    session.currentQuestion = undefined;
     const nodes = this.strandNodes.map((n) => ({ ...n, status: session.nodesState[n.id] || n.status }));
-    const { plan, order } = await this.generator.generatePlan({
-      goal: session.goal,
-      nodes,
-      attempts: session.attempts.map((a) => ({
-        nodeId: a.nodeId,
-        verdict: a.verdict,
-        judgeReasoning: a.judgeReasoning,
-      })),
-    });
+    const { plan, order } = nodes.some((n) => n.status !== 'mastered')
+      ? await this.generator.generatePlan({
+          goal: session.goal,
+          nodes,
+          attempts: session.attempts.map((a) => ({
+            nodeId: a.nodeId,
+            verdict: a.verdict,
+            judgeReasoning: a.judgeReasoning,
+          })),
+        })
+      : {
+          plan: localize(
+            'Você mostrou domínio de todos os conceitos do mapa, então não há aulas pendentes. Se quiser rever algum, abra o mapa e escolha o conceito.',
+            'You showed mastery of every concept on the map, so no lessons are pending. To review one, open the map and pick the concept.'
+          ),
+          order: [] as string[],
+        };
     this.assertActive(session);
+    session.currentQuestion = undefined;
     const rest = nodes
       .filter((n) => !order.includes(n.id) && n.status !== 'mastered')
       .sort((a, b) => a.level - b.level)

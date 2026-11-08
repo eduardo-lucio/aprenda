@@ -25,7 +25,7 @@ describe('IPC Handlers', () => {
     };
     store = new KnowledgeStore();
     fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM));
-    socratic = new SocraticEngine();
+    socratic = new SocraticEngine(mockLLM);
   });
 
   it('registers all required IPC channels on ipcMain', () => {

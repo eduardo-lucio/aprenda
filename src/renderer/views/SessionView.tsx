@@ -15,7 +15,9 @@ import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
 import { SocraticCard, SocraticStep } from '../components/SocraticCard';
 import { RichText } from '../components/RichText';
 import { ProbeCard } from '../components/ProbeCard';
-import { cleanError as toDisplayError, isSessionChanged } from '../lib/errors';
+import { ErrorNotice } from '../components/ErrorNotice';
+import { BusyStatus } from '../components/BusyStatus';
+import { cleanError as toDisplayError, isCancelled, isSessionChanged } from '../lib/errors';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
 import { useI18n } from '../i18n';
@@ -29,7 +31,6 @@ import {
   BookOpen,
   Award,
   RefreshCw,
-  AlertCircle,
   Send,
   CornerDownLeft,
   Mic,
@@ -102,12 +103,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>(restoredUi?.chatMessages ?? []);
   const [streamingThinking, setStreamingThinking] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Set when the failed action has no answer field to resend from (lesson start, plan). */
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const [answeredScope, setAnsweredScope] = useState<{
     questionText: string;
     options: string[];
     selectedOption: string;
     thinkingText?: string;
-  } | null>(restoredUi?.answeredScope ?? null);
+    // Saved by older versions while the map generation had failed: the focus was never really applied
+  } | null>(currentSession?.phase === 'goal_orientation' ? null : restoredUi?.answeredScope ?? null);
 
   // States for Image 3 inspired Model & Thinking popovers
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -200,19 +204,19 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const activeCardRef = useRef<HTMLDivElement | null>(null);
 
-  const appendUserChatMessage = (text: string, afterAttemptCount = session?.attempts?.length || 0) => {
+  const appendUserChatMessage = (text: string, afterAttemptCount = session?.attempts?.length || 0): string | null => {
     const clean = text.trim();
-    if (!clean) return;
+    if (!clean) return null;
+    const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setChatMessages((prev) => [
       ...prev,
-      {
-        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        role: 'user',
-        text: clean,
-        afterAttemptCount,
-        timestamp: Date.now(),
-      },
+      { id, role: 'user', text: clean, afterAttemptCount, timestamp: Date.now() },
     ]);
+    return id;
+  };
+
+  const removeChatMessage = (id: string | null) => {
+    if (id) setChatMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
   // Subscribe to real-time LLM thinking stream from main process
@@ -318,9 +322,23 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const cleanError = (err: unknown): string => toDisplayError(err, t('session.err.unexpected'));
-  /** Shows a failed action's error (a session swapped mid-call is not a failure). */
-  const reportError = (err: unknown): void => {
-    if (!isSessionChanged(err)) setActionError(cleanError(err));
+  const clearError = (): void => {
+    setActionError(null);
+    setRetryAction(null);
+  };
+  /** Shows a failed action's error (a cancel or a session swapped mid-call is not a failure). */
+  const reportError = (err: unknown, retry?: () => void): void => {
+    if (isSessionChanged(err)) return;
+    if (isCancelled(err)) {
+      // Without an answer field the screen would be left with nothing to act on
+      if (retry) {
+        setActionError(t('session.err.cancelled'));
+        setRetryAction(() => retry);
+      }
+      return;
+    }
+    setActionError(cleanError(err));
+    if (retry) setRetryAction(() => retry);
   };
 
   const handleStartGoal = async (customGoal?: string) => {
@@ -331,11 +349,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setCustomScopeInput('');
     setAnsweredScope(null);
     setStreamingThinking('');
-    appendUserChatMessage(goalToUse, -1);
+    const goalMessageId = appendUserChatMessage(goalToUse, -1);
     setSubmittingLabel(t('session.status.scope'));
     setAgentThinking(t('session.thinking.scope'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       const mode = pendingMode || 'teaching';
       const sess = await window.api.startSession(mode, goalToUse);
@@ -350,14 +368,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
       }
     } catch (err: any) {
       reportError(err);
+      setGoalInput(goalToUse);
+      removeChatMessage(goalMessageId);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleSelectGoalOption = async (option: string, studentThinking?: string) => {
+  const handleSelectGoalOption = async (option: string, studentThinking: string | undefined, draft: string) => {
     setCustomScopeInput('');
     setStreamingThinking('');
+    let scopeMessageId: string | null = null;
     if (session?.goalClarificationOptions?.length) {
       setAnsweredScope({
         questionText: session.goalClarificationQuestion || '',
@@ -369,12 +390,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
       const userMsg = studentThinking?.trim()
         ? `${option}\n\n[Raciocínio]: ${studentThinking.trim()}`
         : option;
-      appendUserChatMessage(userMsg, 0);
+      scopeMessageId = appendUserChatMessage(userMsg, 0);
     }
     setSubmittingLabel(t('session.status.graph'));
     setAgentThinking(t('session.thinking.graph'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       const q = await window.api.submitGoalClarification(option, studentThinking?.trim());
       await refreshGraph();
@@ -404,21 +425,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
       }
     } catch (err: any) {
       reportError(err);
+      // Back to the choice: the focus only counts once the map exists
+      setAnsweredScope(null);
+      removeChatMessage(scopeMessageId);
+      setBottomChatInput(draft);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleProbeSubmit = async (data: {
-    selectedOptionIndex: number;
-    answerKind?: ProbeAnswerKind;
-    confidence?: number;
-    thinkingText: string;
-  }) => {
+  const handleProbeSubmit = async (
+    data: {
+      selectedOptionIndex: number;
+      answerKind?: ProbeAnswerKind;
+      confidence?: number;
+      thinkingText: string;
+    },
+    draft: string
+  ) => {
     setStreamingThinking('');
-    // Show the full answered question right away (before the AI starts thinking)
+    // Show the answered question right away (before the AI starts thinking), without the verdict
     if (currentQuestion) {
-      const correct = data.selectedOptionIndex === currentQuestion.correctOptionIndex;
       setPendingAttempt({
         questionId: currentQuestion.id,
         nodeId: currentQuestion.nodeId,
@@ -429,7 +456,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         ...(data.answerKind === 'own_answer' ? { answerKind: data.answerKind } : {}),
         confidence: data.confidence,
         thinkingText: data.thinkingText,
-        verdict: correct ? 'mastered' : 'frontier',
+        verdict: 'frontier',
         judgeReasoning: '',
       } as ProbeAttempt);
     } else {
@@ -438,7 +465,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setSubmittingLabel(t('session.status.judge'));
     setAgentThinking(t('session.thinking.judge'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       const result = await window.api.submitProbeAnswer(data);
       await refreshGraph();
@@ -462,6 +489,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       }
     } catch (err: any) {
       reportError(err);
+      setBottomChatInput(draft);
     } finally {
       setIsSubmitting(false);
       setPendingAttempt(null);
@@ -471,7 +499,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const handleAdvanceToPlan = async () => {
     setSubmittingLabel(t('session.status.plan'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       const sess = await window.api.advanceToPlan();
       setSession(sess);
@@ -480,7 +508,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setActiveTab('session');
       setAgentThinking(t('session.thinking.planReady'));
     } catch (err: any) {
-      reportError(err);
+      reportError(err, handleAdvanceToPlan);
     } finally {
       setIsSubmitting(false);
     }
@@ -489,7 +517,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const handleConfirmPlan = async () => {
     setSubmittingLabel(t('session.status.firstConcept'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       const sess = await window.api.confirmPlan();
       setSession(sess);
@@ -497,7 +525,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setIsSubmitting(false);
       // teaching starts via the phase effect below
     } catch (err: any) {
-      reportError(err);
+      reportError(err, handleConfirmPlan);
       setIsSubmitting(false);
     }
   };
@@ -505,7 +533,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const handleStartSocraticCycle = async (nodeId?: string) => {
     setSubmittingLabel(t('session.status.lesson'));
     setIsSubmitting(true);
-    setActionError(null);
+    clearError();
     try {
       setSocraticStep('predict');
       setCheckResult(null);
@@ -528,37 +556,43 @@ export const SessionView: React.FC<SessionViewProps> = ({
       });
       setActiveTab('session');
     } catch (err: any) {
-      reportError(err);
+      reportError(err, () => void handleStartSocraticCycle(nodeId));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handlePredictSubmit = async (text: string) => {
+    setSubmittingLabel(t('session.status.teach'));
     setSocraticLoading(true);
-    setActionError(null);
+    clearError();
     try {
       const res = await window.api.submitPrediction(text);
+      appendUserChatMessage(text);
       setTeachProse(res.teachProse);
       setCheckQuestion(res.checkQuestion);
       setSocraticStep('teach');
     } catch (err: any) {
       reportError(err);
+      setBottomChatInput(text);
     } finally {
       setSocraticLoading(false);
     }
   };
 
-  const handleCheckSubmit = async (index: number, conf?: number, reasoning?: string) => {
+  const handleCheckSubmit = async (index: number, conf: number | undefined, reasoning: string) => {
+    setSubmittingLabel(t('session.status.judge'));
     setSocraticLoading(true);
-    setActionError(null);
+    clearError();
     try {
       const res = await window.api.submitCheckAnswer(index, conf, reasoning);
+      if (reasoning) appendUserChatMessage(reasoning);
       await refreshGraph();
       if (res.session) setSession(res.session);
       setCheckResult({ isPassed: res.isPassed, repairExplanation: res.repairExplanation });
     } catch (err: any) {
       reportError(err);
+      setBottomChatInput(reasoning);
     } finally {
       setSocraticLoading(false);
     }
@@ -641,14 +675,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
       const chosen = selectedIdx !== null ? scopeOptions[selectedIdx] : text;
       const reasoning = selectedIdx !== null ? text : '';
       setBottomChatInput('');
-      handleSelectGoalOption(chosen, reasoning);
+      handleSelectGoalOption(chosen, reasoning, text);
       return;
     }
 
     if (isProbeMode) {
       const isOwnAnswer = selectedIdx === null && !isDontKnow;
       setBottomChatInput('');
-      handleProbeSubmit({
+      handleProbeSubmit(
+        {
         selectedOptionIndex: selectedIdx !== null ? selectedIdx : -1,
         // -1 alone is ambiguous: tell the judge the student wrote their own answer (vs. "não sei")
         ...(isOwnAnswer ? { answerKind: 'own_answer' as const } : {}),
@@ -659,20 +694,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
             (isDontKnow
               ? 'Não sei responder esta questão / ainda não domino o conceito.'
               : '(O aluno não explicou o raciocínio.)'),
-      });
+        },
+        text
+      );
       return;
     }
 
     if (isSocraticPredict) {
       setBottomChatInput('');
-      appendUserChatMessage(text);
       handlePredictSubmit(text);
       return;
     }
 
     if (isSocraticCheck && selectedIdx !== null) {
       setBottomChatInput('');
-      if (text) appendUserChatMessage(text);
       handleCheckSubmit(selectedIdx, confidence, text);
       return;
     }
@@ -754,7 +789,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         <span className="font-mono text-[11px] text-gray-500">
           {tokenCount.toLocaleString()} tok
           {session
-            ? ` · Q: ${session.questionCount || 0}/${minQuestions}+`
+            ? ` · Q: ${session.attempts?.length || 0}/${minQuestions}+`
             : questionCount !== undefined
             ? ` · Q: ${questionCount}/${minQuestions}+`
             : ''}
@@ -910,6 +945,33 @@ export const SessionView: React.FC<SessionViewProps> = ({
     </div>
   );
 
+  const isBusy = isSubmitting || socraticLoading;
+  const statusRegion = (isBusy || actionError) && (
+    <div data-testid="status-region" className="flex flex-col gap-2">
+      {actionError && (
+        <ErrorNotice
+          message={actionError}
+          title={
+            /HTTP (402|429)\b/.test(actionError)
+              ? t('session.err.limit')
+              : /HTTP (401|403)\b/.test(actionError)
+              ? t('session.err.key')
+              : undefined
+          }
+          onRetry={retryAction ?? undefined}
+          retryLabel={t('session.retry')}
+        />
+      )}
+      {isBusy && (
+        <BusyStatus
+          label={submittingLabel}
+          cancelLabel={t('session.cancel')}
+          onCancel={() => void window.api.cancelOperation?.()}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="flex h-full w-full flex-col bg-ink-950 text-gray-200 relative">
       {/* Top Session Nav Tabs */}
@@ -950,6 +1012,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       {activeTab === 'dag' ? (
         <div className="flex-1 min-h-0 overflow-hidden p-4">
           <div className="flex h-full min-h-0 flex-col space-y-3">
+            {statusRegion}
             <div className="flex items-center justify-between bg-ink-900 p-3 rounded-lg border border-ink-700">
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">
@@ -960,7 +1023,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
               <button
                 onClick={() => handleStartSocraticCycle()}
-                disabled={nodes.length === 0}
+                disabled={nodes.length === 0 || isBusy}
                 className="flex items-center space-x-1.5 rounded bg-gray-200 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-white shadow-sm transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
@@ -993,23 +1056,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
                   {phaseDividerLabel}
                 </span>
               </div>
-
-              {/* Error Banner */}
-              {actionError && (
-                <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3.5 text-xs text-red-200 flex items-start space-x-2">
-                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    {/HTTP (401|402|403|429)\b/.test(actionError) && (
-                      <span className="block font-semibold text-red-100">
-                        {/HTTP (402|429)\b/.test(actionError)
-                          ? t('session.err.limit')
-                          : t('session.err.key')}
-                      </span>
-                    )}
-                    <span className="block">{actionError}</span>
-                  </div>
-                </div>
-              )}
 
               {/* TURN 0: Initial Empty State & Goal Orientation */}
               {!session ? (
@@ -1202,7 +1248,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {phase === 'probing' && currentQuestion && !socraticNode && (
                 <div className="space-y-4 border-t border-ink-700 pt-4">
                   {isSubmitting && pendingAttempt && (
-                    <AnsweredQuestionCard attempt={pendingAttempt} index={session?.attempts?.length || 0} />
+                    <AnsweredQuestionCard attempt={pendingAttempt} index={session?.attempts?.length || 0} pending />
                   )}
                   <AgentThinkingBlock
                     thinkingText={
@@ -1217,10 +1263,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     statusLabel={submittingLabel}
                   />
 
-                  {session && session.questionCount >= minQuestions && (
+                  {session && (session.attempts?.length || 0) >= minQuestions && !isSubmitting && (
                     <div className="mx-auto max-w-2xl flex items-center justify-between rounded-lg border border-blue-900/60 bg-blue-950/20 p-3.5 text-xs text-blue-300 shadow-sm">
                       <span>
-                        {t('session.floor.reached', { count: session.questionCount })}
+                        {t('session.floor.reached', { count: session.attempts.length })}
                       </span>
                       <button
                         onClick={handleAdvanceToPlan}
@@ -1399,6 +1445,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           {/* Bottom bar: shared chat field (when no question card is open) + status footer */}
           <div className="shrink-0 bg-ink-950 px-6 pb-3 pt-2">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
+              {statusRegion}
               {!hasDock && chatInputBox}
               {statusSubBar}
             </div>

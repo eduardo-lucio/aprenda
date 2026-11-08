@@ -7,9 +7,11 @@ import { useI18n } from '../i18n';
 interface AnsweredQuestionCardProps {
   attempt: ProbeAttempt;
   index: number;
+  /** Sent, verdict not back yet: nothing here may reveal the answer key. */
+  pending?: boolean;
 }
 
-export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt }) => {
+export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ attempt, pending = false }) => {
   const { t } = useI18n();
   const [showUserThinking, setShowUserThinking] = useState(true);
 
@@ -53,11 +55,13 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
           <span className="font-mono text-[11px] uppercase tracking-widest text-gray-400">
             {t('answered.header')}
           </span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${badge.className}`}
-          >
-            {badge.label}
-          </span>
+          {!pending && (
+            <span
+              className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          )}
         </div>
       </div>
 
@@ -68,10 +72,12 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
       <div className="flex flex-col gap-2">
         {attempt.options.map((opt, idx) => {
           const isSelected = attempt.selectedOptionIndex === idx;
-          const isCorrect = attempt.correctOptionIndex === idx;
+          const isCorrect = !pending && attempt.correctOptionIndex === idx;
 
           let boxStyle = 'border-ink-600 bg-ink-800/60 text-gray-400';
-          if (isCorrect) {
+          if (pending && isSelected) {
+            boxStyle = 'border-ink-400 bg-ink-700/60 text-gray-100';
+          } else if (isCorrect) {
             boxStyle = 'border-emerald-700/60 bg-emerald-950/30 text-emerald-100';
           } else if (isSelected && !isCorrect) {
             boxStyle = 'border-red-800/60 bg-red-950/25 text-red-200';
@@ -84,7 +90,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
             >
               {isCorrect ? (
                 <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              ) : isSelected ? (
+              ) : isSelected && !pending ? (
                 <X className="h-3.5 w-3.5 shrink-0 text-red-400" />
               ) : (
                 <span className="h-3.5 w-3.5 shrink-0" />
@@ -105,7 +111,9 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = ({ atte
           <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-ink-600">
             <div
               className={`h-full rounded-full transition-all ${
-                attempt.verdict === 'mastered'
+                pending
+                  ? 'bg-ink-400'
+                  : attempt.verdict === 'mastered'
                   ? 'bg-emerald-500'
                   : attempt.verdict === 'false_positive'
                   ? 'bg-amber-500'

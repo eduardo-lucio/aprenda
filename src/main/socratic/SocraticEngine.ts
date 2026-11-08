@@ -1,6 +1,6 @@
 import { CheckQuestionData, ConceptNode } from '../../shared/types';
 import { buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
-import { callLLM, isProviderLimitError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
+import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
 import { CurriculumGenerator } from '../services/CurriculumGenerator';
 
 export class SocraticEngine {
@@ -45,17 +45,17 @@ export class SocraticEngine {
     return res;
   }
 
-  async submitPrediction(studentPrediction: string): Promise<{ teachProse: string; checkQuestion?: CheckQuestionData }> {
+  async submitPrediction(studentPrediction: string): Promise<{ teachProse: string; checkQuestion: CheckQuestionData }> {
     const node = this.currentNode;
     if (!node) {
       throw new Error('Nenhum conceito ativo selecionado para o ciclo socrático.');
     }
 
-    try {
-      const { systemPrompt, prompt } = buildSocraticTeachPrompt(node, studentPrediction);
-      const raw = await this.llm({ systemPrompt, prompt, temperature: 0.3, jsonMode: true, timeoutMs: 60000 });
-      const parsed = parseLLMJson<any>(raw);
-      if (parsed.teachProse) {
+    const { systemPrompt, prompt } = buildSocraticTeachPrompt(node, studentPrediction);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await this.llm({ systemPrompt, prompt, temperature: 0.3, jsonMode: true, timeoutMs: 60000 });
+        const parsed = parseLLMJson<any>(raw);
         const cq = parsed.checkQuestion;
         const validCheck =
           cq &&
@@ -64,53 +64,28 @@ export class SocraticEngine {
           cq.options.length >= 2 &&
           Number(cq.correctOptionIndex) >= 0 &&
           Number(cq.correctOptionIndex) < cq.options.length;
-        return {
-          teachProse: String(parsed.teachProse),
-          checkQuestion: validCheck
-            ? {
-                questionText: cq.questionText,
-                options: cq.options.map((o: unknown) => String(o)),
-                correctOptionIndex: Number(cq.correctOptionIndex),
-                explanation: String(cq.explanation || node.unconditionalTruth),
-              }
-            : undefined,
-        };
+        if (parsed.teachProse && validCheck) {
+          return {
+            teachProse: String(parsed.teachProse),
+            checkQuestion: {
+              questionText: cq.questionText,
+              options: cq.options.map((o: unknown) => String(o)),
+              correctOptionIndex: Number(cq.correctOptionIndex),
+              explanation: String(cq.explanation || node.unconditionalTruth),
+            },
+          };
+        }
+      } catch (err) {
+        if (isFatalLLMError(err)) throw err;
       }
-    } catch (err) {
-      if (isProviderLimitError(err)) throw err;
-      // Offline fallback below
     }
 
-    const teachProse = localize(
-      `A ideia central é esta: ${node.unconditionalTruth}\n\nCompare com o seu palpite ("${studentPrediction}"). O que bate com essa ideia mostra que você estava no caminho; o que não bate é justamente o ponto a ajustar em "${node.title}".`,
-      `The core idea is this: ${node.unconditionalTruth}\n\nCompare it with your guess ("${studentPrediction}"). Whatever matches shows you were on track; whatever doesn't is exactly what to adjust in "${node.title}".`
+    throw new Error(
+      localize(
+        `Não foi possível preparar a explicação de "${node.title}". Seu palpite continua no campo: envie de novo.`,
+        `The explanation of "${node.title}" could not be prepared. Your guess is still in the field: send it again.`
+      )
     );
-    return { teachProse };
-  }
-
-  async generateCheckQuestion(node: ConceptNode): Promise<CheckQuestionData> {
-    this.currentNode = node;
-    // Neutral fallback built only from the AI-generated node itself
-    return {
-      questionText: localize(
-        `Qual afirmação descreve corretamente a ideia central de "${node.title}"?`,
-        `Which statement correctly describes the core idea of "${node.title}"?`
-      ),
-      options: [
-        node.unconditionalTruth,
-        localize(
-          `"${node.title}" não depende dos conceitos anteriores e pode ser usado isoladamente.`,
-          `"${node.title}" does not depend on the previous concepts and can be used on its own.`
-        ),
-        localize(
-          `A ideia de "${node.title}" só vale em casos particulares, sem regra geral.`,
-          `The idea of "${node.title}" only holds in special cases, with no general rule.`
-        ),
-        localize('Nenhuma das anteriores.', 'None of the above.'),
-      ],
-      correctOptionIndex: 0,
-      explanation: node.unconditionalTruth,
-    };
   }
 
   evaluateCheck(studentAnswerIndex: number, checkData: CheckQuestionData): { isPassed: boolean; repairExplanation?: string } {

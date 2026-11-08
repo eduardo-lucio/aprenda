@@ -77,5 +77,15 @@ export async function mockLLM(options: CallLLMOptions): Promise<string> {
     correctOptionIndex: 0,
     anchorConcept: 'Conceito',
     difficulty: 2,
+    // Plan, prediction and lesson calls read their own fields from this same answer
+    plan: 'Plano de teste.',
+    promptGoal: 'Preveja o comportamento.',
+    teachProse: 'Explicação de teste.',
+    checkQuestion: {
+      questionText: 'Pergunta de verificação?',
+      options: ['Certa', 'Errada 1', 'Errada 2', 'Errada 3'],
+      correctOptionIndex: 0,
+      explanation: 'Porque sim.',
+    },
   });
 }

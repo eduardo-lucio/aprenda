@@ -488,7 +488,8 @@ describe('SessionView Integration', () => {
     expect(screen.queryByRole('button', { name: /^enviar resposta$/i })).toBeNull();
     expect(screen.queryByTestId('probe-card')).toBeNull();
     expect(screen.getByText('Descarta o pacote')).toBeDefined();
-    expect(screen.getByText('Certa')).toBeDefined();
+    // The verdict is the judge's: no badge before it arrives
+    expect(screen.queryByText('Certa')).toBeNull();
     expect(screen.queryByText(/você (acertou|errou)/i)).toBeNull();
     expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
 
