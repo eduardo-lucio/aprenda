@@ -70,18 +70,6 @@ export interface CheckQuestionData {
   explanation: string;
 }
 
-export interface SocraticStep {
-  nodeId: string;
-  predictQuestion: string;
-  promptGoal?: string;
-  predictStudentAnswer?: string;
-  teachContent: string;
-  checkQuestion: CheckQuestionData;
-  checkStudentAnswer?: number;
-  isCheckPassed?: boolean;
-  repairExplanation?: string;
-}
-
 export interface ChatTurnMessage {
   id: string;
   role: 'user' | 'agent';
@@ -103,7 +91,6 @@ export interface ProbingSession {
   questionCount: number;
   frontierClarity: number;
   attempts: ProbeAttempt[];
-  socraticSteps: SocraticStep[];
   nodesState: Record<string, ConceptNode['status']>;
   currentQuestion?: QuestionData;
   goalClarificationQuestion?: string;

@@ -15,7 +15,7 @@ import path from 'path';
 /** LLM that holds every call whose system prompt matches until `release()` is called. */
 function gatedLLM(match: (o: CallLLMOptions) => boolean) {
   let release!: () => void;
-  let gate = new Promise<void>((r) => (release = r));
+  const gate = new Promise<void>((r) => (release = r));
   let entered!: () => void;
   const reached = new Promise<void>((r) => (entered = r));
   let armed = false;
@@ -136,7 +136,6 @@ describe('session isolation', () => {
       questionCount: 1,
       frontierClarity: 0,
       attempts: [],
-      socraticSteps: [],
       nodesState: {},
     };
     repo.saveSnapshot({ ...base, session: { ...session, id: 'a', goal: 'Foco', topic: 'Tema digitado' } });

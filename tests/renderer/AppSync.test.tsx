@@ -18,7 +18,6 @@ describe('App Session Synchronization, Settings Modal, and Global Dictate', () =
           questionCount: 0,
           frontierClarity: 0,
           attempts: [],
-          socraticSteps: [],
           nodesState: {},
         } as ProbingSession)
       ),

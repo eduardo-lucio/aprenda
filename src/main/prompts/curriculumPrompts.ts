@@ -1,4 +1,4 @@
-import { ConceptNode, QuestionData } from '../../shared/types';
+import { ConceptNode } from '../../shared/types';
 import {
   getGraphInstructions,
   getOrientationInstructions,

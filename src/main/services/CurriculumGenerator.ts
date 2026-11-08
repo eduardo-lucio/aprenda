@@ -135,8 +135,6 @@ function defaultPredictGoal(): string {
 }
 
 export class CurriculumGenerator {
-  private lastGoalThinking?: string;
-
   constructor(
     private llm: LLMCaller = callLLM,
     private random: () => number = Math.random
@@ -151,10 +149,6 @@ export class CurriculumGenerator {
       [order[i], order[j]] = [order[j], order[i]];
     }
     return { options: order.map((i) => options[i]), correctOptionIndex: order.indexOf(correctIndex) };
-  }
-
-  getLastGoalThinking(): string | undefined {
-    return this.lastGoalThinking;
   }
 
   private isFatalProviderError(err: any): boolean {
@@ -180,7 +174,6 @@ export class CurriculumGenerator {
           typeof parsed.agentThinking === 'string' && parsed.agentThinking.trim()
             ? parsed.agentThinking.trim()
             : undefined;
-        this.lastGoalThinking = jsonThink;
 
         const rawOpts = Array.isArray(parsed.options)
           ? parsed.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0).slice(0, 9)
@@ -196,7 +189,7 @@ export class CurriculumGenerator {
               localize('Outro / ainda não sei — quero ajuda para escolher', "Something else / not sure yet — help me choose"),
             ];
           }
-          return { question, options, agentThinking: this.lastGoalThinking };
+          return { question, options, agentThinking: jsonThink };
         }
         lastErr = new Error(localize('A IA não retornou opções de escopo válidas.', 'The AI did not return valid focus options.'));
       } catch (err) {

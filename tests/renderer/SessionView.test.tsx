@@ -32,7 +32,6 @@ describe('SessionView Integration', () => {
         questionCount: 0,
         frontierClarity: 0,
         attempts: [],
-        socraticSteps: [],
         nodesState: { 'osi-l3-ttl': 'untested' },
       }),
       submitGoalClarification: vi.fn().mockResolvedValue({
@@ -159,7 +158,6 @@ describe('SessionView Integration', () => {
       questionCount: 8,
       frontierClarity: 100,
       attempts: [],
-      socraticSteps: [],
       nodesState: { 'osi-l3-ttl': 'false_positive' },
     };
 
@@ -205,7 +203,6 @@ describe('SessionView Integration', () => {
           judgeReasoning: 'Raciocínio causal perfeito sobre roteamento inter-redes.',
         },
       ],
-      socraticSteps: [],
       nodesState: { 'osi-context': 'mastered', 'osi-l3-ttl': 'untested' },
       currentQuestion: {
         id: 'q-active-2',
@@ -339,7 +336,6 @@ describe('SessionView Integration', () => {
     questionCount: 3,
     frontierClarity: 10,
     attempts: [],
-    socraticSteps: [],
     nodesState: { 'osi-l3-ttl': 'untested' },
     currentQuestion: {
       id: 'q-dock',
@@ -526,7 +522,6 @@ describe('SessionView Integration', () => {
       questionCount: 8,
       frontierClarity: 100,
       attempts: [],
-      socraticSteps: [],
       nodesState: { 'osi-l3-ttl': 'frontier', 'osi-l3-ip': 'mastered' },
     };
 

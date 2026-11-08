@@ -50,10 +50,6 @@ export function resetLLMConnectionToEnv(): void {
   });
 }
 
-export function isLLMConfigured(): boolean {
-  return Boolean(defaultLLMConfig.baseURL && defaultLLMConfig.model);
-}
-
 /**
  * Maps a provider id (as configured in Settings) to its OpenAI-compatible
  * chat completions base URL.

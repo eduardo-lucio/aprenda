@@ -25,19 +25,13 @@ import { localeOf, useI18n } from '../i18n';
 import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions, isOrientationOption } from '../../shared/types';
 import {
   CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
   Sparkles,
   BarChart3,
   BookOpen,
-  Award,
-  RefreshCw,
-  Send,
   CornerDownLeft,
   Mic,
   ChevronDown,
   Check,
-  X,
 } from 'lucide-react';
 
 interface SessionViewProps {
@@ -54,7 +48,6 @@ interface SessionViewProps {
   tokenCount?: number;
   questionCount?: number;
   minQuestions?: number;
-  isRecording?: boolean;
   onToggleDictate?: () => void;
   onOpenSettings?: () => void;
   onChangeThinkingLevel?: (level: 'off' | 'low' | 'medium' | 'high') => void;
@@ -75,7 +68,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   tokenCount = 0,
   questionCount,
   minQuestions: minQuestionsProp,
-  isRecording = false,
   onToggleDictate,
   onOpenSettings,
   onChangeThinkingLevel,
@@ -99,7 +91,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState<ProbeAttempt | null>(null);
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
-  const [customScopeInput, setCustomScopeInput] = useState('');
   const [bottomChatInput, setBottomChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>(restoredUi?.chatMessages ?? []);
   const [lessons, setLessons] = useState<CompletedLesson[]>(restoredUi?.lessons ?? []);
@@ -355,7 +346,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     if (!goalToUse) return;
 
     setGoalInput('');
-    setCustomScopeInput('');
     setAnsweredScope(null);
     setStreamingThinking('');
     const goalMessageId = appendUserChatMessage(goalToUse, -1);
@@ -404,7 +394,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   const handleSelectGoalOption = async (option: string, studentThinking: string | undefined, draft: string) => {
-    setCustomScopeInput('');
     setStreamingThinking('');
     setAnsweredScope({
       questionText: session?.goalClarificationQuestion || '',
@@ -754,12 +743,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     if (onToggleDictate) onToggleDictate();
     else toggleListening();
   };
-
-  // Stats counters for diagnosis view
-  const masteredCount = nodes.filter((n) => n.status === 'mastered').length;
-  const falsePositiveCount = nodes.filter((n) => n.status === 'false_positive').length;
-  const blindSpotCount = nodes.filter((n) => n.status === 'blind_spot').length;
-  const frontierCount = nodes.filter((n) => n.status === 'frontier').length;
 
   const goalTurnMessages = chatMessages.filter((m) => (m.afterAttemptCount ?? -1) < 0);
   const scopeTurnMessages = chatMessages.filter((m) => (m.afterAttemptCount ?? -1) === 0);

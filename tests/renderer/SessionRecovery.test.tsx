@@ -24,7 +24,6 @@ const session = (over: Partial<ProbingSession> = {}): ProbingSession =>
     questionCount: 1,
     frontierClarity: 0,
     attempts: [],
-    socraticSteps: [],
     nodesState: { n1: 'untested' },
     currentQuestion: question,
     ...over,

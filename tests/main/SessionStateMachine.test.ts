@@ -126,10 +126,10 @@ describe('SessionStateMachine', () => {
     expect(currentQ).toBeDefined();
     const prereqsOfCurrent = store.getPrerequisites(currentQ.nodeId).map((n) => n.id);
     for (const pid of prereqsOfCurrent) {
-      fsm.markNodeStatus(pid, 'untested');
+      (fsm as any).session.nodesState[pid] = 'untested';
     }
 
-    // Answer wrong: offline fallback judges only right/wrong -> frontier
+    // Answer wrong with low confidence: the judge returns frontier
     const res = await fsm.submitProbeAnswer({
       selectedOptionIndex: (currentQ.correctOptionIndex + 1) % 4,
       confidence: 30,

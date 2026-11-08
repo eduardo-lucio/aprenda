@@ -79,15 +79,6 @@ export function parseSegments(input: string): Segment[] {
   return segments;
 }
 
-/** Plain one-line version (code blocks replaced by a marker) — for compact previews. */
-export function toPlainPreview(input: string): string {
-  return parseSegments(input)
-    .map((s) => (s.type === 'code' ? ' ‹código› ' : s.value.replace(/`([^`\n]+)`/g, '$1')))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 const KEYWORDS = new Set(
   (
     'let const var function return if else for while do switch case break continue class new import export from default ' +

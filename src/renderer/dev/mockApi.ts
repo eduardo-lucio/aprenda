@@ -56,7 +56,6 @@ const session: ProbingSession = {
   questionCount: 1,
   frontierClarity: 0,
   attempts: [],
-  socraticSteps: [],
   nodesState: { 'valores-tipos': 'untested', variaveis: 'untested' },
   currentQuestion: question,
   goalClarificationQuestion: 'O que exatamente você quer aprender sobre JavaScript?',

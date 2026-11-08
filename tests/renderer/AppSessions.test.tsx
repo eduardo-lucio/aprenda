@@ -14,7 +14,6 @@ const baseSession = (over: Partial<ProbingSession>): ProbingSession =>
     questionCount: 0,
     frontierClarity: 0,
     attempts: [],
-    socraticSteps: [],
     nodesState: {},
     goalClarificationOptions: [],
     ...over,

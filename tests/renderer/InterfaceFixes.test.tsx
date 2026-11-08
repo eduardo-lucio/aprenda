@@ -18,7 +18,7 @@ const question = {
 const session = (over: Partial<ProbingSession> = {}) =>
   ({
     id: 's', mode: 'teaching', disciplineId: 'd', goal: 'Tema', phase: 'probing', questionCount: 1, frontierClarity: 0,
-    attempts: [], socraticSteps: [], nodesState: {}, currentQuestion: question, ...over,
+    attempts: [], nodesState: {}, currentQuestion: question, ...over,
   }) as ProbingSession;
 const lessonNode = { id: 'n1', title: 'Conceito Um', summary: '', level: 1, prerequisites: [], unconditionalTruth: '', status: 'frontier' as const };
 

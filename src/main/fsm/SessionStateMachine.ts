@@ -180,7 +180,6 @@ export class SessionStateMachine {
       questionCount: 0,
       frontierClarity: 0,
       attempts: [],
-      socraticSteps: [],
       nodesState: {},
       goalClarificationOptions: [],
       tokensUsed: 0,
@@ -471,11 +470,6 @@ export class SessionStateMachine {
     this.persist();
   }
 
-  /** Teaching order proposed by the plan (falls back to level order over non-mastered nodes). */
-  getTeachingOrder(): string[] {
-    return [...this.teachingOrder];
-  }
-
   /**
    * Teaching-phase check: the judge reads the answer (correctness, confidence, reasoning)
    * and the verdict is recorded in nodesState regardless of pass/fail.
@@ -504,14 +498,6 @@ export class SessionStateMachine {
     session.frontierClarity = this.calculateFrontierClarity();
     this.persist();
     return evaluation.verdict;
-  }
-
-  markNodeStatus(nodeId: string, status: ConceptNode['status']): void {
-    const session = this.requireSession();
-    if (nodeId in session.nodesState) {
-      session.nodesState[nodeId] = status;
-      this.persist();
-    }
   }
 
   calculateFrontierClarity(): number {

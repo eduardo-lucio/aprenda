@@ -20,7 +20,6 @@ export default function App() {
   /** An AI call is running: sessions cannot be switched underneath it. */
   const [isBusy, setIsBusy] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -180,7 +179,6 @@ export default function App() {
   };
 
   const handleToggleDictate = () => {
-    setIsRecording((prev) => !prev);
     window.dispatchEvent(new CustomEvent('toggle-dictate'));
   };
 
@@ -289,7 +287,6 @@ export default function App() {
             tokenCount={sessionTokens}
             minQuestions={settings.minQuestions}
             questionCount={currentSession?.questionCount}
-            isRecording={isRecording}
             onToggleDictate={handleToggleDictate}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onChangeThinkingLevel={handleChangeThinkingLevel}

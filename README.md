@@ -24,40 +24,39 @@ O design do APRENDA é fundamentado em princípios avançados de ciência cognit
 
 ---
 
-## 🔄 As 5 Fases da Sessão (Máquina de Estados)
+## 🔄 As 4 Fases da Sessão (Máquina de Estados)
 
 A jornada de aprendizado é governada por uma Máquina de Estados Finitos rigorosa (`SessionStateMachine`):
 
 ```mermaid
 stateDiagram-v2
-    [*] --> GoalOrientation: Novo Objetivo
-    GoalOrientation --> Probing: Escopo Definido (DAG Criado)
-    Probing --> Probing: Nova Questão de Sondagem
-    Probing --> FrontierDiagnosis: Piso de Questões Atingido (>= 8)
-    FrontierDiagnosis --> SocraticTeach: Intervenção em Nó Crítico
-    SocraticTeach --> SocraticTeach: Predição → Ensino → Checagem
-    SocraticTeach --> FrontierDiagnosis: Nó Reparado / Próximo Nó
-    FrontierDiagnosis --> Completed: Grafo Consolidado
-    Completed --> [*]
+    [*] --> goal_orientation: Novo tema
+    goal_orientation --> goal_orientation: "Outro": pontos de entrada mais simples
+    goal_orientation --> probing: Foco escolhido (mapa criado)
+    probing --> probing: Próxima pergunta
+    probing --> plan_review: Mapa medido ou pedido do aluno após o piso de perguntas
+    plan_review --> teaching: Plano confirmado
+    teaching --> teaching: Palpite → explicação → verificação
 ```
 
 1. **`goal_orientation` (Orientação de Escopo)**:
    - O estudante digita o que quer aprender (ex.: *"Eu quero aprender sobre TCP/UDP"*).
-   - O sistema gera recortes técnicos precisos via IA generativa em tempo real (zero templates fixos) ou permite a digitação de um escopo personalizado.
+   - A IA propõe recortes do tema. O aluno escolhe um, escreve o próprio ou pede orientação.
 2. **`probing` (Diagnóstico de Fronteira)**:
-   - Apresenta questões conceituais com alternativas dinâmicas, controle deslizante de confiança e campo integrado para explicar o raciocínio.
-3. **`frontier_diagnosis` (Diagnóstico Cognitivo)**:
-   - Classificação cirúrgica de cada nó do Grafo DAG:
-     - 🟢 **Domínio Sólido (`mastered`)**: Acerto com alta confiança e fundamentação conceitual correta.
-     - 🟡 **Falso Positivo (`false_positive`)**: Acerto com justificativa frágil, chute ou dedução incorreta.
-     - 🔴 **Ponto Cego (`blind_spot`)**: Erro conceitual em fundamento prévio com alta convicção errônea.
-     - 🔵 **Fronteira Ativa (`frontier`)**: Próximo nó na borda de assimilação do aluno.
-4. **`socratic_teach` (Intervenção Socrática Cirúrgica)**:
-   - **Predição**: O aluno formula uma intuição sobre o comportamento de um cenário antes da teoria.
-   - **Ensino Motivado**: Explicação concisa fundamentada na verdade incondicional do conceito.
-   - **Checagem**: Pergunta de validação prática imediata.
-5. **`completed` (Consolidação)**:
-   - Visualização do Grafo de Conhecimento totalmente validado e desbloqueado.
+   - Perguntas com alternativas, controle de confiança e campo para explicar o raciocínio.
+   - Cada resposta classifica o conceito no mapa:
+     - 🟢 **Domínio Sólido (`mastered`)**: Acerto com alta confiança e fundamentação correta.
+     - 🟡 **Falso Positivo (`false_positive`)**: Acerto com justificativa frágil ou chute.
+     - 🔴 **Ponto Cego (`blind_spot`)**: Erro sustentado com alta convicção.
+     - 🔵 **Fronteira Ativa (`frontier`)**: Lacuna honesta, na borda do que o aluno assimila.
+3. **`plan_review` (Plano de Estudo)**:
+   - A IA propõe a ordem das aulas a partir do que a sondagem revelou, e o aluno confirma.
+4. **`teaching` (Aulas)**:
+   - **Palpite**: O aluno formula uma intuição antes da teoria.
+   - **Explicação**: Texto curto que resolve o palpite a partir da verdade incondicional do conceito.
+   - **Verificação**: Pergunta de aplicação. As aulas concluídas ficam na conversa para releitura.
+
+Se a IA falhar, nada é inventado: o aluno vê o erro junto do campo e pode tentar de novo ou cancelar.
 
 ---
 
@@ -67,52 +66,29 @@ O projeto é estruturado em uma arquitetura limpa de 3 camadas com **Electron**,
 
 ```
 aprenda1/
+├── prompts/                   # Doutrina pedagógica em Markdown
 ├── src/
-│   ├── main/                  # Processo Principal (Node.js / Electron)
-│   │   ├── fsm/               # Máquina de estados (SessionStateMachine)
-│   │   ├── ipc/               # Manipuladores de IPC (comunicação segura)
-│   │   ├── prompts/           # Prompts doutrinários e metodológicos
-│   │   └── services/          # Serviços de IA, LLM e armazenamento
-│   │       ├── AgentOrchestrator.ts        # Fila de prioridades e prefetch especulativo
-│   │       ├── CognitiveJudgeService.ts    # Juiz cognitivo de respostas e raciocínio
-│   │       ├── CurriculumGenerator.ts      # Geração dinâmica do DAG e de questões
-│   │       ├── KnowledgeStore.ts           # Repositório em memória e persistência
-│   │       ├── llmClient.ts                # Conexão unificada com LLMs e streaming
-│   │       ├── providerValidationService.ts# Validação de credenciais e modelos
-│   │       └── SocraticEngine.ts           # Mecânica de predição e ensino socrático
-│   │
-│   ├── preload/               # Context Bridge seguro
-│   │   └── preload.ts         # Exposição de window.api para o Renderer
-│   │
-│   ├── renderer/              # Interface do Usuário (React 18 + Vite + Tailwind)
-│   │   ├── components/        # Componentes reutilizáveis
-│   │   │   ├── AnsweredQuestionCard.tsx # Histórico de questões respondidas
-│   │   │   ├── ConfidenceSlider.tsx     # Slider de confiança (0-100%)
-│   │   │   ├── KnowledgeGraph.tsx       # Grafo DAG interativo
-│   │   │   ├── NodeDetailModal.tsx      # Detalhes e status do nó cognitivo
-│   │   │   ├── QuestionCard.tsx         # Card de alternativas da questão ativa
-│   │   │   ├── RichText.tsx             # Código com números de linha + KaTeX math
-│   │   │   ├── SettingsModal.tsx        # Configuração de provedores e chaves de API
-│   │   │   ├── Sidebar.tsx              # Histórico de sessões e navegação
-│   │   │   ├── SocraticCard.tsx         # Card interativo de predição/ensino
-│   │   │   ├── StatusBar.tsx            # Tokens, ditado, modelo e nível de thinking
-│   │   │   └── TitleBar.tsx             # Barra de título minimalista com controles
-│   │   ├── hooks/
-│   │   │   └── useSpeechRecognition.ts  # Ditado de voz via Deepgram / Web Speech
-│   │   └── views/
-│   │       └── SessionView.tsx          # Tela principal do chat e fluxo de aprendizado
-│   │
-│   └── shared/                # Tipagens TypeScript compartilhadas
-│       └── types.ts           # Modelos de dados e contratos de IPC
-│
-├── tests/                     # Bateria completa de testes automatizados (Vitest)
-│   ├── main/                  # Testes unitários do processo principal e serviços
-│   └── renderer/              # Testes unitários de componentes e integração de UI
-│
+│   ├── main/                  # Processo principal (Electron)
+│   │   ├── fsm/               # SessionStateMachine
+│   │   ├── ipc/               # Canais IPC
+│   │   ├── knowledge/         # KnowledgeStore (mapa de conceitos em memória)
+│   │   ├── persistence/       # SessionRepository e SecretStore (chaves criptografadas)
+│   │   ├── prompts/           # Montagem dos prompts de cada agente
+│   │   ├── socratic/          # SocraticEngine (palpite, explicação e verificação)
+│   │   └── services/          # Orquestrador, juiz, gerador de currículo, cliente de IA, provedores e voz
+│   ├── preload/               # Context bridge (window.api)
+│   ├── renderer/              # Interface (React 18 + Vite + Tailwind)
+│   │   ├── components/        # Cards, mapa, RichText (Markdown + código + KaTeX), configurações
+│   │   ├── graph/             # Layout radial e metadados de status
+│   │   ├── hooks/             # useSpeechRecognition (Deepgram / Web Speech)
+│   │   ├── i18n/              # Textos em português e inglês
+│   │   ├── lib/               # Tratamento de erros para exibição
+│   │   └── views/             # SessionView (conversa e fluxo da sessão)
+│   └── shared/                # Tipos e contratos de IPC
+├── tests/                     # Vitest (processo principal e interface)
+├── eslint.config.mjs
 ├── package.json
-├── tailwind.config.js
-├── vite.config.ts
-└── vitest.config.ts
+└── vite.config.ts
 ```
 
 ---
@@ -123,13 +99,10 @@ aprenda1/
   - Toda a linha do tempo (mensagens do usuário, pensamentos da IA, histórico de perguntas e questão ativa) convive em um fluxo unificado sem scrolls internos truncados.
 - **Questão Acoplada ao Input**:
   - A alternativa selecionada e o campo de texto de raciocínio são integrados. Se o aluno digita sem escolher alternativa, o sistema entende como resposta dissertativa própria.
-- **Encolhimento Inteligente com Animação Suave**:
-  - Ao rolar para cima para revisar mensagens anteriores, a questão ativa encolhe suavemente com animação cúbica (`CSS Grid`).
-  - No rodapé, o campo de input é substituído por uma pílula informativa (`[QUESTION] ... Answer ↓`). Clicar na pílula rola a tela de volta e expande a questão e o input.
 - **Blocos de Pensamento do Agente (`AgentThinkingBlock`)**:
-  - Exibe o raciocínio profundo da IA de forma colapsável, com suporte a streaming em tempo real sem roubar o scroll da tela.
-- **Blocos de Código com Numeração e LaTeX**:
-  - Blocos de código com destaque de sintaxe, numeração de linhas e fórmulas matemáticas renderizadas via KaTeX.
+  - Exibe a nota do tutor de forma colapsável, com atualização em tempo real sem roubar o scroll da tela.
+- **Markdown, Código e LaTeX**:
+  - Títulos, listas, tabelas e destaques em Markdown, blocos de código com destaque e numeração de linhas, e fórmulas renderizadas via KaTeX.
 - **Ditado por Voz (`Dictate`)**:
   - Suporte a entrada por fala através de integração com Deepgram ou Web Speech API.
 - **Seletor de Modelos e Nível de Raciocínio (*Thinking*)**:
@@ -173,7 +146,7 @@ npm start
 ```
 
 ### 3. Rodar os Testes Automatizados
-O projeto conta com mais de 70 testes automatizados cobrindo tanto serviços de backend quanto componentes visuais:
+O projeto conta com mais de 260 testes automatizados, cobrindo o processo principal e a interface. O linter roda com `npm run lint`:
 ```bash
 npm test
 ```
