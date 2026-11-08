@@ -145,7 +145,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const activeProvider = useMemo(() => {
     const found = settings.providers?.find((p) => p.id === settings.activeProviderId);
     if (found) return found;
-    return settings.providers?.find((p) => Boolean(p.apiKey && p.isValidated)) || null;
+    return settings.providers?.find((p) => Boolean(p.isValidated)) || null;
   }, [settings.providers, settings.activeProviderId]);
 
   const availableModels = useMemo(
@@ -215,7 +215,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!editingProvider) return;
     const key = editingProvider.apiKey.trim();
 
-    if (!key && !KEYLESS_PROVIDERS.has(editingProvider.id)) {
+    // Editing a saved provider: a blank field keeps the key already stored
+    if (!key && !KEYLESS_PROVIDERS.has(editingProvider.id) && editingProvider.isNew !== false) {
       setValidationError(t('settings.providers.errEmptyKey'));
       return;
     }
@@ -237,7 +238,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         id: result.providerId,
         name: result.providerName,
         keyMasked: result.keyMasked,
-        apiKey: key,
         baseUrl: editingProvider.baseUrl,
         isActive: true,
         isValidated: true,
@@ -254,7 +254,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       updateSettings({
         providers: [newConfig, ...existing.map((p) => ({ ...p, isActive: false }))],
         activeProviderId: editingProvider.id,
-        apiKey: key,
+        apiKey: '',
         baseUrl: editingProvider.baseUrl || settings.baseUrl,
         strongModel: keepModel ? settings.strongModel : defaultModel,
         model: keepModel ? settings.strongModel : defaultModel,
@@ -276,7 +276,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return {
       providers: providers.map((p) => ({ ...p, isActive: p.id === provider.id })),
       activeProviderId: provider.id,
-      apiKey: provider.apiKey,
+      apiKey: '',
       baseUrl: provider.baseUrl || '',
       strongModel: firstModel?.id || '',
       model: firstModel?.id || '',
@@ -289,6 +289,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleRemoveProvider = (id: string) => {
+    void window.api?.deleteProviderKey?.(id);
     const updated = (settings.providers || []).filter((p) => p.id !== id);
     if (id !== settings.activeProviderId) {
       updateSettings({ providers: updated });
@@ -311,7 +312,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       if (!window.api?.validateDeepgramKey) throw new Error(t('settings.providers.errNoBackend'));
       const res = await window.api.validateDeepgramKey(key);
-      updateSettings({ deepgramApiKey: key, deepgramKeyMasked: res.keyMasked, deepgramValidated: true });
+      updateSettings({ deepgramApiKey: '', deepgramKeyMasked: res.keyMasked, deepgramValidated: true });
       setIsEditingDeepgram(false);
       setDeepgramDraftKey('');
     } catch (err: any) {
@@ -322,6 +323,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleRemoveDeepgramKey = () => {
+    void window.api?.deleteDeepgramKey?.();
     updateSettings({ deepgramApiKey: '', deepgramKeyMasked: '', deepgramValidated: false });
     setIsEditingDeepgram(false);
     setDeepgramDraftKey('');
@@ -465,7 +467,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   setEditingProvider({
                                     id: p.id,
                                     name: p.name,
-                                    apiKey: p.apiKey || '',
+                                    apiKey: '',
                                     baseUrl: p.baseUrl || '',
                                     isNew: false,
                                   });
@@ -595,7 +597,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               setEditingProvider({ ...editingProvider, apiKey: e.target.value });
                               if (validationError) setValidationError(null);
                             }}
-                            placeholder={t('settings.providers.keyPlaceholder')}
+                            placeholder={editingProvider.isNew === false ? t('settings.providers.keyKeep') : t('settings.providers.keyPlaceholder')}
                             disabled={isValidatingKey}
                             className="w-full rounded border border-ink-400 bg-ink-900 px-3 py-1.5 text-xs font-mono text-white outline-none focus:border-gray-400 disabled:opacity-50"
                             autoFocus
@@ -664,7 +666,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="space-y-3">
                   <div className={subTitle}>{t('settings.voice.title')}</div>
 
-                  {settings.deepgramValidated && settings.deepgramApiKey && !isEditingDeepgram ? (
+                  {settings.deepgramValidated && !isEditingDeepgram ? (
                     <div className="flex items-center justify-between py-2 px-2.5 rounded bg-ink-700 border border-ink-500 text-xs font-sans">
                       <div className="flex items-center space-x-2">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -680,7 +682,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setDeepgramDraftKey(settings.deepgramApiKey);
+                            setDeepgramDraftKey('');
                             setIsEditingDeepgram(true);
                             setDeepgramError(null);
                           }}

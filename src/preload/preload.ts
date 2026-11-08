@@ -35,6 +35,22 @@ const api: ElectronAPI = {
 
   cancelOperation: () => ipcRenderer.invoke('session:cancel'),
 
+  getStorageStatus: () => ipcRenderer.invoke('app:storage-status'),
+
+  migrateSecrets: (legacy) => ipcRenderer.invoke('secrets:migrate', legacy),
+
+  deleteProviderKey: (id: string) => ipcRenderer.invoke('secrets:delete-provider', id),
+
+  deleteDeepgramKey: () => ipcRenderer.invoke('secrets:delete-deepgram'),
+
+  onStorageError: (callback: (error: string | null) => void) => {
+    const handler = (_event: any, error: string | null) => callback(error);
+    ipcRenderer.on('app:storage-error', handler);
+    return () => {
+      ipcRenderer.removeListener('app:storage-error', handler);
+    };
+  },
+
   listSessions: () => ipcRenderer.invoke('session:list'),
 
   loadSession: (id: string) => ipcRenderer.invoke('session:load', id),

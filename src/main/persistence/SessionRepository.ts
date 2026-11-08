@@ -12,6 +12,9 @@ interface SessionRecord {
 export class SessionRepository {
   private records = new Map<string, SessionRecord>();
   private writeTimer?: NodeJS.Timeout;
+  private corruptBackup?: string;
+  private writeListener?: (error: string | null) => void;
+  private lastWriteFailed = false;
 
   constructor(private filePath: string) {
     this.load();
@@ -21,12 +24,36 @@ export class SessionRepository {
     try {
       if (!fs.existsSync(this.filePath)) return;
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as { sessions?: SessionRecord[] };
-      for (const rec of parsed.sessions || []) {
+      if (!Array.isArray(parsed.sessions)) throw new Error('formato inesperado');
+      for (const rec of parsed.sessions) {
         if (rec?.snapshot?.session?.id) this.records.set(rec.snapshot.session.id, rec);
       }
     } catch (err) {
       console.warn('[SessionRepository] Não foi possível ler as sessões salvas:', err);
+      this.setCorruptFileAside();
     }
+  }
+
+  /** The next save would replace the unreadable file, and with it any chance of recovering the history. */
+  private setCorruptFileAside(): void {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backup = path.join(path.dirname(this.filePath), `sessions.corrupt-${stamp}.json`);
+    try {
+      fs.renameSync(this.filePath, backup);
+      this.corruptBackup = backup;
+    } catch (err) {
+      console.error('[SessionRepository] Não foi possível preservar o arquivo corrompido:', err);
+    }
+  }
+
+  /** Where the unreadable session file was moved to, if that happened at startup. */
+  getCorruptBackup(): string | undefined {
+    return this.corruptBackup;
+  }
+
+  /** Called with the error text when saving fails, and with `null` when saving works again. */
+  setWriteListener(listener: (error: string | null) => void): void {
+    this.writeListener = listener;
   }
 
   private scheduleWrite(): void {
@@ -43,8 +70,12 @@ export class SessionRepository {
       const tmp = `${this.filePath}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify({ sessions: Array.from(this.records.values()) }));
       fs.renameSync(tmp, this.filePath);
+      if (this.lastWriteFailed) this.writeListener?.(null);
+      this.lastWriteFailed = false;
     } catch (err) {
       console.error('[SessionRepository] Falha ao salvar sessões:', err);
+      this.lastWriteFailed = true;
+      this.writeListener?.(String((err as Error)?.message || err));
     }
   }
 

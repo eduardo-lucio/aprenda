@@ -21,6 +21,7 @@ import {
   setResponseLanguage,
 } from '../services/llmClient';
 import { SessionRepository } from '../persistence/SessionRepository';
+import { DEEPGRAM_SECRET, providerSecret, SecretStore } from '../persistence/SecretStore';
 import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
 export interface IpcDependencies {
@@ -29,12 +30,19 @@ export interface IpcDependencies {
   socratic: SocraticEngine;
   getMainWindow?: () => BrowserWindow | null;
   repository?: SessionRepository;
+  secrets?: SecretStore;
 }
 
 export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): void {
-  const { fsm, store, socratic, getMainWindow, repository } = deps;
+  const { fsm, store, socratic, getMainWindow, repository, secrets } = deps;
   fsm.setSocraticEngine(socratic);
-  if (repository) fsm.setPersistence((snap) => repository.saveSnapshot(snap));
+  if (repository) {
+    fsm.setPersistence((snap) => repository.saveSnapshot(snap));
+    repository.setWriteListener((error) => {
+      const win = getMainWindow ? getMainWindow() : null;
+      if (win && !win.isDestroyed()) win.webContents.send('app:storage-error', error);
+    });
+  }
 
   setGlobalThinkingStreamListener((payload) => {
     const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();
@@ -88,6 +96,31 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
 
   ipcMain.handle('session:cancel', async () => {
     cancelForegroundLLM();
+  });
+
+  ipcMain.handle('app:storage-status', async () => ({
+    corruptBackup: repository?.getCorruptBackup(),
+    secretsProtected: secrets ? secrets.isProtected() : true,
+  }));
+
+  // Keys only travel renderer → main: there is deliberately no channel to read one back
+  ipcMain.handle(
+    'secrets:migrate',
+    async (_event, legacy: { providers?: Array<{ id: string; apiKey?: string }>; deepgramApiKey?: string }) => {
+      for (const p of legacy.providers || []) {
+        if (p.apiKey) secrets?.set(providerSecret(p.id), p.apiKey);
+      }
+      if (legacy.deepgramApiKey) secrets?.set(DEEPGRAM_SECRET, legacy.deepgramApiKey);
+    }
+  );
+
+  ipcMain.handle('secrets:delete-provider', async (_event, id: string) => {
+    secrets?.delete(providerSecret(id));
+  });
+
+  ipcMain.handle('secrets:delete-deepgram', async () => {
+    secrets?.delete(DEEPGRAM_SECRET);
+    speechConfig.deepgramApiKey = '';
   });
 
   ipcMain.handle('session:list', async () => (repository ? repository.list() : []));
@@ -234,15 +267,19 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   ipcMain.handle(
     'provider:validate-and-fetch',
     async (_event, params: { providerId: string; apiKey: string; baseUrl?: string }) => {
-      return await validateAndFetchModels(params);
+      const apiKey = params.apiKey.trim() || secrets?.get(providerSecret(params.providerId)) || '';
+      const result = await validateAndFetchModels({ ...params, apiKey });
+      if (apiKey) secrets?.set(providerSecret(result.providerId), apiKey);
+      return result;
     }
   );
 
   ipcMain.handle('settings:update', async (_event, payload: SettingsUpdatePayload) => {
-    if (payload.providerId || payload.apiKey) {
+    const apiKey = payload.apiKey || (payload.providerId ? secrets?.get(providerSecret(payload.providerId)) : '') || '';
+    if (payload.providerId || apiKey) {
       updateDefaultLLMConfig({
         baseURL: resolveChatBaseUrl(payload.providerId, payload.baseUrl),
-        apiKey: payload.apiKey || (payload.providerId === 'ollama' ? 'ollama' : ''),
+        apiKey: apiKey || (payload.providerId === 'ollama' ? 'ollama' : ''),
         model: payload.model || '',
       });
     } else if (payload.providerId !== undefined || payload.apiKey !== undefined) {
@@ -252,7 +289,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (payload.effortLevel !== undefined) {
       updateDefaultLLMConfig({ effortLevel: payload.effortLevel as any });
     }
-    if (payload.deepgramApiKey !== undefined) speechConfig.deepgramApiKey = payload.deepgramApiKey;
+    speechConfig.deepgramApiKey = payload.deepgramApiKey || secrets?.get(DEEPGRAM_SECRET) || '';
     if (payload.voiceLanguage) speechConfig.voiceLanguage = payload.voiceLanguage;
     if (payload.minProbeQuestions !== undefined) fsm.setMinProbeQuestions(payload.minProbeQuestions);
     if (payload.uiLanguage) setResponseLanguage(payload.uiLanguage);
@@ -260,7 +297,10 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   });
 
   ipcMain.handle('speech:validate-key', async (_event, apiKey: string) => {
-    return await validateDeepgramKey(apiKey);
+    const result = await validateDeepgramKey(apiKey);
+    secrets?.set(DEEPGRAM_SECRET, apiKey.trim());
+    speechConfig.deepgramApiKey = apiKey.trim();
+    return result;
   });
 
   ipcMain.handle(

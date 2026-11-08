@@ -79,9 +79,41 @@ export default function App() {
         voiceLanguage: settings.voiceLanguage,
         minProbeQuestions: settings.minQuestions,
         uiLanguage: lang,
-      });
+      })?.catch?.((err: unknown) => console.error('[App] Falha ao aplicar as configurações:', err));
     }
   }, [settings]);
+
+  // Older versions kept API keys in localStorage: hand them to the main process once, then forget them here
+  useEffect(() => {
+    const legacyProviders = (settings.providers || []).filter((p) => p.apiKey);
+    if (!window.api?.migrateSecrets || (legacyProviders.length === 0 && !settings.deepgramApiKey && !settings.apiKey)) return;
+    window.api
+      .migrateSecrets({
+        providers: legacyProviders.map((p) => ({ id: p.id, apiKey: p.apiKey })),
+        deepgramApiKey: settings.deepgramApiKey,
+      })
+      .then(() => {
+        handleSaveSettings({
+          ...settings,
+          apiKey: '',
+          deepgramApiKey: '',
+          providers: (settings.providers || []).map(({ apiKey: _apiKey, ...p }) => p),
+        });
+      })
+      .catch((err) => console.error('[App] Falha ao migrar as chaves:', err));
+  }, []);
+
+  const [storageNotice, setStorageNotice] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  useEffect(() => {
+    window.api?.getStorageStatus?.().then((status) => {
+      if (status.corruptBackup) setStorageNotice(t('app.warn.corrupt', { file: status.corruptBackup }));
+      else if (!status.secretsProtected) setStorageNotice(t('app.warn.plainKeys'));
+    }).catch((err) => console.error('[App] Falha ao consultar o armazenamento:', err));
+    return window.api?.onStorageError?.((error) => {
+      setStorageError(error ? t('app.err.save', { detail: error }) : null);
+    });
+  }, []);
 
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -238,11 +270,11 @@ export default function App() {
       {/* Right column: frameless title bar + session canvas */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TitleBar title={titleText} phaseLabel={phaseLabel} />
-        {appError && (
-          <div className="shrink-0 px-6 pt-3">
-            <ErrorNotice message={appError} />
+        {[appError, storageError, storageNotice].filter(Boolean).map((message) => (
+          <div key={message} className="shrink-0 px-6 pt-3">
+            <ErrorNotice message={message!} />
           </div>
-        )}
+        ))}
         <main className="flex-1 overflow-hidden">
           <SessionView
             key={viewEpoch}

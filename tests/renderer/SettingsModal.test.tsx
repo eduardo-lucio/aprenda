@@ -164,7 +164,8 @@ describe('SettingsModal Functional Component', () => {
       expect(onSave).toHaveBeenCalledWith(
         expect.objectContaining({
           activeProviderId: 'openrouter',
-          apiKey: 'sk-or-v1-valid-key-9876543210',
+          // S1: the key stays in the main process, never in the saved settings
+          apiKey: '',
           providers: expect.arrayContaining([
             expect.objectContaining({
               id: 'openrouter',
@@ -333,7 +334,7 @@ describe('SettingsModal Functional Component', () => {
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith(
         expect.objectContaining({
-          deepgramApiKey: 'dg-secret-key-123456789',
+          deepgramApiKey: '',
           deepgramValidated: true,
         })
       );
@@ -400,7 +401,7 @@ describe('SettingsModal providers', () => {
     fireEvent.click(screen.getByRole('button', { name: /ativar prov b/i }));
     expect((window as any).api.validateProvider).not.toHaveBeenCalled();
     expect(onSave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ activeProviderId: 'b', apiKey: 'key-b', strongModel: 'b-1', model: 'b-1', strongThinking: 'high' })
+      expect.objectContaining({ activeProviderId: 'b', strongModel: 'b-1', model: 'b-1', strongThinking: 'high' })
     );
   });
 

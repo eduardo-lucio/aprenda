@@ -267,7 +267,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   useEffect(() => {
     // A blank new session has no graph yet: the main process still holds the previous one
     if (window.api?.getGraphState && initialNodes.length === 0 && currentSession) {
-      window.api.getGraphState().then((g) => setNodes(g));
+      window.api.getGraphState().then((g) => setNodes(g)).catch((err) => console.error('[SessionView] Falha ao carregar o mapa:', err));
     }
   }, [initialNodes.length]);
 

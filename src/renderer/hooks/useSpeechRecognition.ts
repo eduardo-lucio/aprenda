@@ -139,7 +139,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
   }, [hasWebSpeech, cleanupMediaStream]);
 
   const startDeepgramRecording = useCallback(
-    async (apiKey: string, language: string) => {
+    async (language: string) => {
       if (!navigator.mediaDevices?.getUserMedia || typeof (window as any).MediaRecorder === 'undefined') {
         setError(t('voice.err.unsupported'));
         return;
@@ -220,12 +220,12 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
 
   const startListening = useCallback(() => {
     const settings = getVoiceSettings();
-    const deepgramKey = (settings.deepgramApiKey || '').trim();
+    const hasDeepgram = Boolean(settings.deepgramValidated || (settings.deepgramApiKey || '').trim());
     const voiceLang = settings.voiceLanguage || 'pt-BR';
 
     // Prefer Deepgram MediaRecorder flow whenever a Deepgram API key is configured
-    if (deepgramKey) {
-      void startDeepgramRecording(deepgramKey, voiceLang);
+    if (hasDeepgram) {
+      void startDeepgramRecording(voiceLang);
       return;
     }
 

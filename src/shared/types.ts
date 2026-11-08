@@ -181,7 +181,8 @@ export interface ProviderConfig {
   id: string;
   name: string;
   keyMasked: string;
-  apiKey: string;
+  /** Only present in settings saved by older versions: keys now live in the main process. */
+  apiKey?: string;
   baseUrl?: string;
   isActive?: boolean;
   isValidated?: boolean;
@@ -251,6 +252,12 @@ export interface ElectronAPI {
   updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
   validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
+  getStorageStatus?: () => Promise<{ corruptBackup?: string; secretsProtected: boolean }>;
+  /** Hands over keys that older versions kept in the renderer. */
+  migrateSecrets?: (legacy: { providers?: Array<{ id: string; apiKey?: string }>; deepgramApiKey?: string }) => Promise<void>;
+  deleteProviderKey?: (id: string) => Promise<void>;
+  deleteDeepgramKey?: () => Promise<void>;
+  onStorageError?: (callback: (error: string | null) => void) => () => void;
   onMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void;
   onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
   onTokensUpdate?: (callback: (payload: { tokensUsed: number }) => void) => () => void;
