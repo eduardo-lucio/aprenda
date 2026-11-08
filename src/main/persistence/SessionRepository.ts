@@ -76,7 +76,7 @@ export class SessionRepository {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((r) => ({
         id: r.snapshot.session.id,
-        title: r.snapshot.session.goal,
+        title: r.snapshot.session.topic ?? r.snapshot.session.goal,
         mode: r.snapshot.session.mode,
         updatedAt: r.updatedAt,
       }));

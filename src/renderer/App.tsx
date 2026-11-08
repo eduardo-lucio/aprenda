@@ -3,6 +3,8 @@ import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
+import { ErrorNotice } from './components/ErrorNotice';
+import { cleanError } from './lib/errors';
 import { ProbingSession, ModelOption, PersistedUi } from '../shared/types';
 import { I18nProvider, localeOf, MessageKey, normalizeLang, translate } from './i18n';
 
@@ -13,6 +15,11 @@ export default function App() {
   const [isCreating, setIsCreating] = useState(false);
   const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
   const [restoredUi, setRestoredUi] = useState<PersistedUi | null>(null);
+  /** Bumped on navigation only: SessionView remounts, while a session gaining its id keeps the view. */
+  const [viewEpoch, setViewEpoch] = useState(0);
+  /** An AI call is running: sessions cannot be switched underneath it. */
+  const [isBusy, setIsBusy] = useState(false);
+  const [appError, setAppError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
@@ -41,7 +48,9 @@ export default function App() {
           date: new Date(r.updatedAt).toLocaleDateString(localeOf(lang)),
         }))
       );
-    }).catch(() => {});
+    }).catch((err) => {
+      setAppError(t('app.err.list', { detail: cleanError(err, t('session.err.unexpected')) }));
+    });
   }, []);
 
   // Sync saved settings with Electron Main process on startup and whenever settings change
@@ -79,16 +88,20 @@ export default function App() {
 
   // Called when the student clicks "+ Nova sessão" in the sidebar
   const handleNewSession = () => {
+    if (isBusy) return;
+    setAppError(null);
     setIsCreating(true);
     setActiveSessionId(null);
     setCurrentSession(null);
+    setRestoredUi(null);
+    setViewEpoch((e) => e + 1);
   };
 
   // Called by SessionView once the student submits their goal
   const handleSessionCreated = (newSession: ProbingSession) => {
     const item: SessionItem = {
       id: newSession.id,
-      title: newSession.goal,
+      title: newSession.topic ?? newSession.goal,
       mode: newSession.mode || 'teaching',
       date: new Date().toLocaleDateString(localeOf(lang)),
     };
@@ -98,38 +111,36 @@ export default function App() {
     setIsCreating(false);
   };
 
-  const handleSelectSession = async (id: string) => {
-    setActiveSessionId(id);
-    setIsCreating(false);
+  const handleSelectSession = async (id: string): Promise<boolean> => {
+    if (isBusy || !window.api?.loadSession) return false;
+    setAppError(null);
     try {
-      const active = window.api?.getSession ? await window.api.getSession() : null;
-      if (active && active.id === id) {
-        setCurrentSession(active);
-        return;
-      }
-      if (window.api?.loadSession) {
-        const loaded = await window.api.loadSession(id);
-        setRestoredUi(loaded.ui || { chatMessages: [] });
-        setCurrentSession(loaded.session);
-      }
-    } catch {}
+      const loaded = await window.api.loadSession(id);
+      setRestoredUi(loaded.ui || { chatMessages: [] });
+      setCurrentSession(loaded.session);
+      setActiveSessionId(id);
+      setIsCreating(false);
+      setViewEpoch((e) => e + 1);
+      return true;
+    } catch (err) {
+      setAppError(t('app.err.open', { detail: cleanError(err, t('session.err.unexpected')) }));
+      return false;
+    }
   };
 
-  const handleDeleteSession = (id: string) => {
-    window.api?.deleteSession?.(id);
-    setSessions((prev) => {
-      const updated = prev.filter((s) => s.id !== id);
-      if (activeSessionId === id) {
-        if (updated.length > 0) {
-          setActiveSessionId(updated[0].id);
-        } else {
-          setActiveSessionId(null);
-          setCurrentSession(null);
-          setIsCreating(true);
-        }
-      }
-      return updated;
-    });
+  const handleDeleteSession = async (id: string) => {
+    if (isBusy) return;
+    try {
+      await window.api?.deleteSession?.(id);
+    } catch (err) {
+      setAppError(t('app.err.delete', { detail: cleanError(err, t('session.err.unexpected')) }));
+      return;
+    }
+    const remaining = sessions.filter((s) => s.id !== id);
+    setSessions(remaining);
+    if (activeSessionId !== id) return;
+    const next = remaining[0];
+    if (!next || !(await handleSelectSession(next.id))) handleNewSession();
   };
 
   const handleToggleDictate = () => {
@@ -203,7 +214,7 @@ export default function App() {
     ];
   }, [activeProvider, settings.strongModel, settings.model]);
 
-  const titleText = currentSession?.goal ? currentSession.goal : t('app.newSession');
+  const titleText = currentSession?.topic || currentSession?.goal || t('app.newSession');
   const phaseLabel = currentSession?.phase ? t(`phase.${currentSession.phase}` as MessageKey) : undefined;
 
   return (
@@ -213,6 +224,7 @@ export default function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         isCreating={isCreating}
+        locked={isBusy}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
@@ -222,13 +234,20 @@ export default function App() {
       {/* Right column: frameless title bar + session canvas */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TitleBar title={titleText} phaseLabel={phaseLabel} />
+        {appError && (
+          <div className="shrink-0 px-6 pt-3">
+            <ErrorNotice message={appError} />
+          </div>
+        )}
         <main className="flex-1 overflow-hidden">
           <SessionView
+            key={viewEpoch}
             currentSession={currentSession}
             pendingMode={isCreating ? 'teaching' : null}
             restoredUi={restoredUi}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
             onSessionCreated={handleSessionCreated}
+            onBusyChange={setIsBusy}
             modelName={settings.strongModel || settings.model || t('app.noModel')}
             thinkingLevel={settings.strongThinking || settings.thinkingLevel || 'High'}
             tokenCount={sessionTokens}

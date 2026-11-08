@@ -14,6 +14,8 @@ interface SidebarProps {
   activeSessionId?: string | null;
   /** True while a new (not yet started) session is open. */
   isCreating?: boolean;
+  /** An AI call is running: opening, creating and deleting sessions is disabled. */
+  locked?: boolean;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
   onDeleteSession?: (id: string) => void;
@@ -24,6 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sessions,
   activeSessionId,
   isCreating = false,
+  locked = false,
   onSelectSession,
   onNewSession,
   onDeleteSession,
@@ -32,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const filteredSessions = sessions.filter((s) => s.title.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -82,8 +86,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={onNewSession}
-          title={t('sidebar.newSessionHint')}
-          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-[11px] font-semibold uppercase tracking-widest transition-colors ${
+          disabled={locked}
+          title={locked ? t('sidebar.locked') : t('sidebar.newSessionHint')}
+          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-[11px] font-semibold uppercase tracking-widest transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             isCreating ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
           }`}
         >
@@ -117,20 +122,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={s.id}
-                onClick={() => onSelectSession(s.id)}
-                className={`group relative flex cursor-pointer flex-col rounded-lg px-3 py-2.5 transition-colors ${
-                  isActive ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
-                }`}
+                onClick={() => {
+                  if (!locked) onSelectSession(s.id);
+                }}
+                onMouseLeave={() => setConfirmingDeleteId((id) => (id === s.id ? null : id))}
+                aria-disabled={locked || undefined}
+                title={locked ? t('sidebar.locked') : undefined}
+                className={`group relative flex flex-col rounded-lg px-3 py-2.5 transition-colors ${
+                  locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                } ${isActive ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'}`}
               >
                 <span className="truncate pr-5 text-sm font-medium">{s.title}</span>
                 <span className="mt-1 font-mono text-[10px] text-gray-500">{s.date}</span>
 
-                {onDeleteSession && (
+                {onDeleteSession && !locked && confirmingDeleteId === s.id && (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setConfirmingDeleteId(null);
                       onDeleteSession(s.id);
+                    }}
+                    className="absolute right-2 top-2 rounded bg-red-950 px-2 py-0.5 font-mono text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-900"
+                  >
+                    {t('sidebar.confirmDelete')}
+                  </button>
+                )}
+
+                {onDeleteSession && !locked && confirmingDeleteId !== s.id && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmingDeleteId(s.id);
                     }}
                     title={t('sidebar.delete')}
                     aria-label={t('sidebar.delete')}

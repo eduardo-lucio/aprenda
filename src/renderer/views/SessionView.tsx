@@ -15,6 +15,7 @@ import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
 import { SocraticCard, SocraticStep } from '../components/SocraticCard';
 import { RichText } from '../components/RichText';
 import { ProbeCard } from '../components/ProbeCard';
+import { cleanError as toDisplayError, isSessionChanged } from '../lib/errors';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
 import { useI18n } from '../i18n';
@@ -44,6 +45,8 @@ interface SessionViewProps {
   pendingMode?: 'teaching' | 'practice' | null;
   onSessionUpdate?: (session: ProbingSession) => void;
   onSessionCreated?: (session: ProbingSession) => void;
+  /** Tells the parent an AI call is running, so it can lock session navigation. */
+  onBusyChange?: (busy: boolean) => void;
   modelName?: string;
   thinkingLevel?: string;
   tokenCount?: number;
@@ -64,6 +67,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   pendingMode = 'teaching',
   onSessionUpdate,
   onSessionCreated,
+  onBusyChange,
   modelName = 'gemini-2.0-flash',
   thinkingLevel = 'High',
   tokenCount = 0,
@@ -95,7 +99,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
   const [customScopeInput, setCustomScopeInput] = useState('');
   const [bottomChatInput, setBottomChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatTurnMessage[]>(restoredUi?.chatMessages ?? []);
   const [streamingThinking, setStreamingThinking] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [answeredScope, setAnsweredScope] = useState<{
@@ -103,7 +107,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     options: string[];
     selectedOption: string;
     thinkingText?: string;
-  } | null>(null);
+  } | null>(restoredUi?.answeredScope ?? null);
 
   // States for Image 3 inspired Model & Thinking popovers
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -166,9 +170,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [socraticLoading, setSocraticLoading] = useState(false);
   // True once the teaching pass has gone through every concept that was still pending
   const [teachingFinished, setTeachingFinished] = useState(false);
+
   useEffect(() => {
-    setTeachingFinished(false);
-  }, [session?.id]);
+    onBusyChange?.(isSubmitting || socraticLoading);
+  }, [isSubmitting, socraticLoading, onBusyChange]);
 
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const hasSessionRef = useRef(false);
@@ -248,58 +253,26 @@ export const SessionView: React.FC<SessionViewProps> = ({
   };
 
   useEffect(() => {
-    if (window.api?.getGraphState && initialNodes.length === 0) {
+    // A blank new session has no graph yet: the main process still holds the previous one
+    if (window.api?.getGraphState && initialNodes.length === 0 && currentSession) {
       window.api.getGraphState().then((g) => setNodes(g));
     }
   }, [initialNodes.length]);
 
   useEffect(() => {
-    if (currentSession !== undefined) {
+    // Navigation remounts this view (see viewEpoch in App): here only the same session moves forward
+    if (currentSession) {
       setSession(currentSession);
-      if (currentSession) {
-        setCurrentQuestion(currentSession.currentQuestion || null);
-        if (currentSession.phase === 'goal_orientation') {
-          setSocraticNode(null);
-          setSocraticPredictData(null);
-          setActiveTab('session');
-        }
-      } else {
-        setCurrentQuestion(null);
-        setSocraticNode(null);
-        setSocraticPredictData(null);
-        setGoalInput('');
-        uiOwnerRef.current = null;
-        setChatMessages([]);
-        setAnsweredScope(null);
-        setStreamingThinking('');
-        setActiveTab('session');
-        if (initialNodes.length === 0) {
-          setNodes([]);
-        }
-      }
+      setCurrentQuestion(currentSession.currentQuestion || null);
     }
-  }, [currentSession, initialNodes.length]);
+  }, [currentSession]);
 
-  // Restore chat messages of a session loaded from disk
-  const uiOwnerRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!restoredUi || !currentSession) return;
-    uiOwnerRef.current = currentSession.id;
-    setChatMessages(restoredUi.chatMessages || []);
-    setAnsweredScope(restoredUi.answeredScope || null);
-  }, [restoredUi, currentSession?.id]);
-
-  // Persist chat messages (debounced; the timer of a stale render is cancelled by the next one)
+  // These only change on student actions, and the repository already batches disk writes
   useEffect(() => {
     if (!session || !window.api?.saveSessionUi) return;
-    if (uiOwnerRef.current && uiOwnerRef.current !== session.id) return;
-    if (chatMessages.length === 0 && !answeredScope) return;
-    const id = session.id;
-    const timer = setTimeout(() => {
-      uiOwnerRef.current = id;
-      window.api.saveSessionUi(id, { chatMessages, answeredScope });
-    }, 300);
-    return () => clearTimeout(timer);
+    void Promise.resolve(window.api.saveSessionUi(session.id, { chatMessages, answeredScope })).catch((err) => {
+      console.error('[SessionView] Falha ao salvar a conversa:', err);
+    });
   }, [session?.id, chatMessages, answeredScope]);
 
   // Resume teaching of a session restored from disk
@@ -338,17 +311,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
   ]);
 
   const refreshGraph = async () => {
-    if (window.api?.getGraphState) {
+    if (window.api?.getGraphState && (session || initialNodes.length > 0)) {
       const updated = await window.api.getGraphState();
       setNodes(updated);
     }
   };
 
-  const cleanError = (err: any): string =>
-    String(err?.message || err || t('session.err.unexpected')).replace(
-      /^Error invoking remote method '[^']+': (Error: )?/,
-      ''
-    );
+  const cleanError = (err: unknown): string => toDisplayError(err, t('session.err.unexpected'));
+  /** Shows a failed action's error (a session swapped mid-call is not a failure). */
+  const reportError = (err: unknown): void => {
+    if (!isSessionChanged(err)) setActionError(cleanError(err));
+  };
 
   const handleStartGoal = async (customGoal?: string) => {
     const goalToUse = (customGoal || goalInput).trim();
@@ -376,7 +349,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setAgentThinking(t('session.thinking.scopeReady', { goal: goalToUse }));
       }
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -430,7 +403,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setAgentThinking(t('session.thinking.graphReady', { scope: option, concept: q.anchorConcept }));
       }
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -488,7 +461,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         );
       }
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setIsSubmitting(false);
       setPendingAttempt(null);
@@ -507,7 +480,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setActiveTab('session');
       setAgentThinking(t('session.thinking.planReady'));
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -524,7 +497,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setIsSubmitting(false);
       // teaching starts via the phase effect below
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
       setIsSubmitting(false);
     }
   };
@@ -555,7 +528,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       });
       setActiveTab('session');
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -570,7 +543,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setCheckQuestion(res.checkQuestion);
       setSocraticStep('teach');
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setSocraticLoading(false);
     }
@@ -585,7 +558,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       if (res.session) setSession(res.session);
       setCheckResult({ isPassed: res.isPassed, repairExplanation: res.repairExplanation });
     } catch (err: any) {
-      setActionError(cleanError(err));
+      reportError(err);
     } finally {
       setSocraticLoading(false);
     }

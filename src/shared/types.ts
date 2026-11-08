@@ -90,7 +90,10 @@ export interface ProbingSession {
   id: string;
   mode: 'teaching' | 'practice';
   disciplineId: string;
+  /** Chosen focus once the student picks one; until then, the typed topic. */
   goal: string;
+  /** The topic as the student typed it (absent in sessions saved by older versions). */
+  topic?: string;
   phase: 'goal_orientation' | 'probing' | 'plan_review' | 'teaching';
   questionCount: number;
   frontierClarity: number;

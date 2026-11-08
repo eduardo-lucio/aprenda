@@ -19,6 +19,14 @@ import { addGlobalTokenListener } from '../services/llmClient';
 
 export { MIN_PROBE_QUESTIONS };
 
+/** The active session changed while an AI call was running: its result must be thrown away. */
+export class SessionChangedError extends Error {
+  constructor() {
+    super('A sessão mudou durante a operação.');
+    this.name = 'SessionChangedError';
+  }
+}
+
 export class SessionStateMachine {
   private store: KnowledgeStore;
   private judge: CognitiveJudgeService;
@@ -123,6 +131,24 @@ export class SessionStateMachine {
     return Boolean(this.session);
   }
 
+  getActiveSessionId(): string | undefined {
+    return this.session?.id;
+  }
+
+  /** Drops the active session and everything derived from it (used when it is deleted). */
+  endSession(): void {
+    this.orchestrator.clear();
+    this.store.clear();
+    this.session = undefined;
+    this.strandNodes = [];
+    this.candidateQueue = [];
+    this.askedQuestions = [];
+    this.questionCache.clear();
+    this.teachingOrder = [];
+    this.teachingDone = new Set();
+    this.sessionTokensUsed = 0;
+  }
+
   getTokensUsed(): number {
     return this.sessionTokensUsed;
   }
@@ -142,39 +168,28 @@ export class SessionStateMachine {
   startSession(mode: 'teaching' | 'practice', goalText: string): Promise<ProbingSession> {
     const goal = (goalText || '').trim() || 'Objetivo de Estudo';
 
-    this.orchestrator.clear();
-    this.strandNodes = [];
-    this.candidateQueue = [];
-    this.askedQuestions = [];
-    this.questionCache.clear();
-    this.teachingOrder = [];
-    this.teachingDone = new Set();
-    this.sessionTokensUsed = 0;
-
-    const existingNodes = this.store.getNodes();
-    const initialNodesState: Record<string, ConceptNode['status']> = {};
-    for (const node of existingNodes) {
-      initialNodesState[node.id] = 'untested';
-    }
+    this.endSession();
 
     this.session = {
       id: `session-${Date.now()}`,
       mode,
       disciplineId: goal,
       goal,
+      topic: goal,
       phase: 'goal_orientation',
       questionCount: 0,
       frontierClarity: 0,
       attempts: [],
       socraticSteps: [],
-      nodesState: initialNodesState,
+      nodesState: {},
       goalClarificationOptions: [],
       tokensUsed: 0,
     };
 
     const currentSession = this.session;
     return this.generator.generateGoalOptions(goal).then((res) => {
-      if (this.session === currentSession && res.options.length > 0) {
+      this.assertActive(currentSession);
+      if (res.options.length > 0) {
         currentSession.goalClarificationQuestion = res.question;
         currentSession.goalClarificationOptions = res.options;
         if (res.agentThinking) {
@@ -195,6 +210,7 @@ export class SessionStateMachine {
 
     // 1 single combined call generates the DAG and the first probe question together
     const graph = await this.generator.generateGraph(selectedOption);
+    this.assertActive(session);
     this.store.setNodes(graph.nodes);
     this.strandNodes = this.store.getStrand();
 
@@ -216,6 +232,7 @@ export class SessionStateMachine {
     } else {
       firstNodeId = this.candidateQueue.shift()!;
       firstQuestion = await this.getOrGenerateQuestionFor(firstNodeId, selectedOption);
+      this.assertActive(session);
     }
 
     if (!firstQuestion.agentThinking && graph.agentThinking) {
@@ -330,6 +347,7 @@ export class SessionStateMachine {
       confidence: data.confidence,
       thinkingText: data.thinkingText,
     });
+    this.assertActive(session);
 
     const answerKind = resolveAnswerKind(data.selectedOptionIndex, data.answerKind);
     const attempt: ProbeAttempt = {
@@ -381,6 +399,7 @@ export class SessionStateMachine {
     // Pick next node and retrieve pre-cached question instantly (0ms)
     const nextNodeId = this.pickNextNode();
     const rawNextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
+    this.assertActive(session);
     const nextQuestion: QuestionData = {
       ...rawNextQuestion,
       agentThinking: rawNextQuestion.agentThinking || evaluation.agentThinking,
@@ -458,6 +477,7 @@ export class SessionStateMachine {
       confidence: data.confidence,
       thinkingText: data.thinkingText || '(O aluno não explicou o raciocínio.)',
     });
+    this.assertActive(session);
     session.nodesState[nodeId] = evaluation.verdict;
     // Pass or fail, the concept has had its turn: the pass moves on instead of looping on it
     this.teachingDone.add(nodeId);
@@ -493,6 +513,7 @@ export class SessionStateMachine {
         judgeReasoning: a.judgeReasoning,
       })),
     });
+    this.assertActive(session);
     const rest = nodes
       .filter((n) => !order.includes(n.id) && n.status !== 'mastered')
       .sort((a, b) => a.level - b.level)
@@ -507,6 +528,11 @@ export class SessionStateMachine {
     return this.teachingOrder.find(
       (id) => this.session?.nodesState[id] !== 'mastered' && !this.teachingDone.has(id)
     );
+  }
+
+  /** Called after every await: a result computed for another session must never touch this one. */
+  private assertActive(session: ProbingSession): void {
+    if (this.session !== session) throw new SessionChangedError();
   }
 
   private requireSession(): ProbingSession {

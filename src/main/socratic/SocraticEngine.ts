@@ -12,6 +12,12 @@ export class SocraticEngine {
     this.generator = generator || new CurriculumGenerator(llm);
   }
 
+  /** Concept ids repeat across sessions, so nothing cached here may outlive the session. */
+  reset(): void {
+    this.currentNode = undefined;
+    this.predictCache.clear();
+  }
+
   async prebakePredict(
     node: ConceptNode,
     goal: string,

@@ -11,6 +11,7 @@ import {
 } from '../../shared/types';
 import { validateAndFetchModels } from '../services/providerValidationService';
 import {
+  localize,
   resolveChatBaseUrl,
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
@@ -51,24 +52,58 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   let currentCheckData: CheckQuestionData | undefined;
   const speechConfig = { deepgramApiKey: '', voiceLanguage: 'pt-BR' };
 
-  ipcMain.handle('session:start', async (_event, mode: 'teaching' | 'practice', goal: string) => {
+  // Foreground AI calls in flight: sessions cannot be swapped underneath them
+  let foregroundOps = 0;
+  const foreground = async <T>(fn: () => Promise<T>): Promise<T> => {
+    foregroundOps++;
+    try {
+      return await fn();
+    } finally {
+      foregroundOps--;
+    }
+  };
+  const refuseWhileBusy = (): void => {
+    if (foregroundOps > 0) {
+      throw new Error(
+        localize(
+          'Aguarde a resposta da IA terminar antes de trocar de sessão.',
+          'Please wait for the AI to finish before switching sessions.'
+        )
+      );
+    }
+  };
+  const forgetLesson = (): void => {
     currentSocraticNode = undefined;
     currentCheckData = undefined;
-    return await fsm.startSession(mode, goal);
+    socratic.reset();
+  };
+
+  ipcMain.handle('session:start', async (_event, mode: 'teaching' | 'practice', goal: string) => {
+    refuseWhileBusy();
+    forgetLesson();
+    return foreground(() => fsm.startSession(mode, goal));
   });
 
   ipcMain.handle('session:list', async () => (repository ? repository.list() : []));
 
   ipcMain.handle('session:load', async (_event, id: string) => {
+    refuseWhileBusy();
     const rec = repository?.get(id);
-    if (!rec) throw new Error('Sessão salva não encontrada.');
-    fsm.restoreSnapshot(rec.snapshot);
-    currentSocraticNode = undefined;
-    currentCheckData = undefined;
+    if (!rec) throw new Error(localize('Sessão salva não encontrada.', 'Saved session not found.'));
+    // Already active (e.g. back from "+ New session"): its live state is newer than the snapshot
+    if (fsm.getActiveSessionId() !== id) {
+      fsm.restoreSnapshot(rec.snapshot);
+      forgetLesson();
+    }
     return { session: fsm.getState(), ui: rec.ui };
   });
 
   ipcMain.handle('session:delete', async (_event, id: string) => {
+    refuseWhileBusy();
+    if (fsm.getActiveSessionId() === id) {
+      fsm.endSession();
+      forgetLesson();
+    }
     repository?.delete(id);
   });
 
@@ -77,7 +112,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   });
 
   ipcMain.handle('session:submit-goal', async (_event, option: string, thinkingText?: string) => {
-    return await fsm.submitGoalClarification(option, thinkingText);
+    return foreground(() => fsm.submitGoalClarification(option, thinkingText));
   });
 
   ipcMain.handle(
@@ -91,14 +126,18 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
         thinkingText: string;
       }
     ) => {
-      const result = await fsm.submitProbeAnswer(data);
-      return { ...result, session: fsm.getState() };
+      return foreground(async () => {
+        const result = await fsm.submitProbeAnswer(data);
+        return { ...result, session: fsm.getState() };
+      });
     }
   );
 
   ipcMain.handle('session:advance-plan', async () => {
-    await fsm.advanceToPlan();
-    return fsm.getState();
+    return foreground(async () => {
+      await fsm.advanceToPlan();
+      return fsm.getState();
+    });
   });
 
   ipcMain.handle('session:confirm-plan', async () => {
@@ -123,20 +162,24 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
 
     currentSocraticNode = targetNode;
     currentCheckData = undefined;
-    const predictData = await socratic.generatePredictStep(targetNode, state.goal);
-    return { node: targetNode, ...predictData };
+    const node = targetNode;
+    return foreground(async () => {
+      const predictData = await socratic.generatePredictStep(node, state.goal);
+      return { node, ...predictData };
+    });
   });
 
   ipcMain.handle('session:submit-prediction', async (_event, text: string) => {
     if (!currentSocraticNode) {
       throw new Error('Nenhum conceito ativo no ciclo socrático.');
     }
-    const teachResult = await socratic.submitPrediction(text);
-    const checkQuestion =
-      teachResult.checkQuestion || (await socratic.generateCheckQuestion(currentSocraticNode));
-    currentCheckData = checkQuestion;
-
-    return { teachProse: teachResult.teachProse, checkQuestion };
+    const node = currentSocraticNode;
+    return foreground(async () => {
+      const teachResult = await socratic.submitPrediction(text);
+      const checkQuestion = teachResult.checkQuestion || (await socratic.generateCheckQuestion(node));
+      currentCheckData = checkQuestion;
+      return { teachProse: teachResult.teachProse, checkQuestion };
+    });
   });
 
   ipcMain.handle(
@@ -146,16 +189,19 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
       throw new Error('Nenhuma pergunta de verificação ativa. Reinicie a etapa socrática deste conceito.');
     }
 
-    const evalResult = socratic.evaluateCheck(selectedIndex, currentCheckData);
-    if (currentSocraticNode) {
-      await fsm.recordCheckVerdict(currentSocraticNode.id, currentCheckData, {
-        selectedOptionIndex: selectedIndex,
-        confidence,
-        thinkingText,
-      });
-    }
-
-    return { ...evalResult, session: fsm.getState() };
+    const check = currentCheckData;
+    const node = currentSocraticNode;
+    return foreground(async () => {
+      const evalResult = socratic.evaluateCheck(selectedIndex, check);
+      if (node) {
+        await fsm.recordCheckVerdict(node.id, check, {
+          selectedOptionIndex: selectedIndex,
+          confidence,
+          thinkingText,
+        });
+      }
+      return { ...evalResult, session: fsm.getState() };
+    });
   });
 
   ipcMain.handle('graph:get', async () => {

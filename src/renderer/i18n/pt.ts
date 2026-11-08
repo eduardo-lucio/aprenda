@@ -3,6 +3,9 @@ export const pt = {
   // App / window
   'app.newSession': 'Nova sessão',
   'app.noModel': 'Sem modelo',
+  'app.err.open': 'Não foi possível abrir a sessão: {detail}',
+  'app.err.list': 'Não foi possível carregar as sessões salvas: {detail}',
+  'app.err.delete': 'Não foi possível excluir a sessão: {detail}',
   'window.minimize': 'Minimizar',
   'window.maximize': 'Maximizar',
   'window.restore': 'Restaurar',
@@ -21,6 +24,8 @@ export const pt = {
   'sidebar.search': 'Buscar...',
   'sidebar.empty': 'Nenhuma sessão ainda.',
   'sidebar.delete': 'Excluir sessão',
+  'sidebar.confirmDelete': 'Confirmar?',
+  'sidebar.locked': 'Aguarde a IA terminar para trocar de sessão',
   'sidebar.settings': 'Configurações',
   'sidebar.expand': 'Mostrar barra lateral',
   'sidebar.collapse': 'Esconder barra lateral',

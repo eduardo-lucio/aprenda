@@ -5,6 +5,9 @@ export const en: Record<keyof typeof pt, string> = {
   // App / window
   'app.newSession': 'New session',
   'app.noModel': 'No model',
+  'app.err.open': 'Could not open the session: {detail}',
+  'app.err.list': 'Could not load the saved sessions: {detail}',
+  'app.err.delete': 'Could not delete the session: {detail}',
   'window.minimize': 'Minimize',
   'window.maximize': 'Maximize',
   'window.restore': 'Restore',
@@ -23,6 +26,8 @@ export const en: Record<keyof typeof pt, string> = {
   'sidebar.search': 'Search...',
   'sidebar.empty': 'No sessions yet.',
   'sidebar.delete': 'Delete session',
+  'sidebar.confirmDelete': 'Confirm?',
+  'sidebar.locked': 'Wait for the AI to finish before switching sessions',
   'sidebar.settings': 'Settings',
   'sidebar.expand': 'Show sidebar',
   'sidebar.collapse': 'Hide sidebar',

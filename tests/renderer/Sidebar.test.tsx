@@ -95,6 +95,8 @@ describe('Sidebar Component', () => {
     const deleteButtons = screen.getAllByTitle('Excluir sessão');
     expect(deleteButtons.length).toBeGreaterThan(0);
     fireEvent.click(deleteButtons[0]);
+    expect(onDeleteSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar?' }));
     expect(onDeleteSession).toHaveBeenCalledWith('1');
   });
 });
