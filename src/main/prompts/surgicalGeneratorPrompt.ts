@@ -1,7 +1,8 @@
-import { ConceptNode } from '../../shared/types';
+import { ConceptNode, LessonFailure } from '../../shared/types';
+import { describeLessonFailures } from './curriculumPrompts';
 import { getTeachInstructions } from './promptLoader';
 
-export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: string): {
+export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: string, failures: LessonFailure[] = []): {
   systemPrompt: string;
   prompt: string;
 } {
@@ -20,11 +21,17 @@ METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):
    - Cada passo deve ser motivado: por que alguém precisou formular essa solução? Como o problema exige naturalmente este mecanismo? Nada deve parecer arbitrário ou decretado.
 4. Resolução da Predição:
    - Abra a explicação conectando-se diretamente ao que o estudante previu ("${studentPrediction}"): valide onde a intuição dele tocou o princípio e aponte exatamente o ponto em que ela precisava de calibragem.
-   - Exatamente UM passo de raciocínio (1 a 2 parágrafos densos e claros). Proibido paredes de texto.
+   - Exatamente UM passo de raciocínio. Proibido paredes de texto e listas de fatos paralelos.
+   - Estrutura da explicação, em parágrafos curtos separados por linha em branco (use quebras de linha reais, nunca a sequência "\\n" literal):
+     a) Uma frase dizendo se o palpite acertou, acertou em parte ou errou, e em que ponto exato.
+     b) O mecanismo por trás, em linguagem simples, partindo de um exemplo concreto pequeno (um bloco de código curto em cerca de três crases quando ajudar) e mostrando o resultado passo a passo.
+     c) Uma frase final com a regra geral que o aluno leva para casos novos.
+   - No máximo 150 palavras e no máximo 3 termos em código inline. Não despeje tudo o que se sabe do assunto: apresente só o que este conceito exige e deixe o resto para os outros conceitos.
+   - Não comece com interjeições ("Exato —", "Ótimo!") nem repita o palpite palavra por palavra.
 5. Questão de Checagem (Check Question):
    - Toda checagem existe para responder: a ideia realmente foi compreendida, ou o aluno está apenas repetindo palavras?
    - Proibido perguntar para ele apenas repetir o texto recém-lido. Formule uma aplicação prática a um novo caso ou dedução lógica.
-   - Aplique o Option Craft: 4 alternativas homogêneas, mesmo tamanho, afirmações diretas sem justificação embutida, com distratores representando erros críveis.
+   - Aplique o Option Craft: 4 alternativas homogêneas, mesmo tamanho, afirmações diretas sem justificação embutida, com distratores representando erros críveis.${describeLessonFailures(failures)}
 
 Retorne SOMENTE em JSON:
 {

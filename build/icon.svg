@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 170 170" role="img" aria-label="APRENDA">
+  <rect width="170" height="170" rx="38" fill="#111111"/>
+  <g stroke="#f3f4f6" stroke-width="14.6" stroke-linecap="round" fill="none">
+    <line x1="88.7" y1="38.5" x2="132" y2="132.5"/>
+    <line x1="85" y1="101" x2="117" y2="101"/>
+  </g>
+  <circle cx="74.7" cy="69" r="10" fill="#f3f4f6"/>
+  <circle cx="57.2" cy="98.5" r="10" fill="#f3f4f6"/>
+  <circle cx="43.5" cy="129.5" r="11.8" fill="#f5d039"/>
+</svg>

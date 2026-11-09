@@ -2,11 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 
 interface TitleBarProps {
-  title?: string;
   phaseLabel?: string;
 }
 
-export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
+export const TitleBar: React.FC<TitleBarProps> = ({ phaseLabel }) => {
   const { t } = useI18n();
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -19,13 +18,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({ title, phaseLabel }) => {
 
   return (
     <header
-      className="flex h-14 w-full shrink-0 select-none items-center justify-between gap-4 border-b border-ink-700 bg-ink-950 px-6 text-xs text-gray-400"
+      className="flex h-14 w-full shrink-0 select-none items-center justify-end gap-4 border-b border-ink-700 bg-ink-950 px-6 text-xs text-gray-400"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
-      <h1 title={title} className="min-w-0 flex-1 truncate font-serif text-2xl font-semibold text-gray-100">
-        {title}
-      </h1>
-
       {phaseLabel && (
         <div
           className="flex shrink-0 items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-400"

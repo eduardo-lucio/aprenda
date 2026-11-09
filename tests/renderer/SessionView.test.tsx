@@ -110,8 +110,9 @@ describe('SessionView Integration', () => {
   it('renders initial goal orientation input and allows starting session', async () => {
     render(<SessionView initialNodes={initialNodes} />);
 
-    expect(screen.getByText(/nova sessão/i)).toBeDefined();
+    expect(screen.getByRole('heading', { name: /o que você quer aprender/i })).toBeDefined();
     expect(screen.getByText(/antes de explicar qualquer coisa, eu vou descobrir o que você já sabe/i)).toBeDefined();
+    expect(screen.getByTestId('hero-graph')).toBeDefined();
 
     const input = screen.getByPlaceholderText(/ex\.: equações do 2º grau/i);
     fireEvent.change(input, { target: { value: 'Camada 3 e TTL' } });
@@ -123,6 +124,20 @@ describe('SessionView Integration', () => {
       expect((window as any).api.startSession).toHaveBeenCalledWith('teaching', 'Camada 3 e TTL');
       expect(screen.getByText('Aprofundar em TTL e Prevenção de Loops')).toBeDefined();
     });
+    expect(screen.queryByTestId('hero-graph')).toBeNull();
+    expect(screen.queryByRole('heading', { name: /o que você quer aprender/i })).toBeNull();
+  });
+
+  it('brings the centred field back with the text when the session fails to start', async () => {
+    (window as any).api.startSession = vi.fn().mockRejectedValue(new Error('sem conexão'));
+    render(<SessionView initialNodes={initialNodes} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/ex\.: equações do 2º grau/i), { target: { value: 'Tema' } });
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('sem conexão'));
+    expect((screen.getByPlaceholderText(/ex\.: equações do 2º grau/i) as HTMLTextAreaElement).value).toBe('Tema');
+    expect(screen.getByTestId('hero-graph').getAttribute('class')).toContain('opacity-100');
   });
 
   it('transitions from goal clarification to active probing', async () => {
@@ -485,8 +500,8 @@ describe('SessionView Integration', () => {
     expect(screen.queryByRole('button', { name: /^enviar resposta$/i })).toBeNull();
     expect(screen.queryByTestId('probe-card')).toBeNull();
     expect(screen.getByText('Descarta o pacote')).toBeDefined();
-    // The verdict is the judge's: no badge before it arrives
-    expect(screen.queryByText('Certa')).toBeNull();
+    // The answer key is known here: the result shows without waiting for the judge
+    expect(screen.getByText('Certa')).toBeDefined();
     expect(screen.queryByText(/você (acertou|errou)/i)).toBeNull();
     expect(screen.queryByTestId('collapsed-question-pill')).toBeNull();
 

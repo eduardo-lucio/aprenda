@@ -1,4 +1,4 @@
-import { ConceptNode, QuestionData, isOrientationOption } from '../../shared/types';
+import { ConceptNode, LessonFailure, QuestionData, isOrientationOption } from '../../shared/types';
 import {
   buildGoalOptionsPrompt,
   buildGraphPrompt,
@@ -129,6 +129,11 @@ export function parseCorrectIndex(value: unknown, length: number): number | null
 
 /** These only make sense in the position the author wrote them. */
 const POSITIONAL_OPTION = /\b(todas|nenhuma|ambas)\b.*\b(anteriores|acima)\b|\b(all|none|both)\b.*\b(above|previous)\b/i;
+
+/** Some models spill the next JSON field into the text, leaving a stray "promptGoal:" for the student to read. */
+export function stripLeakedFields(text: string): string {
+  return text.replace(/\s*["'*`]*promptGoal["'*`]*\s*:[\s\S]*$/i, '').trim();
+}
 
 function defaultPredictGoal(): string {
   return localize('Dê seu palpite antes da explicação.', 'Make a guess before the explanation.');
@@ -352,9 +357,9 @@ export class CurriculumGenerator {
   async generatePredict(
     node: ConceptNode,
     goal: string,
-    callOpts?: { signal?: AbortSignal }
+    callOpts?: { signal?: AbortSignal; failures?: LessonFailure[] }
   ): Promise<{ questionText: string; promptGoal: string }> {
-    const { systemPrompt, prompt } = buildPredictPrompt(node, goal);
+    const { systemPrompt, prompt } = buildPredictPrompt(node, goal, callOpts?.failures);
     let reason = localize('a resposta da IA veio incompleta', 'the AI answer was incomplete');
     for (let attempt = 0; attempt < 2; attempt++) {
       if (callOpts?.signal?.aborted) throw new Error(CANCELLED_BY_ORCHESTRATOR);
@@ -372,7 +377,7 @@ export class CurriculumGenerator {
         const parsed = parseLLMJson<any>(raw);
         if (parsed.questionText) {
           return {
-            questionText: String(parsed.questionText),
+            questionText: stripLeakedFields(String(parsed.questionText)),
             promptGoal: String(parsed.promptGoal || defaultPredictGoal()),
           };
         }

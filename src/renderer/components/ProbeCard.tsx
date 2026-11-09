@@ -1,5 +1,6 @@
 import React from 'react';
 import { ConfidenceSlider } from './ConfidenceSlider';
+import { DictationOverlay } from './DictationOverlay';
 import { useI18n } from '../i18n';
 
 interface ProbeCardProps {
@@ -15,6 +16,8 @@ interface ProbeCardProps {
   disabled?: boolean;
   onSubmit: () => void;
   textareaRef?: React.Ref<HTMLTextAreaElement>;
+  /** Voice dictation is writing in the reasoning field. */
+  dictating?: boolean;
 }
 
 /**
@@ -32,6 +35,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
   disabled,
   onSubmit,
   textareaRef,
+  dictating = false,
 }) => {
   const { t } = useI18n();
   return (
@@ -47,6 +51,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
         <label className="label-mono mb-1.5 block" htmlFor="probe-reasoning">
           {t('probe.reasoning')}
         </label>
+        <div className="relative">
         <textarea
           id="probe-reasoning"
           ref={textareaRef}
@@ -61,8 +66,12 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
           placeholder={placeholder}
           disabled={disabled}
           rows={2}
-          className="w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
+          className={`block w-full resize-none bg-transparent font-sans text-sm outline-none placeholder:text-gray-500 ${
+            dictating ? 'text-transparent caret-gray-200' : 'text-gray-200'
+          }`}
         />
+        {dictating && <DictationOverlay value={reasoning} className="font-sans text-sm text-gray-200" />}
+        </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="font-mono text-[10px] text-gray-400">{t('probe.keysHint')}</span>
           <button

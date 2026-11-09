@@ -86,7 +86,7 @@ describe('App Session Synchronization, Settings Modal, and Global Dictate', () =
       expect(screen.getByRole('dialog', { name: 'Settings' })).toBeDefined();
     });
     expect(screen.getByText('+ New session')).toBeDefined();
-    expect(screen.getByText('What do you want to learn?')).toBeDefined();
+    expect(screen.getByRole('heading', { name: 'What do you want to learn?' })).toBeDefined();
     expect((window as any).api.updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ uiLanguage: 'en' }));
   });
 

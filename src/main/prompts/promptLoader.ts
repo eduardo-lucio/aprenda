@@ -86,5 +86,7 @@ export const getPredictInstructions = (): string => compose([VOICE, ACCURACY, FO
 
 export const getPlanInstructions = (): string => compose([VOICE, ACCURACY, FORMATTING, METHOD, PLANNING]);
 
+export const getNotesInstructions = (): string => compose([VOICE, ACCURACY, FORMATTING]);
+
 export const getTeachInstructions = (): string =>
   compose([VOICE, ACCURACY, FORMATTING, TEACHING, QUESTION_PRINCIPLES]);

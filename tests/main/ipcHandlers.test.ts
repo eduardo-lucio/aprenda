@@ -66,7 +66,7 @@ describe('IPC Handlers', () => {
     expect(nodes.length).toBeGreaterThanOrEqual(3);
     expect(nodes[0].status).toBe('untested');
   });
-  it('walks every pending concept once (even after wrong checks) and then reports the end of the pass', async () => {
+  it('repeats a concept until it is mastered and only then moves on, ending when all are mastered', async () => {
     registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
     await handlers['session:start']({}, 'teaching', 'Redes');
     await handlers['session:submit-goal']({}, 'TCP e UDP');
@@ -79,14 +79,24 @@ describe('IPC Handlers', () => {
 
     const pending = Object.values(fsm.getState().nodesState).filter((st) => st !== 'mastered').length;
     const taught: string[] = [];
-    for (let guard = 0; guard < 30; guard++) {
+    const lesson = async () => {
       const step = await handlers['session:socratic-start']({});
-      if (step === null) break;
-      taught.push(step.node.id);
-      await handlers['session:submit-prediction']({}, 'minha previsão');
-      // Always the wrong alternative: the old behaviour kept serving this same concept forever
-      const res = await handlers['session:submit-check']({}, 3, 80, 'palpite');
-      expect(res.isPassed).toBe(false);
+      if (step === null) return null;
+      const { checkQuestion } = await handlers['session:submit-prediction']({}, 'minha previsão');
+      return { id: step.node.id as string, right: checkQuestion.correctOptionIndex as number };
+    };
+
+    for (let guard = 0; guard < 30; guard++) {
+      const first = await lesson();
+      if (first === null) break;
+      const wrong = await handlers['session:submit-check']({}, (first.right + 1) % 4, 80, 'palpite');
+      expect(wrong.mastered).toBe(false);
+
+      const retry = await lesson();
+      expect(retry!.id).toBe(first.id);
+      const right = await handlers['session:submit-check']({}, retry!.right, 95, 'raciocínio');
+      expect(right.mastered).toBe(true);
+      taught.push(first.id);
     }
 
     expect(taught).toHaveLength(pending);

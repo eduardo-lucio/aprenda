@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { X, GraduationCap } from 'lucide-react';
+import { X, GraduationCap, NotebookPen } from 'lucide-react';
 import { ConceptNode } from '../../shared/types';
 import { useStatusMeta } from '../graph/statusMeta';
 import { useI18n } from '../i18n';
@@ -10,9 +10,10 @@ interface NodeDetailPanelProps {
   onClose: () => void;
   onSelect: (id: string) => void;
   onStartSocratic?: (nodeId: string) => void;
+  onOpenNotes?: (nodeId: string) => void;
 }
 
-export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, nodes, onClose, onSelect, onStartSocratic }) => {
+export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, nodes, onClose, onSelect, onStartSocratic, onOpenNotes }) => {
   const { t } = useI18n();
   const statusMeta = useStatusMeta();
   const meta = statusMeta(node.status);
@@ -98,8 +99,19 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, nodes, o
         {relation(t('node.unlocks'), dependents)}
       </div>
 
-      {onStartSocratic && (
-        <div className="border-t border-ink-700 p-4">
+      {(onStartSocratic || onOpenNotes) && (
+        <div className="space-y-2 border-t border-ink-700 p-4">
+          {onOpenNotes && (
+            <button
+              type="button"
+              onClick={() => onOpenNotes(node.id)}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-ink-500 px-3.5 py-2 font-mono text-[11px] font-semibold text-gray-200 transition-colors hover:border-ink-400 hover:text-white"
+            >
+              <NotebookPen className="h-4 w-4" />
+              {t('node.openNotes')}
+            </button>
+          )}
+          {onStartSocratic && (
           <button
             type="button"
             onClick={() => onStartSocratic(node.id)}
@@ -108,6 +120,7 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, nodes, o
             <GraduationCap className="h-4 w-4" />
             {t('node.teach')}
           </button>
+          )}
         </div>
       )}
     </aside>

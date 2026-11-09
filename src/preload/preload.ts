@@ -56,8 +56,14 @@ const api: ElectronAPI = {
   loadSession: (id: string) => ipcRenderer.invoke('session:load', id),
 
   deleteSession: (id: string) => ipcRenderer.invoke('session:delete', id),
+  renameSession: (id: string, title: string) => ipcRenderer.invoke('session:rename', id, title),
+  pinSession: (id: string, pinned: boolean) => ipcRenderer.invoke('session:pin', id, pinned),
+  resumeLesson: (nodeId: string, checkQuestion: unknown) => ipcRenderer.invoke('session:resume-lesson', nodeId, checkQuestion),
 
   saveSessionUi: (id: string, ui: any) => ipcRenderer.invoke('session:save-ui', id, ui),
+
+  generateConceptNotes: (sessionId: string, nodeIds: string[]) =>
+    ipcRenderer.invoke('notes:generate', sessionId, nodeIds),
 
   getGraphState: () =>
     ipcRenderer.invoke('graph:get'),
@@ -79,6 +85,21 @@ const api: ElectronAPI = {
 
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) =>
     ipcRenderer.invoke('speech:transcribe', params),
+
+  startSpeechStream: (params: { language?: string }) =>
+    ipcRenderer.invoke('speech:stream-start', params),
+
+  sendSpeechChunk: (chunk: ArrayBuffer) => ipcRenderer.send('speech:stream-chunk', chunk),
+
+  stopSpeechStream: () => ipcRenderer.invoke('speech:stream-stop'),
+
+  onSpeechStreamEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, payload: any) => callback(payload);
+    ipcRenderer.on('speech:stream-event', handler);
+    return () => {
+      ipcRenderer.removeListener('speech:stream-event', handler);
+    };
+  },
 
   onMaximizedChange: (callback: (isMaximized: boolean) => void) => {
     const handler = (_event: any, isMaximized: boolean) => callback(isMaximized);

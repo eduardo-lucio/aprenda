@@ -35,7 +35,7 @@ describe('KnowledgeGraph Component', () => {
     },
   ];
 
-  it('renders pills with full titles, status badges and a Portuguese legend', () => {
+  it('renders concepts with full titles and a Portuguese status filter', () => {
     render(<KnowledgeGraph nodes={sampleNodes} goal="Entender redes" />);
 
     expect(screen.getByText('Camada Física: Bits')).toBeDefined();
@@ -43,11 +43,40 @@ describe('KnowledgeGraph Component', () => {
     expect(screen.getByText('TTL e Prevenção de Loops')).toBeDefined();
     expect(screen.getByText('Entender redes')).toBeDefined();
 
-    // Each status appears in the legend and on the pill that has it
-    expect(screen.getAllByText(/domínio/i).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText(/falso positivo/i).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText(/fronteira/i).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText(/não testado/i)).toHaveLength(1); // legend only
+    for (const name of [/domínio/i, /falso positivo/i, /fronteira/i, /não testado/i]) {
+      expect(screen.getByRole('button', { name, pressed: true })).toBeDefined();
+    }
+  });
+
+  it('switches the map style and remembers the choice', () => {
+    localStorage.removeItem('aprenda_graph_style');
+    const { unmount } = render(<KnowledgeGraph nodes={sampleNodes} />);
+    const toggle = screen.getByRole('button', { name: /mudar o estilo do mapa/i });
+    expect(toggle.textContent).toMatch(/constelação/i);
+    expect(screen.getAllByTestId('graph-edge')[0].tagName.toLowerCase()).toBe('line');
+
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toMatch(/caminho/i);
+    expect(screen.getAllByTestId('graph-edge')[0].tagName.toLowerCase()).toBe('path');
+    expect(screen.getByText('Camada Física: Bits')).toBeDefined();
+
+    unmount();
+    render(<KnowledgeGraph nodes={sampleNodes} />);
+    expect(screen.getByRole('button', { name: /mudar o estilo do mapa/i }).textContent).toMatch(/caminho/i);
+    localStorage.removeItem('aprenda_graph_style');
+  });
+
+  it('filters concepts by search and by status', () => {
+    render(<KnowledgeGraph nodes={sampleNodes} />);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'ttl' } });
+    expect(screen.queryByText('Camada Física: Bits')).toBeNull();
+    expect(screen.getByText('TTL e Prevenção de Loops')).toBeDefined();
+    expect(screen.queryAllByTestId('graph-edge')).toHaveLength(0);
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /^.*fronteira$/i, pressed: true }));
+    expect(screen.queryByText('TTL e Prevenção de Loops')).toBeNull();
+    expect(screen.getByText('Camada Física: Bits')).toBeDefined();
   });
 
   it('opens the side panel when a node is clicked and closes it with Escape', () => {
@@ -89,14 +118,14 @@ describe('KnowledgeGraph Component', () => {
     render(<KnowledgeGraph nodes={sampleNodes} />);
     const edges = screen.getAllByTestId('graph-edge');
     expect(edges).toHaveLength(2);
-    expect(edges.every((e) => e.getAttribute('stroke-opacity') === '0.16')).toBe(true);
+    expect(edges.every((e) => e.getAttribute('stroke-opacity') === '0.5')).toBe(true);
 
     fireEvent.mouseEnter(screen.getByRole('button', { name: /TTL e Prevenção de Loops — Fronteira/i }));
     const after = screen.getAllByTestId('graph-edge').map((e) => Number(e.getAttribute('stroke-opacity')));
     expect(after.every((o) => o > 0.8)).toBe(true); // both edges are on the chain of the hovered node
 
     fireEvent.mouseLeave(screen.getByRole('button', { name: /TTL e Prevenção de Loops — Fronteira/i }));
-    expect(screen.getAllByTestId('graph-edge')[0].getAttribute('stroke-opacity')).toBe('0.16');
+    expect(screen.getAllByTestId('graph-edge')[0].getAttribute('stroke-opacity')).toBe('0.5');
   });
 
   it('still draws every node when levels are missing or outside 1–4', () => {

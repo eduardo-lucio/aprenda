@@ -1,6 +1,7 @@
 import {
   CheckQuestionData,
   ConceptNode,
+  LessonFailure,
   MIN_PROBE_QUESTIONS,
   clampProbeQuestions,
   SessionSnapshot,
@@ -40,7 +41,7 @@ export class SessionStateMachine {
   private questionCache: Map<string, QuestionData> = new Map();
   private sessionTokensUsed = 0;
   private teachingOrder: string[] = [];
-  private teachingDone = new Set<string>();
+  private lessonFailures: Record<string, LessonFailure[]> = {};
   private onPersist?: (snapshot: SessionSnapshot) => void;
 
   constructor(
@@ -74,7 +75,7 @@ export class SessionStateMachine {
       candidateQueue: [...this.candidateQueue],
       askedQuestions: [...this.askedQuestions],
       teachingOrder: [...this.teachingOrder],
-      teachingDone: [...this.teachingDone],
+      lessonFailures: { ...this.lessonFailures },
       tokensUsed: this.sessionTokensUsed,
     };
   }
@@ -86,8 +87,9 @@ export class SessionStateMachine {
     this.strandNodes = this.store.getStrand();
     this.candidateQueue = [...snapshot.candidateQueue];
     this.askedQuestions = [...snapshot.askedQuestions];
-    this.teachingOrder = [...snapshot.teachingOrder];
-    this.teachingDone = new Set(snapshot.teachingDone || []);
+    // Sessions saved before the mastery gate may hold an order that does not start from the base
+    this.teachingOrder = this.basicsFirst(snapshot.teachingOrder);
+    this.lessonFailures = { ...(snapshot.lessonFailures || {}) };
     this.sessionTokensUsed = snapshot.tokensUsed || 0;
     this.questionCache.clear();
     this.session = {
@@ -145,7 +147,7 @@ export class SessionStateMachine {
     this.askedQuestions = [];
     this.questionCache.clear();
     this.teachingOrder = [];
-    this.teachingDone = new Set();
+    this.lessonFailures = {};
     this.sessionTokensUsed = 0;
   }
 
@@ -463,7 +465,7 @@ export class SessionStateMachine {
       throw new Error(localize(`Não há plano a confirmar na fase: ${session.phase}`, `There is no plan to confirm in this phase: ${session.phase}`));
     }
     session.phase = 'teaching';
-    this.teachingDone = new Set();
+    this.lessonFailures = {};
     const first = this.nextTeachingNodeId();
     const node = first ? this.store.getNodeById(first) : undefined;
     if (node) this.orchestrator.prebakeSocraticLesson(node, session.goal);
@@ -472,7 +474,8 @@ export class SessionStateMachine {
 
   /**
    * Teaching-phase check: the judge reads the answer (correctness, confidence, reasoning)
-   * and the verdict is recorded in nodesState regardless of pass/fail.
+   * and the verdict is recorded in nodesState. Anything short of "mastered" keeps the concept as
+   * the next lesson, and what went wrong is kept so the new attempt can target it.
    */
   async recordCheckVerdict(
     nodeId: string,
@@ -493,8 +496,24 @@ export class SessionStateMachine {
     });
     this.assertActive(session);
     session.nodesState[nodeId] = evaluation.verdict;
-    // Pass or fail, the concept has had its turn: the pass moves on instead of looping on it
-    this.teachingDone.add(nodeId);
+    if (evaluation.verdict === 'mastered') {
+      delete this.lessonFailures[nodeId];
+    } else {
+      this.lessonFailures[nodeId] = [
+        ...(this.lessonFailures[nodeId] || []),
+        {
+          questionText: check.questionText,
+          chosenAnswer: check.options[data.selectedOptionIndex] ?? '',
+          correctAnswer: check.options[check.correctOptionIndex] ?? '',
+          diagnosis: evaluation.reasoningDiagnosis,
+          misconception: evaluation.identifiedMisconception,
+        },
+      ];
+      // A concept mastered in the diagnosis and failed in a review goes back to the queue
+      if (!this.teachingOrder.includes(nodeId)) {
+        this.teachingOrder = this.basicsFirst([...this.teachingOrder, nodeId]);
+      }
+    }
     session.frontierClarity = this.calculateFrontierClarity();
     this.persist();
     return evaluation.verdict;
@@ -532,16 +551,27 @@ export class SessionStateMachine {
       .filter((n) => !order.includes(n.id) && n.status !== 'mastered')
       .sort((a, b) => a.level - b.level)
       .map((n) => n.id);
-    this.teachingOrder = [...order, ...rest];
+    this.teachingOrder = this.basicsFirst([...order, ...rest]);
     session.plan = plan;
     session.phase = 'plan_review';
   }
 
-  /** Next concept of the current teaching pass: not mastered yet and not already taught in this pass. */
+  /** The most basic concept not mastered yet: nothing after it is taught until it is. */
   nextTeachingNodeId(): string | undefined {
-    return this.teachingOrder.find(
-      (id) => this.session?.nodesState[id] !== 'mastered' && !this.teachingDone.has(id)
-    );
+    return this.teachingOrder.find((id) => this.session?.nodesState[id] !== 'mastered');
+  }
+
+  getLessonFailures(nodeId: string): LessonFailure[] {
+    return [...(this.lessonFailures[nodeId] || [])];
+  }
+
+  /**
+   * The plan's order only decides among concepts of the same level. Levels follow prerequisite
+   * depth, so a concept never comes before what it depends on.
+   */
+  private basicsFirst(ids: string[]): string[] {
+    const levelOf = new Map(this.store.getNodes().map((n) => [n.id, n.level]));
+    return ids.filter((id) => levelOf.has(id)).sort((a, b) => levelOf.get(a)! - levelOf.get(b)!);
   }
 
   /** Called after every await: a result computed for another session must never touch this one. */

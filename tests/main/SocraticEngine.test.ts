@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
 import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import { ConceptNode, CheckQuestionData } from '../../src/shared/types';
@@ -50,7 +50,7 @@ describe('SocraticEngine', () => {
     expect(evalResult.repairExplanation).toBeUndefined();
   });
 
-  it('evaluates check question: on failure, issues single corrective repair text without infinite loop', () => {
+  it('evaluates check question: on failure, the repair text says the concept will be retaken', () => {
     const checkData: CheckQuestionData = {
       questionText: 'O que o roteador faz ao receber TTL=1?',
       options: ['Descarta e emite ICMP', 'Renova o TTL', 'Devolve ao remetente', 'Ignora'],
@@ -62,5 +62,25 @@ describe('SocraticEngine', () => {
     expect(evalResult.isPassed).toBe(false);
     expect(evalResult.repairExplanation).toBeDefined();
     expect(evalResult.repairExplanation).toContain(checkData.explanation);
+    expect(evalResult.repairExplanation).not.toMatch(/próximo conceito|next concept/i);
+  });
+
+  it('a retry skips the cached guess and tells the AI what went wrong', async () => {
+    const prompts: string[] = [];
+    const llm = vi.fn(async (req: any) => {
+      prompts.push(req.systemPrompt);
+      return JSON.stringify({ questionText: `Pergunta ${prompts.length}\n\npromptGoal:`, promptGoal: 'g' });
+    });
+    const retryEngine = new SocraticEngine(llm as any);
+    const node = { id: 'n', title: 'T', summary: 's', level: 1, prerequisites: [], unconditionalTruth: 'u', status: 'frontier' } as any;
+    const failures = [{ questionText: 'Q antiga', chosenAnswer: 'B', correctAnswer: 'A', diagnosis: 'confundiu X' }];
+
+    const first = await retryEngine.generatePredictStep(node, 'g');
+    const again = await retryEngine.generatePredictStep(node, 'g', { failures });
+
+    expect(first.questionText).toBe('Pergunta 1');
+    expect(again.questionText).toBe('Pergunta 2');
+    expect(prompts[1]).toContain('RETOMADA DO CONCEITO');
+    expect(prompts[1]).toContain('confundiu X');
   });
 });

@@ -315,41 +315,45 @@ describe('SessionStateMachine teaching pass', () => {
     return f;
   }
 
-  it('moves on to the next concept after a failed check instead of repeating it', async () => {
-    const f = await toTeaching();
-    const pending = Object.entries(f.getState().nodesState).filter(([, st]) => st !== 'mastered').length;
-    expect(pending).toBeGreaterThan(1);
-
-    const visited: string[] = [];
-    for (let guard = 0; guard < 50; guard++) {
-      const id = f.nextTeachingNodeId();
-      if (!id) break;
-      visited.push(id);
-      // Wrong answer: the concept stays non-mastered
-      await f.recordCheckVerdict(id, check, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
-      expect(f.getState().nodesState[id]).not.toBe('mastered');
-    }
-
-    expect(visited).toHaveLength(pending);
-    expect(new Set(visited).size).toBe(visited.length);
-    expect(f.nextTeachingNodeId()).toBeUndefined();
-  });
-
-  it('skips concepts mastered during the check and keeps the pass across a restart', async () => {
+  it('does not advance past a concept until it is mastered', async () => {
     const f = await toTeaching();
     const first = f.nextTeachingNodeId()!;
+
+    for (let tries = 0; tries < 3; tries++) {
+      await f.recordCheckVerdict(first, check, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+      expect(f.getState().nodesState[first]).not.toBe('mastered');
+      expect(f.nextTeachingNodeId()).toBe(first);
+    }
+    expect(f.getLessonFailures(first)).toHaveLength(3);
+    expect(f.getLessonFailures(first)[0]).toMatchObject({ questionText: check.questionText });
+
     await f.recordCheckVerdict(first, check, { selectedOptionIndex: 0, confidence: 95, thinkingText: 'x' });
     expect(f.getState().nodesState[first]).toBe('mastered');
+    expect(f.nextTeachingNodeId()).not.toBe(first);
+    expect(f.getLessonFailures(first)).toHaveLength(0);
+  });
 
-    const second = f.nextTeachingNodeId()!;
-    expect(second).not.toBe(first);
-    await f.recordCheckVerdict(second, check, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
-    const third = f.nextTeachingNodeId()!;
-    expect([first, second]).not.toContain(third);
+  it('teaches the most basic concepts first, whatever order the plan proposes', async () => {
+    const f = await toTeaching();
+    const levelOf = new Map(f.getSnapshot().nodes.map((n) => [n.id, n.level]));
+    const order = f.getSnapshot().teachingOrder;
+    const scrambled = JSON.parse(JSON.stringify(f.getSnapshot()));
+    scrambled.teachingOrder = [...order].reverse();
 
-    // Resume from disk: the concepts already taught are not offered again
+    const restored = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
+    restored.restoreSnapshot(scrambled);
+    const levels = restored.getSnapshot().teachingOrder.map((id) => levelOf.get(id)!);
+    expect(levels).toEqual([...levels].sort((x, y) => x - y));
+  });
+
+  it('keeps the failed concept and its mistakes across a restart', async () => {
+    const f = await toTeaching();
+    const first = f.nextTeachingNodeId()!;
+    await f.recordCheckVerdict(first, check, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+
     const restored = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
     restored.restoreSnapshot(JSON.parse(JSON.stringify(f.getSnapshot())));
-    expect(restored.nextTeachingNodeId()).toBe(third);
+    expect(restored.nextTeachingNodeId()).toBe(first);
+    expect(restored.getLessonFailures(first)).toHaveLength(1);
   });
 });

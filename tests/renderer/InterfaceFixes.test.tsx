@@ -66,6 +66,23 @@ describe('interface fixes', () => {
     });
   });
 
+  it('a wrong check shows the answered card at once, while the judge is still running', async () => {
+    (window as any).api.submitCheckAnswer = vi.fn(() => new Promise(() => {}));
+    render(<SessionView currentSession={session({ phase: 'teaching', currentQuestion: undefined })} />);
+    await screen.findByText('Palpite sobre isto?');
+    fireEvent.change(document.querySelector('textarea')!, { target: { value: 'meu palpite' } });
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /verificar o que entendi/i }));
+    await screen.findByText('Verifique?');
+
+    fireEvent.click(screen.getByText('Não'));
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+
+    await screen.findByText(/^errada$/i);
+    expect(screen.getByText('x')).toBeDefined();
+    expect((screen.getByRole('button', { name: /retomar este conceito/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('U6: finished lessons of a saved session can be reread', () => {
     render(
       <SessionView
@@ -120,7 +137,7 @@ describe('interface fixes', () => {
       notify = cb;
       return () => {};
     };
-    render(<TitleBar title="x" />);
+    render(<TitleBar />);
     expect(screen.getByRole('button', { name: 'Maximizar' })).toBeDefined();
     React.act(() => notify(true));
     expect(screen.getByRole('button', { name: 'Restaurar' })).toBeDefined();

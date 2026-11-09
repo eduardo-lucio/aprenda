@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useSpeechRecognition } from '../../src/renderer/hooks/useSpeechRecognition';
+import { applyDictation, useSpeechRecognition } from '../../src/renderer/hooks/useSpeechRecognition';
 
 describe('useSpeechRecognition hook lifecycle and interim event filtering', () => {
   let mockRecognitionInstance: any;
@@ -66,5 +66,39 @@ describe('useSpeechRecognition hook lifecycle and interim event filtering', () =
     });
 
     expect(callback).toHaveBeenCalledWith('pacote descartado');
+  });
+
+  it('streams interim words as they are recognized, then hands over the final text', () => {
+    const onFinal = vi.fn();
+    const onInterim = vi.fn();
+    renderHook(() => useSpeechRecognition(onFinal, onInterim));
+    const fire = (transcript: string, isFinal: boolean) =>
+      act(() => mockRecognitionInstance.onresult({ resultIndex: 0, results: [Object.assign([{ transcript }], { isFinal })] }));
+
+    fire('pacote', false);
+    fire('pacote desc', false);
+    expect(onInterim.mock.calls.map((c) => c[0])).toEqual(['pacote', 'pacote desc']);
+    fire('pacote descartado', true);
+    expect(onFinal).toHaveBeenCalledWith('pacote descartado');
+  });
+
+  it('keeps unconfirmed words in the text when recognition ends', () => {
+    const onFinal = vi.fn();
+    renderHook(() => useSpeechRecognition(onFinal, vi.fn()));
+    act(() => mockRecognitionInstance.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: 'quase' }], { isFinal: false })] }));
+    act(() => mockRecognitionInstance.onend());
+    expect(onFinal).toHaveBeenCalledWith('quase');
+  });
+});
+
+describe('applyDictation', () => {
+  it('replaces only the words still being recognized', () => {
+    expect(applyDictation('', '', 'ola')).toBe('ola');
+    expect(applyDictation('Oi ola', 'ola', 'ola mundo')).toBe('Oi ola mundo');
+    expect(applyDictation('Oi ola', 'ola', '')).toBe('Oi');
+  });
+
+  it('keeps what the student edited meanwhile', () => {
+    expect(applyDictation('texto novo', 'ola', 'ola mundo')).toBe('texto novo ola mundo');
   });
 });

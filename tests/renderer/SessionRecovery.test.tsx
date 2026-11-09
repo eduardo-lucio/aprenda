@@ -77,7 +77,7 @@ describe('SessionView failure recovery', () => {
     expect(await screen.findAllByRole('radio')).toHaveLength(3);
   });
 
-  it('I1: no answer key or badge before the verdict, and the reasoning survives a failure', async () => {
+  it('I1: the answer key and badge show before the judge finishes, and the reasoning survives a failure', async () => {
     let reject!: (e: Error) => void;
     (window as any).api.submitProbeAnswer = vi.fn(() => new Promise((_r, rej) => (reject = rej)));
     render(<SessionView currentSession={session()} />);
@@ -88,8 +88,8 @@ describe('SessionView failure recovery', () => {
 
     await waitFor(() => expect((window as any).api.submitProbeAnswer).toHaveBeenCalled());
     await screen.findByText('Opção certa');
-    expect(screen.queryByText(/^(certa|errada|parcial)$/i)).toBeNull();
-    expect(document.querySelector('.text-emerald-400')).toBeNull();
+    expect(screen.getByText(/^errada$/i)).toBeDefined();
+    expect(document.querySelector('.text-emerald-400')).not.toBeNull();
 
     await act(async () => reject(ipcError('JudgeUnavailableError: não avaliou')));
 

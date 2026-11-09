@@ -13,26 +13,32 @@ import {
 import { AgentThinkingBlock } from '../components/AgentThinkingBlock';
 import { QuestionCard } from '../components/QuestionCard';
 import { AnsweredQuestionCard } from '../components/AnsweredQuestionCard';
+import { DictationOverlay } from '../components/DictationOverlay';
 import { SocraticCard, SocraticStep } from '../components/SocraticCard';
 import { RichText } from '../components/RichText';
 import { ProbeCard } from '../components/ProbeCard';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { BusyStatus } from '../components/BusyStatus';
 import { cleanError as toDisplayError, isCancelled, isSessionChanged } from '../lib/errors';
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { applyDictation, useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useConceptNotes } from '../hooks/useConceptNotes';
 import { KnowledgeGraph } from '../components/KnowledgeGraph';
+import { NotesView } from '../components/NotesView';
+import { HeroGraph } from '../components/HeroGraph';
+import { HeroHeadline } from '../components/HeroHeadline';
 import { localeOf, useI18n } from '../i18n';
 import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions, isOrientationOption } from '../../shared/types';
 import {
   CheckCircle2,
   Sparkles,
   BarChart3,
-  BookOpen,
   CornerDownLeft,
   Mic,
   ChevronDown,
   Check,
 } from 'lucide-react';
+
+const NO_ATTEMPTS: ProbeAttempt[] = [];
 
 interface SessionViewProps {
   initialNodes?: ConceptNode[];
@@ -75,7 +81,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   availableModels = [],
 }) => {
   const { t, lang } = useI18n();
-  const [activeTab, setActiveTab] = useState<'session' | 'dag'>('session');
+  const [activeTab, setActiveTab] = useState<'session' | 'dag' | 'notes'>('session');
+  const [notesNodeId, setNotesNodeId] = useState<string | null>(null);
   const [nodes, setNodes] = useState<ConceptNode[]>(initialNodes);
   const [session, setSession] = useState<ProbingSession | null>(currentSession);
   const [goalInput, setGoalInput] = useState('');
@@ -83,11 +90,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
     currentSession?.currentQuestion || null
   );
   const [agentThinking, setAgentThinking] = useState<string>('');
-  const [socraticNode, setSocraticNode] = useState<ConceptNode | null>(null);
+  const restoredLesson = restoredUi?.activeLesson ?? null;
+  const [socraticNode, setSocraticNode] = useState<ConceptNode | null>(restoredLesson?.node ?? null);
   const [socraticPredictData, setSocraticPredictData] = useState<{
     questionText: string;
     promptGoal?: string;
-  } | null>(null);
+  } | null>(restoredLesson ? { questionText: restoredLesson.questionText, promptGoal: restoredLesson.promptGoal } : null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState<ProbeAttempt | null>(null);
   const [submittingLabel, setSubmittingLabel] = useState<string>('');
@@ -160,11 +168,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [confidence, setConfidence] = useState<number>(DEFAULT_CONFIDENCE);
 
   // Socratic cycle state (lifted out of the card: inputs live in the chat field)
-  const [socraticStep, setSocraticStep] = useState<SocraticStep>('predict');
-  const [teachProse, setTeachProse] = useState('');
-  const [prediction, setPrediction] = useState('');
-  const [checkQuestion, setCheckQuestion] = useState<CheckQuestionData | null>(null);
-  const [checkResult, setCheckResult] = useState<{ isPassed: boolean; repairExplanation?: string } | null>(null);
+  const [socraticStep, setSocraticStep] = useState<SocraticStep>(restoredLesson?.step ?? 'predict');
+  const [teachProse, setTeachProse] = useState(restoredLesson?.teachProse ?? '');
+  const [prediction, setPrediction] = useState(restoredLesson?.prediction ?? '');
+  const [checkQuestion, setCheckQuestion] = useState<CheckQuestionData | null>(restoredLesson?.checkQuestion ?? null);
+  const [checkResult, setCheckResult] = useState<{ isPassed: boolean; mastered?: boolean; repairExplanation?: string } | null>(null);
+  const [checkAnswer, setCheckAnswer] = useState<{ index: number; confidence?: number; reasoning: string } | null>(null);
   const [socraticLoading, setSocraticLoading] = useState(false);
   // True once the teaching pass has gone through every concept that was still pending
   const [teachingFinished, setTeachingFinished] = useState(false);
@@ -177,16 +186,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const hasSessionRef = useRef(false);
   hasSessionRef.current = Boolean(session);
 
+  // Words still being recognized are shown in the field and replaced as the recognizer refines them
+  const dictationInterimRef = useRef('');
+  const writeDictation = (text: string, isFinal: boolean) => {
+    const previous = dictationInterimRef.current;
+    dictationInterimRef.current = isFinal ? '' : text;
+    const update = (current: string) => applyDictation(current, previous, text);
+    if (hasSessionRef.current) setBottomChatInput(update);
+    else setGoalInput(update);
+  };
+
   const {
     isListening,
     isTranscribing,
     toggleListening,
     error: speechError,
-  } = useSpeechRecognition((voiceText) => {
-    const append = (prev: string) => (prev ? `${prev} ${voiceText}` : voiceText);
-    if (hasSessionRef.current) setBottomChatInput(append);
-    else setGoalInput(append);
-  });
+  } = useSpeechRecognition(
+    (voiceText) => writeDictation(voiceText, true),
+    (voiceText) => writeDictation(voiceText, false)
+  );
+
+  const isDictating = isListening || isTranscribing;
 
   useEffect(() => {
     const handleGlobalDictate = () => toggleListening();
@@ -270,13 +290,53 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   }, [currentSession]);
 
+  const conceptNotes = useConceptNotes({
+    sessionId: session?.id,
+    nodes,
+    attempts: session?.attempts ?? NO_ATTEMPTS,
+    lessons,
+    enabled: activeTab === 'notes',
+    initialNotes: restoredUi?.notes,
+    fallbackError: t('notes.error'),
+    incompleteError: t('notes.incomplete'),
+  });
+  const savedNotes = conceptNotes.notes;
+
+  // Only a lesson still in progress is kept: once it is answered it lives in `lessons`
+  const activeLesson = useMemo<PersistedUi['activeLesson']>(
+    () =>
+      socraticNode && socraticPredictData && !checkResult
+        ? {
+            node: socraticNode,
+            questionText: socraticPredictData.questionText,
+            promptGoal: socraticPredictData.promptGoal,
+            step: socraticStep,
+            prediction,
+            teachProse,
+            checkQuestion,
+          }
+        : null,
+    [socraticNode, socraticPredictData, checkResult, socraticStep, prediction, teachProse, checkQuestion]
+  );
+
   // These only change on student actions, and the repository already batches disk writes
   useEffect(() => {
     if (!session || !window.api?.saveSessionUi) return;
-    void Promise.resolve(window.api.saveSessionUi(session.id, { chatMessages, answeredScope, lessons })).catch((err) => {
+    void Promise.resolve(
+      window.api.saveSessionUi(session.id, { chatMessages, answeredScope, lessons, notes: savedNotes, activeLesson })
+    ).catch((err) => {
       console.error('[SessionView] Falha ao salvar a conversa:', err);
     });
-  }, [session?.id, chatMessages, answeredScope, lessons]);
+  }, [session?.id, chatMessages, answeredScope, lessons, savedNotes, activeLesson]);
+
+  // A lesson restored from disk: re-arm the main process (no AI call); if that fails, generate it again
+  useEffect(() => {
+    if (!restoredLesson || !window.api?.resumeLesson) return;
+    window.api.resumeLesson(restoredLesson.node.id, restoredLesson.checkQuestion).catch(() => {
+      resumedTeachingRef.current = session?.id ?? null;
+      void handleStartSocraticCycle(restoredLesson.node.id);
+    });
+  }, []);
 
   // Resume teaching of a session restored from disk
   const resumedTeachingRef = useRef<string | null>(null);
@@ -452,7 +512,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     draft: string
   ) => {
     setStreamingThinking('');
-    // Show the answered question right away (before the AI starts thinking), without the verdict
+    // Show the answered question and its answer key right away, before the AI starts thinking
     if (currentQuestion) {
       setPendingAttempt({
         questionId: currentQuestion.id,
@@ -549,7 +609,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setTeachProse('');
       const data = await window.api.startSocraticStep(nodeId);
       if (!data) {
-        // Every pending concept already had its turn: end the pass instead of looping on a failed one
+        // Every concept is mastered: nothing left to teach
         setSocraticNode(null);
         setSocraticPredictData(null);
         setTeachingFinished(true);
@@ -574,13 +634,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setSubmittingLabel(t('session.status.teach'));
     setSocraticLoading(true);
     clearError();
+    // Shown right away in the feed; given back to the field below if the explanation fails
+    setPrediction(text);
     try {
       const res = await window.api.submitPrediction(text);
-      setPrediction(text);
       setTeachProse(res.teachProse);
       setCheckQuestion(res.checkQuestion);
       setSocraticStep('teach');
     } catch (err: any) {
+      setPrediction('');
       reportError(err);
       setBottomChatInput(text);
     } finally {
@@ -592,11 +654,18 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setSubmittingLabel(t('session.status.judge'));
     setSocraticLoading(true);
     clearError();
+    // The right answer is already known here: show it now, while the judge still reads the reasoning
+    if (checkQuestion) {
+      const isPassed = index === checkQuestion.correctOptionIndex;
+      setCheckAnswer({ index, confidence: conf, reasoning });
+      // A wrong answer can never be mastery; a right one still depends on the judge
+      setCheckResult({ isPassed, mastered: isPassed ? undefined : false });
+    }
     try {
       const res = await window.api.submitCheckAnswer(index, conf, reasoning);
       await refreshGraph();
       if (res.session) setSession(res.session);
-      setCheckResult({ isPassed: res.isPassed, repairExplanation: res.repairExplanation });
+      setCheckResult({ isPassed: res.isPassed, mastered: res.mastered, repairExplanation: res.repairExplanation });
       if (socraticNode && socraticPredictData) {
         setLessons((prev) => [
           ...prev,
@@ -613,12 +682,35 @@ export const SessionView: React.FC<SessionViewProps> = ({
         ]);
       }
     } catch (err: any) {
+      setCheckResult(null);
       reportError(err);
       setBottomChatInput(reasoning);
     } finally {
       setSocraticLoading(false);
     }
   };
+
+  const openNotes = (nodeId: string | null = null) => {
+    void refreshGraph();
+    setNotesNodeId(nodeId);
+    setActiveTab('notes');
+  };
+
+  const answeredCheck: ProbeAttempt | null =
+    socraticNode && checkQuestion && checkResult && checkAnswer
+      ? {
+          questionId: socraticNode.id,
+          nodeId: socraticNode.id,
+          questionText: checkQuestion.questionText,
+          options: checkQuestion.options,
+          correctOptionIndex: checkQuestion.correctOptionIndex,
+          selectedOptionIndex: checkAnswer.index,
+          confidence: checkAnswer.confidence,
+          thinkingText: checkAnswer.reasoning,
+          verdict: !checkResult.isPassed ? 'blind_spot' : checkResult.mastered === false ? 'false_positive' : 'mastered',
+          judgeReasoning: checkQuestion.explanation,
+        }
+      : null;
 
   const phase = session?.phase || 'goal_orientation';
   const pendingConceptCount = Object.values(session?.nodesState || {}).filter((st) => st !== 'mastered').length;
@@ -748,10 +840,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const scopeTurnMessages = chatMessages.filter((m) => (m.afterAttemptCount ?? -1) === 0);
   const hasScopeMsg = scopeTurnMessages.length > 0 || Boolean(answeredScope);
 
+  // Blank new session: the field waits in the centre until the first prompt is sent
+  const heroVisible = !session && !isSubmitting && chatMessages.length === 0;
+
   const chatInputBox = (
     <div>
       {/* Input Box with Paperclip and Enter button */}
-      <div className="relative flex items-start rounded-xl border border-ink-600 bg-ink-850 px-3.5 py-2.5 shadow-sm focus-within:border-ink-400 transition-colors">
+      <div
+        className={`relative flex items-start border shadow-sm focus-within:border-ink-400 ${!session ? 'hero-motion' : 'transition-colors'} ${
+          heroVisible
+            ? 'rounded-2xl border-ink-500 bg-ink-900 px-5 py-4'
+            : 'rounded-xl border-ink-600 bg-ink-850 px-3.5 py-2.5'
+        }`}
+      >
+        <div className="relative min-w-0 flex-1">
         <textarea
           ref={chatInputRef}
           value={inputValue}
@@ -765,16 +867,29 @@ export const SessionView: React.FC<SessionViewProps> = ({
           placeholder={inputPlaceholder}
           disabled={isSubmitting || socraticLoading}
           rows={isSocraticPredict ? 2 : 1}
-          className="flex-1 resize-none bg-transparent text-xs text-gray-200 outline-none placeholder:text-gray-500 font-sans"
+          className={`block w-full resize-none bg-transparent outline-none placeholder:text-gray-500 font-sans ${
+            isDictating ? 'text-transparent caret-gray-200' : 'text-gray-200'
+          } ${!session ? 'hero-motion' : ''} ${heroVisible ? 'min-h-[3.5rem] text-base' : 'min-h-0 text-xs'}`}
           autoFocus
         />
+        {isDictating && (
+          <DictationOverlay
+            value={inputValue}
+            className={`font-sans text-gray-200 ${heroVisible ? 'text-base' : 'text-xs'}`}
+          />
+        )}
+        </div>
 
         <div className="flex items-center space-x-2 ml-2 shrink-0">
           <button
             type="button"
             onClick={handleDockSubmit}
             disabled={!canSend}
-            className="flex items-center justify-center rounded-lg bg-ink-600 hover:bg-ink-400 p-1.5 text-gray-300 hover:text-white transition-colors disabled:opacity-40"
+            className={`flex items-center justify-center rounded-lg transition-colors disabled:opacity-40 ${
+              heroVisible
+                ? 'bg-gray-200 p-2 text-ink-950 hover:bg-white'
+                : 'bg-ink-600 p-1.5 text-gray-300 hover:bg-ink-400 hover:text-white'
+            }`}
             title={
               !session
                 ? t('session.start')
@@ -992,20 +1107,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   return (
     <div className="flex h-full w-full flex-col bg-ink-950 text-gray-200 relative">
-      {/* Top Session Nav Tabs */}
-      <div className="flex items-center justify-between border-b border-ink-700 px-6 py-1.5 bg-ink-950">
-        <span className="label-mono">{t('session.tabs.label')}</span>
-
-        <div className="flex items-center space-x-2">
+      {/* Session tabs: fixed over the middle of the window's title bar */}
+      <nav
+        className="fixed left-1/2 top-0 z-20 flex h-14 -translate-x-1/2 items-center"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        <div className="flex items-center space-x-1">
           <button
             onClick={() => setActiveTab('session')}
-            className={`flex items-center space-x-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               activeTab === 'session'
                 ? 'bg-ink-700 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <BookOpen className="h-3.5 w-3.5" />
             <span>{t('session.tabs.chat')}</span>
           </button>
 
@@ -1014,17 +1129,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
               refreshGraph();
               setActiveTab('dag');
             }}
-            className={`flex items-center space-x-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               activeTab === 'dag'
                 ? 'bg-ink-700 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            <BarChart3 className="h-3.5 w-3.5" />
             <span>{t('session.tabs.map', { count: nodes.length })}</span>
           </button>
+
+          <button
+            onClick={() => openNotes()}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === 'notes'
+                ? 'bg-ink-700 text-white shadow-sm'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <span>{t('session.tabs.notes')}</span>
+          </button>
         </div>
-      </div>
+      </nav>
 
       {/* Main Content Area */}
       {activeTab === 'dag' ? (
@@ -1056,8 +1181,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 nodes={nodes}
                 goal={session?.goal}
                 onStartSocratic={phase === 'teaching' && !isBusy ? (id) => handleStartSocraticCycle(id) : undefined}
+                onOpenNotes={openNotes}
               />
             </div>
+          </div>
+        </div>
+      ) : activeTab === 'notes' ? (
+        <div className="flex-1 min-h-0 overflow-hidden p-4">
+          <div className="flex h-full min-h-0 flex-col space-y-3">
+            {statusRegion}
+            <div className="bg-ink-900 p-3 rounded-lg border border-ink-700">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">{t('notes.title')}</h4>
+              <p className="text-[11px] text-gray-400">{t('notes.hint')}</p>
+            </div>
+            <NotesView
+              nodes={nodes}
+              notes={conceptNotes.notes}
+              pendingIds={conceptNotes.pendingIds}
+              error={conceptNotes.error}
+              onRetry={conceptNotes.retry}
+              initialNodeId={notesNodeId}
+            />
           </div>
         </div>
       ) : (
@@ -1066,16 +1210,30 @@ export const SessionView: React.FC<SessionViewProps> = ({
           <div
             ref={feedContainerRef}
             data-testid="chat-feed-scroll"
-            className="flex-1 select-text overflow-y-auto px-6 py-5"
+            className="relative flex-1 select-text overflow-y-auto px-6 py-5"
           >
+            {!session && (
+              <div
+                className={`hero-motion pointer-events-none absolute inset-x-0 bottom-0 px-6 pb-5 ${
+                  heroVisible ? 'opacity-100' : '-translate-y-3 opacity-0'
+                }`}
+              >
+                <div className="mx-auto max-w-2xl">
+                  <HeroHeadline active={heroVisible} />
+                </div>
+              </div>
+            )}
+
             <div className="mx-auto max-w-3xl space-y-6 pb-8">
               {/* Top Phase Pill Divider (Coherent with active phase: PROBING / TEACHING / etc.) */}
-              <div className="relative flex items-center justify-center py-1">
-                <div className="absolute inset-x-0 border-t border-ink-700" />
-                <span className="relative rounded-full border border-ink-600 bg-ink-950 px-3.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gray-400">
-                  {phaseDividerLabel}
-                </span>
-              </div>
+              {!heroVisible && (
+                <div className="relative flex items-center justify-center py-1">
+                  <div className="absolute inset-x-0 border-t border-ink-700" />
+                  <span className="relative rounded-full border border-ink-600 bg-ink-950 px-3.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gray-400">
+                    {phaseDividerLabel}
+                  </span>
+                </div>
+              )}
 
               {/* TURN 0: Initial Empty State & Goal Orientation */}
               {!session ? (
@@ -1100,15 +1258,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       isStreaming={true}
                       statusLabel={submittingLabel}
                     />
-                  )}
-
-                  {!isSubmitting && chatMessages.length === 0 && (
-                    <div className="pt-8 space-y-1.5 text-center sm:text-left">
-                      <h2 className="text-base font-serif font-bold text-gray-100">
-                        {t('session.empty.title')}
-                      </h2>
-                      <p className="text-xs text-gray-400">{t('session.empty.subtitle')}</p>
-                    </div>
                   )}
                 </div>
               ) : (
@@ -1373,9 +1522,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     step={socraticStep}
                     predictQuestion={socraticPredictData.questionText}
                     promptGoal={socraticPredictData.promptGoal}
+                    mastered={checkResult?.mastered}
                     teachProse={teachProse}
                     prediction={prediction}
-                    checkResult={checkResult}
+                    answeredCheck={answeredCheck}
                     isLoading={socraticLoading}
                     onAdvanceToCheck={() => setSocraticStep('check')}
                     onFinishStep={async () => {
@@ -1432,6 +1582,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     disabled={isSubmitting || socraticLoading}
                     onSubmit={handleDockSubmit}
                     textareaRef={chatInputRef}
+                    dictating={isDictating}
                   >
                     {isScopeMode && session && (
                       <QuestionCard
@@ -1494,12 +1645,25 @@ export const SessionView: React.FC<SessionViewProps> = ({
           </div>
 
           {/* Bottom bar: shared chat field (when no question card is open) + status footer */}
-          <div className="shrink-0 bg-ink-950 px-6 pb-3 pt-2">
-            <div className="mx-auto flex max-w-3xl flex-col gap-2">
-              {statusRegion}
-              {!hasDock && hasAnswerField && chatInputBox}
-              {statusSubBar}
+          {(statusRegion || (!hasDock && hasAnswerField)) && (
+            <div className="shrink-0 bg-ink-950 px-6 pt-2">
+              <div className={`hero-motion mx-auto flex flex-col gap-2 ${heroVisible ? 'max-w-2xl' : 'max-w-3xl'}`}>
+                {statusRegion}
+                {!hasDock && hasAnswerField && chatInputBox}
+              </div>
             </div>
+          )}
+
+          {/* Takes half of the free height in a blank session (centring the field) and collapses on send */}
+          <div
+            className="hero-motion relative min-h-0 basis-0 overflow-hidden"
+            style={{ flexGrow: heroVisible ? 0.85 : 0 }}
+          >
+            {!session && <HeroGraph visible={heroVisible} />}
+          </div>
+
+          <div className="shrink-0 bg-ink-950 px-6 pb-3 pt-2">
+            <div className="mx-auto max-w-3xl">{statusSubBar}</div>
           </div>
         </>
       )}

@@ -1,6 +1,9 @@
 import { cleanError } from '../lib/errors';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useI18n } from '../i18n';
+import { SpeechStreamEvent } from '../../shared/types';
+
+const STREAM_TIMESLICE_MS = 250;
 
 export interface UseSpeechRecognitionReturn {
   isListening: boolean;
@@ -41,7 +44,20 @@ function pickMimeType(): string {
   return 'audio/webm';
 }
 
-export function useSpeechRecognition(onResult?: (text: string) => void): UseSpeechRecognitionReturn {
+/** Swaps the words still being recognized at the end of a field; anything the student typed before them stays. */
+export function applyDictation(current: string, previousInterim: string, next: string): string {
+  const base =
+    previousInterim && current.endsWith(previousInterim)
+      ? current.slice(0, -previousInterim.length).trimEnd()
+      : current;
+  if (!next) return base;
+  return base ? `${base} ${next}` : next;
+}
+
+export function useSpeechRecognition(
+  onResult?: (text: string) => void,
+  onInterim?: (text: string) => void
+): UseSpeechRecognitionReturn {
   const { t } = useI18n();
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -53,11 +69,31 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const onResultRef = useRef(onResult);
+  const onInterimRef = useRef(onInterim);
+  const interimRef = useRef('');
+  const unsubscribeStreamRef = useRef<(() => void) | null>(null);
 
   // Keep latest onResult callback without restarting recognition
   useEffect(() => {
     onResultRef.current = onResult;
-  }, [onResult]);
+    onInterimRef.current = onInterim;
+  }, [onResult, onInterim]);
+
+  const emitInterim = useCallback((text: string) => {
+    if (text === interimRef.current) return;
+    interimRef.current = text;
+    onInterimRef.current?.(text);
+  }, []);
+
+  const emitFinal = useCallback((text: string) => {
+    interimRef.current = '';
+    onResultRef.current?.(text);
+  }, []);
+
+  /** Recognition ended with words still on screen: they become part of the text. */
+  const commitInterim = useCallback(() => {
+    if (interimRef.current) emitFinal(interimRef.current);
+  }, [emitFinal]);
 
   const hasWebSpeech =
     typeof window !== 'undefined' &&
@@ -90,6 +126,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       recognition.onresult = (event: any) => {
         let finalChunk = '';
         let fullTranscript = '';
+        let interimChunk = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const res = event.results[i];
@@ -97,14 +134,15 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
           fullTranscript += text;
           if (res.isFinal) {
             finalChunk += text;
+          } else {
+            interimChunk += text;
           }
         }
 
         setTranscript(fullTranscript);
 
-        if (finalChunk.trim() && onResultRef.current) {
-          onResultRef.current(finalChunk.trim());
-        }
+        if (finalChunk.trim()) emitFinal(finalChunk.trim());
+        emitInterim(interimChunk.trim());
       };
 
       recognition.onerror = (event: any) => {
@@ -120,6 +158,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       };
 
       recognition.onend = () => {
+        commitInterim();
         setIsListening(false);
       };
 
@@ -136,7 +175,18 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
       }
       cleanupMediaStream();
     };
-  }, [hasWebSpeech, cleanupMediaStream]);
+  }, [hasWebSpeech, cleanupMediaStream, emitFinal, emitInterim, commitInterim]);
+
+  // Leaving the screen must not keep the microphone or the live connection open
+  useEffect(
+    () => () => {
+      unsubscribeStreamRef.current?.();
+      unsubscribeStreamRef.current = null;
+      void window.api?.stopSpeechStream?.();
+      cleanupMediaStream();
+    },
+    [cleanupMediaStream]
+  );
 
   const startDeepgramRecording = useCallback(
     async (language: string) => {
@@ -151,6 +201,49 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
         mediaStreamRef.current = stream;
         audioChunksRef.current = [];
 
+        // Live transcription; without it the recording is still transcribed when it ends
+        let streamId: number | null = null;
+        let streamFailed = false;
+        let streamHadText = false;
+        let streamError: string | null = null;
+        let sendQueue: Promise<void> = Promise.resolve();
+        const earlyEvents: SpeechStreamEvent[] = [];
+        const handleStreamEvent = (event: SpeechStreamEvent) => {
+          if (streamId === null) {
+            earlyEvents.push(event);
+            return;
+          }
+          if (event.id !== streamId) return;
+          if (event.type === 'interim') {
+            streamHadText = true;
+            emitInterim(event.text);
+          } else if (event.type === 'final') {
+            if (event.text) {
+              streamHadText = true;
+              setTranscript(event.text);
+              emitFinal(event.text);
+            } else {
+              emitInterim('');
+            }
+          } else if (event.type === 'error') {
+            streamFailed = true;
+            streamError = event.message;
+          }
+        };
+        if (window.api?.startSpeechStream && window.api.onSpeechStreamEvent) {
+          unsubscribeStreamRef.current = window.api.onSpeechStreamEvent(handleStreamEvent);
+          try {
+            streamId = await window.api.startSpeechStream({ language });
+            earlyEvents.splice(0).forEach(handleStreamEvent);
+          } catch (err) {
+            streamFailed = true;
+            streamError = cleanError(err, t('voice.err.generic'));
+            unsubscribeStreamRef.current?.();
+            unsubscribeStreamRef.current = null;
+          }
+        }
+        const streaming = streamId !== null;
+
         const mimeType = pickMimeType();
         let recorder: MediaRecorder;
         try {
@@ -163,6 +256,13 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
         recorder.ondataavailable = (e: BlobEvent) => {
           if (e.data && e.data.size > 0) {
             audioChunksRef.current.push(e.data);
+            if (streaming && !streamFailed) {
+              const data = e.data;
+              // Keeps the chunks in recording order: the first one holds the container header
+              sendQueue = sendQueue.then(async () => {
+                window.api?.sendSpeechChunk?.(await data.arrayBuffer());
+              });
+            }
           }
         };
 
@@ -172,6 +272,29 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
           audioChunksRef.current = [];
           cleanupMediaStream();
           setIsListening(false);
+
+          if (streaming) {
+            setIsTranscribing(true);
+            try {
+              await sendQueue;
+              await window.api?.stopSpeechStream?.();
+            } catch {
+              streamFailed = true;
+            } finally {
+              setIsTranscribing(false);
+              unsubscribeStreamRef.current?.();
+              unsubscribeStreamRef.current = null;
+            }
+            commitInterim();
+            if (streamHadText) {
+              if (streamFailed) setError(streamError || t('voice.err.generic'));
+              return;
+            }
+            if (!streamFailed) {
+              setError(t('voice.err.noSpeech'));
+              return;
+            }
+          }
 
           if (blob.size === 0) {
             setError(t('voice.err.noAudio'));
@@ -193,6 +316,8 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
               if (onResultRef.current) {
                 onResultRef.current(text.trim());
               }
+              // The text arrived, but only at the end: say why the words did not appear live
+              if (streamFailed) setError(t('voice.err.liveFailed', { detail: streamError || t('voice.err.generic') }));
             } else {
               setError(t('voice.err.noSpeech'));
             }
@@ -203,7 +328,8 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
           }
         };
 
-        recorder.start();
+        if (streaming) recorder.start(STREAM_TIMESLICE_MS);
+        else recorder.start();
         setIsListening(true);
       } catch (err: any) {
         cleanupMediaStream();
@@ -215,7 +341,7 @@ export function useSpeechRecognition(onResult?: (text: string) => void): UseSpee
         );
       }
     },
-    [cleanupMediaStream, t]
+    [cleanupMediaStream, commitInterim, emitFinal, emitInterim, t]
   );
 
   const startListening = useCallback(() => {

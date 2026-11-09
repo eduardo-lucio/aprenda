@@ -102,6 +102,15 @@ export interface ProbingSession {
   tokensUsed?: number;
 }
 
+/** One failed verification of a concept: what the next attempt at the lesson has to fix. */
+export interface LessonFailure {
+  questionText: string;
+  chosenAnswer: string;
+  correctAnswer: string;
+  diagnosis: string;
+  misconception?: string;
+}
+
 /** A finished lesson, kept so the student can reread it. */
 export interface CompletedLesson {
   nodeId: string;
@@ -114,9 +123,33 @@ export interface CompletedLesson {
   repairExplanation?: string;
 }
 
+/** What the AI writes about one concept of the map, from what the student actually did on it. */
+export interface ConceptNoteContent {
+  nodeId: string;
+  summary: string;
+  toLearn: string[];
+  learned: string[];
+}
+
+export interface ConceptNote extends ConceptNoteContent {
+  /** Snapshot of the student's progress the note was written from: when it changes, the note is stale. */
+  evidenceKey: string;
+}
+
 export interface PersistedUi {
   chatMessages: ChatTurnMessage[];
   lessons?: CompletedLesson[];
+  notes?: ConceptNote[];
+  /** Lesson the student left halfway: reopening the session resumes it instead of generating it again. */
+  activeLesson?: {
+    node: ConceptNode;
+    questionText: string;
+    promptGoal?: string;
+    step: 'predict' | 'teach' | 'check';
+    prediction: string;
+    teachProse: string;
+    checkQuestion: CheckQuestionData | null;
+  } | null;
   answeredScope?: {
     questionText: string;
     options: string[];
@@ -132,8 +165,8 @@ export interface SessionSnapshot {
   candidateQueue: string[];
   askedQuestions: string[];
   teachingOrder: string[];
-  /** Concepts already taught (check answered, pass or fail) in the current teaching pass. */
-  teachingDone?: string[];
+  /** Failed verifications per concept since it was last mastered. */
+  lessonFailures?: Record<string, LessonFailure[]>;
   tokensUsed: number;
 }
 
@@ -142,6 +175,7 @@ export interface SessionSummary {
   title: string;
   mode: 'teaching' | 'practice';
   updatedAt: number;
+  pinned?: boolean;
 }
 
 export interface JudgeEvaluationResult {
@@ -219,7 +253,7 @@ export interface ElectronAPI {
     nodeId?: string
   ) => Promise<{ node: ConceptNode; questionText: string; promptGoal: string } | null>;
   submitPrediction: (text: string) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData }>;
-  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) => Promise<{ isPassed: boolean; repairExplanation?: string; session: ProbingSession }>;
+  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) => Promise<{ isPassed: boolean; mastered: boolean; repairExplanation?: string; session: ProbingSession }>;
   /** Replaces the focus options with simpler entry points (the student asked for guidance). */
   requestOrientation: (thinkingText?: string) => Promise<ProbingSession>;
   /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */
@@ -227,7 +261,13 @@ export interface ElectronAPI {
   listSessions: () => Promise<SessionSummary[]>;
   loadSession: (id: string) => Promise<{ session: ProbingSession; ui: PersistedUi }>;
   deleteSession: (id: string) => Promise<void>;
+  renameSession: (id: string, title: string) => Promise<void>;
+  pinSession: (id: string, pinned: boolean) => Promise<void>;
+  /** Re-arms the main process for a lesson restored from disk (no AI call). */
+  resumeLesson: (nodeId: string, checkQuestion: CheckQuestionData | null) => Promise<void>;
   saveSessionUi: (id: string, ui: PersistedUi) => Promise<void>;
+  /** Concepts the AI left out are simply absent from the result. */
+  generateConceptNotes: (sessionId: string, nodeIds: string[]) => Promise<ConceptNoteContent[]>;
   getGraphState: () => Promise<ConceptNode[]>;
   getSession: () => Promise<ProbingSession | null>;
   windowAction: (action: 'minimize' | 'maximize' | 'close') => void;
@@ -239,6 +279,10 @@ export interface ElectronAPI {
   updateSettings: (settings: SettingsUpdatePayload) => Promise<{ success: boolean }>;
   validateDeepgramKey: (apiKey: string) => Promise<{ isValid: boolean; keyMasked: string }>;
   transcribeAudio: (params: { audio: ArrayBuffer; mimeType: string; language?: string }) => Promise<string>;
+  startSpeechStream?: (params: { language?: string }) => Promise<number>;
+  sendSpeechChunk?: (chunk: ArrayBuffer) => void;
+  stopSpeechStream?: () => Promise<void>;
+  onSpeechStreamEvent?: (callback: (event: SpeechStreamEvent) => void) => () => void;
   getStorageStatus?: () => Promise<{ corruptBackup?: string; secretsProtected: boolean }>;
   /** Hands over keys that older versions kept in the renderer. */
   migrateSecrets?: (legacy: { providers?: Array<{ id: string; apiKey?: string }>; deepgramApiKey?: string }) => Promise<void>;
@@ -249,6 +293,12 @@ export interface ElectronAPI {
   onThinkingStream?: (callback: (payload: { text: string; done?: boolean }) => void) => () => void;
   onTokensUpdate?: (callback: (payload: { tokensUsed: number }) => void) => () => void;
 }
+
+/** What the live dictation connection reports while the student speaks. */
+export type SpeechStreamEvent =
+  | { id: number; type: 'interim' | 'final'; text: string }
+  | { id: number; type: 'error'; message: string }
+  | { id: number; type: 'closed' };
 
 /** Languages offered for voice dictation (Deepgram / Web Speech codes). */
 export const VOICE_LANGUAGES: Array<{ code: string; label: string }> = [

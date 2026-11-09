@@ -1,7 +1,12 @@
-import { CheckQuestionData, ConceptNode } from '../../shared/types';
+import { CheckQuestionData, ConceptNode, LessonFailure } from '../../shared/types';
 import { buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
 import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
 import { CurriculumGenerator, parseCorrectIndex } from '../services/CurriculumGenerator';
+
+/** Some models double-escape line breaks, leaving a literal "\\n" in the text the student reads. */
+export function unescapeBreaks(text: string): string {
+  return text.replace(/(?:\\r)?\\n/g, '\n').replace(/\\t/g, '  ');
+}
 
 export class SocraticEngine {
   private currentNode?: ConceptNode;
@@ -16,6 +21,11 @@ export class SocraticEngine {
   reset(): void {
     this.currentNode = undefined;
     this.predictCache.clear();
+  }
+
+  /** Picks a lesson back up after a restart or a session switch, without calling the AI. */
+  resumeNode(node: ConceptNode): void {
+    this.currentNode = node;
   }
 
   async prebakePredict(
@@ -34,9 +44,13 @@ export class SocraticEngine {
   async generatePredictStep(
     node: ConceptNode,
     goal = '',
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; failures?: LessonFailure[] }
   ): Promise<{ questionText: string; promptGoal: string }> {
     this.currentNode = node;
+    // A new attempt needs a new question aimed at the mistake: the cached one is what failed
+    if (options?.failures?.length) {
+      return this.generator.generatePredict(node, goal || node.title, options);
+    }
     const cached = this.predictCache.get(node.id);
     if (cached) return cached;
 
@@ -45,13 +59,13 @@ export class SocraticEngine {
     return res;
   }
 
-  async submitPrediction(studentPrediction: string): Promise<{ teachProse: string; checkQuestion: CheckQuestionData }> {
+  async submitPrediction(studentPrediction: string, failures: LessonFailure[] = []): Promise<{ teachProse: string; checkQuestion: CheckQuestionData }> {
     const node = this.currentNode;
     if (!node) {
       throw new Error(localize('Nenhum conceito ativo selecionado para o ciclo socrático.', 'No concept is selected for this lesson.'));
     }
 
-    const { systemPrompt, prompt } = buildSocraticTeachPrompt(node, studentPrediction);
+    const { systemPrompt, prompt } = buildSocraticTeachPrompt(node, studentPrediction, failures);
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const raw = await this.llm({ systemPrompt, prompt, temperature: 0.3, jsonMode: true, timeoutMs: 60000 });
@@ -64,9 +78,9 @@ export class SocraticEngine {
         if (parsed.teachProse && correct !== null) {
           const arranged = this.generator.arrangeOptions(cq.options.map((o: unknown) => String(o)), correct);
           return {
-            teachProse: String(parsed.teachProse),
+            teachProse: unescapeBreaks(String(parsed.teachProse)).trim(),
             checkQuestion: {
-              questionText: cq.questionText,
+              questionText: unescapeBreaks(String(cq.questionText)),
               options: arranged.options,
               correctOptionIndex: arranged.correctOptionIndex,
               explanation: String(cq.explanation || node.unconditionalTruth),
@@ -94,8 +108,8 @@ export class SocraticEngine {
 
     const correctOptionText = checkData.options[checkData.correctOptionIndex] || '';
     const repairExplanation = localize(
-      `A resposta certa era "${correctOptionText}". ${checkData.explanation} Vamos seguir para o próximo conceito; você pode voltar a este pelo mapa quando quiser.`,
-      `The right answer was "${correctOptionText}". ${checkData.explanation} Let's move on to the next concept; you can come back to this one from the map anytime.`
+      `A resposta certa era "${correctOptionText}". ${checkData.explanation} Vamos retomar este conceito de outro jeito antes de avançar.`,
+      `The right answer was "${correctOptionText}". ${checkData.explanation} Let's go over this concept another way before moving on.`
     );
 
     return { isPassed: false, repairExplanation };

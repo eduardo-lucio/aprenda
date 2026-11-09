@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Settings, Layers, Trash2, PanelLeft } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Search, Settings, Trash2, PanelLeft, Pin, PinOff, Pencil } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 export interface SessionItem {
@@ -7,6 +7,7 @@ export interface SessionItem {
   title: string;
   mode: 'teaching' | 'practice';
   date: string;
+  pinned?: boolean;
 }
 
 interface SidebarProps {
@@ -19,6 +20,8 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
   onDeleteSession?: (id: string) => void;
+  onRenameSession?: (id: string, title: string) => void;
+  onPinSession?: (id: string, pinned: boolean) => void;
   onOpenSettings?: () => void;
 }
 
@@ -30,12 +33,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSession,
   onNewSession,
   onDeleteSession,
+  onRenameSession,
+  onPinSession,
   onOpenSettings,
 }) => {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const menuSession = menu ? sessions.find((s) => s.id === menu.id) : undefined;
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('click', close);
+    window.addEventListener('blur', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
+  const finishRename = (save: boolean) => {
+    if (save && renamingId && renameValue.trim()) onRenameSession?.(renamingId, renameValue);
+    setRenamingId(null);
+  };
 
   const filteredSessions = sessions.filter((s) => s.title.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -69,7 +98,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-ink-700 bg-ink-900 text-gray-300">
       {/* Brand + collapse */}
       <div className="flex h-14 shrink-0 items-center justify-between px-5">
-        <Layers className="h-6 w-6 text-gray-100" aria-hidden />
+        <svg viewBox="30 30 112 112" className="h-7 w-7" aria-hidden="true">
+          <g stroke="#F3F4F6" strokeWidth="14.6" strokeLinecap="round" fill="none">
+            <line x1="88.7" y1="38.5" x2="132" y2="132.5" />
+            <line x1="85" y1="101" x2="117" y2="101" />
+          </g>
+          <circle cx="74.7" cy="69" r="10" fill="#F3F4F6" />
+          <circle cx="57.2" cy="98.5" r="10" fill="#F3F4F6" />
+          <circle cx="43.5" cy="129.5" r="11.8" fill="#F5D039" />
+        </svg>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
@@ -122,11 +159,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={s.id}
+                onContextMenu={(e) => {
+                  if (locked) return;
+                  e.preventDefault();
+                  setConfirmingDeleteId(null);
+                  setMenu({ id: s.id, x: Math.min(e.clientX, window.innerWidth - 190), y: Math.min(e.clientY, window.innerHeight - 140) });
+                }}
                 onMouseLeave={() => setConfirmingDeleteId((id) => (id === s.id ? null : id))}
                 className={`group relative rounded-lg transition-colors ${
                   isActive ? 'bg-ink-700 text-gray-100' : 'text-gray-400 hover:bg-ink-800 hover:text-gray-200'
                 } ${locked ? 'opacity-60' : ''}`}
               >
+                {renamingId === s.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    maxLength={120}
+                    aria-label={t('sidebar.rename')}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => finishRename(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') finishRename(true);
+                      if (e.key === 'Escape') finishRename(false);
+                    }}
+                    className="m-2 w-[calc(100%-1rem)] rounded border border-ink-500 bg-ink-850 px-2 py-1 text-sm text-gray-100 outline-none focus:border-gray-400"
+                  />
+                ) : (
                 <button
                   type="button"
                   onClick={() => onSelectSession(s.id)}
@@ -135,9 +193,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   title={locked ? t('sidebar.locked') : s.title}
                   className="focus-ring flex w-full flex-col rounded-lg px-3 py-2.5 text-left disabled:cursor-not-allowed"
                 >
-                  <span className="block w-full truncate pr-5 text-sm font-medium">{s.title}</span>
+                  <span className="flex w-full items-center gap-1.5 pr-5 text-sm font-medium">
+                    {s.pinned && <Pin className="h-3 w-3 shrink-0 text-gray-500" aria-label={t('sidebar.pinned')} />}
+                    <span className="truncate">{s.title}</span>
+                  </span>
                   <span className="mt-1 font-mono text-[10px] text-gray-500">{s.date}</span>
                 </button>
+                )}
 
                 {onDeleteSession && !locked && confirmingDeleteId === s.id && (
                   <button
@@ -172,6 +234,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })
         )}
       </div>
+
+      {menu && menuSession && (
+        <div
+          role="menu"
+          style={{ position: 'fixed', left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="z-50 w-44 rounded-lg border border-ink-600 bg-ink-850 py-1 font-mono text-[11px] text-gray-200 shadow-xl"
+        >
+          {onPinSession && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onPinSession(menuSession.id, !menuSession.pinned);
+                setMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-ink-700"
+            >
+              {menuSession.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+              {menuSession.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
+            </button>
+          )}
+          {onRenameSession && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setRenameValue(menuSession.title);
+                setRenamingId(menuSession.id);
+                setMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-ink-700"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t('sidebar.rename')}
+            </button>
+          )}
+          {onDeleteSession && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                setConfirmingDeleteId(menuSession.id);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-400 hover:bg-red-950"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('sidebar.delete')}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <button

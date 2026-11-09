@@ -6,6 +6,8 @@ interface SessionRecord {
   snapshot: SessionSnapshot;
   ui: PersistedUi;
   updatedAt: number;
+  pinned?: boolean;
+  customTitle?: string;
 }
 
 /** Stores every session as JSON on disk (atomic write), so conversations survive app restarts. */
@@ -82,7 +84,13 @@ export class SessionRepository {
   saveSnapshot(snapshot: SessionSnapshot): void {
     const id = snapshot.session.id;
     const prev = this.records.get(id);
-    this.records.set(id, { snapshot, ui: prev?.ui || { chatMessages: [] }, updatedAt: Date.now() });
+    this.records.set(id, {
+      snapshot,
+      ui: prev?.ui || { chatMessages: [] },
+      updatedAt: Date.now(),
+      pinned: prev?.pinned,
+      customTitle: prev?.customTitle,
+    });
     this.scheduleWrite();
   }
 
@@ -98,18 +106,34 @@ export class SessionRepository {
     return rec ? { snapshot: rec.snapshot, ui: rec.ui } : undefined;
   }
 
+  setPinned(id: string, pinned: boolean): void {
+    const rec = this.records.get(id);
+    if (!rec) return;
+    rec.pinned = pinned || undefined;
+    this.scheduleWrite();
+  }
+
+  /** An empty title goes back to the generated one. */
+  rename(id: string, title: string): void {
+    const rec = this.records.get(id);
+    if (!rec) return;
+    rec.customTitle = title.trim().slice(0, 120) || undefined;
+    this.scheduleWrite();
+  }
+
   delete(id: string): void {
     if (this.records.delete(id)) this.scheduleWrite();
   }
 
   list(): SessionSummary[] {
     return Array.from(this.records.values())
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt)
       .map((r) => ({
         id: r.snapshot.session.id,
-        title: r.snapshot.session.topic ?? r.snapshot.session.goal,
+        title: r.customTitle ?? r.snapshot.session.topic ?? r.snapshot.session.goal,
         mode: r.snapshot.session.mode,
         updatedAt: r.updatedAt,
+        pinned: r.pinned,
       }));
   }
 }

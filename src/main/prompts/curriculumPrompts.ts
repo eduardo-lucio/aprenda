@@ -1,6 +1,7 @@
-import { ConceptNode } from '../../shared/types';
+import { CompletedLesson, ConceptNode, LessonFailure, ProbeAttempt } from '../../shared/types';
 import {
   getGraphInstructions,
+  getNotesInstructions,
   getOrientationInstructions,
   getPlanInstructions,
   getPredictInstructions,
@@ -160,7 +161,34 @@ Gere a questão diagnóstica e a nota do tutor em JSON:`;
   return { systemPrompt, prompt };
 }
 
-export function buildPredictPrompt(node: ConceptNode, goal: string): { systemPrompt: string; prompt: string } {
+const clip = (text: string | undefined, max: number): string => {
+  const clean = (text || '').trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+};
+
+/** What the next attempt at a concept must know about the verifications the student failed. */
+export function describeLessonFailures(failures: LessonFailure[]): string {
+  if (failures.length === 0) return '';
+  const lines = failures.slice(-2).map(
+    (f) =>
+      `- Pergunta: ${clip(f.questionText, 300)} | respondeu: ${clip(f.chosenAnswer, 150)} | certa: ${clip(f.correctAnswer, 150)} | diagnóstico: ${clip(f.diagnosis, 300)}${
+        f.misconception ? ` | equívoco: ${clip(f.misconception, 200)}` : ''
+      }`
+  );
+  return `
+
+RETOMADA DO CONCEITO: o aluno ainda não dominou este conceito (${failures.length} verificação(ões) sem domínio) e só avança quando dominar.
+${lines.join('\n')}
+- Mire exatamente no ponto que falhou, com um caso menor e mais concreto do que os anteriores.
+- Use outro exemplo e outro ângulo; não repita nenhuma pergunta acima.
+- Quanto mais tentativas, mais simples e elementar deve ser o passo.`;
+}
+
+export function buildPredictPrompt(
+  node: ConceptNode,
+  goal: string,
+  failures: LessonFailure[] = []
+): { systemPrompt: string; prompt: string } {
   const teacherInstructions = getPredictInstructions();
 
   const systemPrompt = `Você é o professor do APRENDA.
@@ -171,6 +199,7 @@ DOUTRINA DA PREDIÇÃO (TEACHER PREDICTION CYCLE):
 - Objetivo: fazer o estudante tentar descobrir o próximo passo por si mesmo ("Princípio ii: Como eu poderia ter descoberto isso?").
 - Aponte a motivação ou a limitação do estado atual ("Isso funciona bem, mas não sobrevive a X — o que você intui que deve acontecer?").
 - Curto (1 a 2 frases provocativas), focado na intuição natural.
+- "questionText" contém somente a pergunta; nunca escreva o nome de um campo do JSON dentro dele.${describeLessonFailures(failures)}
 
 Responda SOMENTE em JSON:
 {
@@ -187,6 +216,58 @@ Gere a pergunta de predição em JSON:`;
   return { systemPrompt, prompt };
 }
 
+export function buildConceptNotesPrompt(
+  goal: string,
+  evidence: Array<{ node: ConceptNode; attempts: ProbeAttempt[]; lessons: CompletedLesson[] }>
+): { systemPrompt: string; prompt: string } {
+  const systemPrompt = `Você é o Anotador do APRENDA.
+${getNotesInstructions()}
+
+Escreva o caderno de estudo do aluno: uma anotação para CADA conceito recebido, baseada no que o conceito exige e no que o aluno realmente mostrou nesta sessão.
+
+CADA ANOTAÇÃO TEM:
+- "summary": resumo do conceito em 2 a 4 frases, que sirva para revisar depois sem reabrir a aula. Explique a ideia; não descreva o desempenho do aluno.
+- "toLearn": de 2 a 6 tópicos concretos que o aluno ainda precisa aprender neste conceito. Priorize equívocos identificados e o que ficou errado na verificação. Se o conceito estiver dominado e nada faltar, use [].
+- "learned": os tópicos concretos que o aluno JÁ demonstrou saber. Use apenas evidência: resposta correta com raciocínio sólido, verificação aprovada ou estado "mastered". Conceito sem evidência fica com []. Nunca credite o aluno por algo que só foi explicado a ele.
+
+REGRAS:
+- Cada tópico é uma frase nominal curta e específica (máximo de 12 palavras), nunca o título do conceito repetido.
+- Um mesmo tópico não aparece nas duas listas.
+- Estado "false_positive": o aluno acertou sem sustentar o raciocínio; o ponto frágil vai em "toLearn".
+
+Responda SOMENTE em JSON, usando exatamente os ids recebidos:
+{
+  "notes": [
+    { "nodeId": "id-do-conceito", "summary": "...", "toLearn": ["..."], "learned": ["..."] }
+  ]
+}`;
+
+  const blocks = evidence.map(({ node, attempts, lessons }) => {
+    const attemptLines = attempts.map(
+      (a) =>
+        `  - Pergunta: ${clip(a.questionText, 300)} | veredito: ${a.verdict} | diagnóstico: ${clip(a.judgeReasoning, 300)}${
+          a.identifiedMisconception ? ` | equívoco: ${clip(a.identifiedMisconception, 200)}` : ''
+        }`
+    );
+    const lessonLines = lessons.map(
+      (l) =>
+        `  - Aula (${l.isPassed ? 'verificação aprovada' : 'verificação reprovada'}): ${clip(l.teachProse, 800)}${
+          l.repairExplanation ? ` | correção: ${clip(l.repairExplanation, 300)}` : ''
+        }`
+    );
+    return [
+      `CONCEITO ${node.id}: ${node.title} (estado: ${node.status})`,
+      `Resumo do mapa: ${node.summary}`,
+      `Ideia central: ${node.unconditionalTruth}`,
+      attemptLines.length ? `Respostas do aluno:\n${attemptLines.join('\n')}` : 'Respostas do aluno: nenhuma',
+      lessonLines.length ? `Aulas concluídas:\n${lessonLines.join('\n')}` : 'Aulas concluídas: nenhuma',
+    ].join('\n');
+  });
+
+  const prompt = `Objetivo do aluno: "${goal}"\n\n${blocks.join('\n\n')}\n\nGere as anotações em JSON:`;
+  return { systemPrompt, prompt };
+}
+
 export function buildPlanPrompt(params: {
   goal: string;
   nodes: ConceptNode[];
@@ -197,7 +278,7 @@ export function buildPlanPrompt(params: {
   const systemPrompt = `Você é o Planejador do APRENDA.
 ${teacherInstructions}
 
-Com base no que a sondagem revelou, escreva o PLANO DE ENSINO apresentado ao aluno: um texto curto (no máximo 120 palavras, na segunda pessoa) com a abordagem escolhida e a ordem em que os conceitos serão trabalhados, justificando brevemente por que começar pelo que está frágil ou ausente. Não repita o que já está dominado. Cite os conceitos pelo título.
+Com base no que a sondagem revelou, escreva o PLANO DE ENSINO apresentado ao aluno: um texto curto (no máximo 120 palavras, na segunda pessoa) com a abordagem escolhida e a ordem em que os conceitos serão trabalhados, sempre do conceito mais básico (menor nível) para o mais avançado, nunca um conceito antes dos seus fundamentos, avisando que cada conceito só libera o seguinte depois de dominado. Não repita o que já está dominado. Cite os conceitos pelo título.
 
 Responda SOMENTE em JSON:
 {

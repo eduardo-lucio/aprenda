@@ -84,3 +84,102 @@ export async function transcribeWithDeepgram(params: {
   const data: any = await res.json();
   return String(data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').trim();
 }
+
+export interface DeepgramStream {
+  send(chunk: ArrayBuffer | Uint8Array): void;
+  /** Asks Deepgram to flush what it still holds; resolves once the connection is closed. */
+  finish(): Promise<void>;
+  abort(): void;
+}
+
+const STREAM_FLUSH_TIMEOUT_MS = 5000;
+
+/** Opens Deepgram's live endpoint: words come back while the student is still speaking. */
+export function openDeepgramStream(
+  params: {
+    apiKey: string;
+    language?: string;
+    onTranscript: (text: string, isFinal: boolean) => void;
+    onError: (message: string) => void;
+    onClose: () => void;
+  },
+  Socket: typeof WebSocket = WebSocket
+): DeepgramStream {
+  const key = params.apiKey.trim();
+  if (!key) {
+    throw new Error(
+      localize(
+        'Para usar o ditado, configure a chave do Deepgram em Configurações → Provedores.',
+        'To use dictation, set up your Deepgram key in Settings → Providers.'
+      )
+    );
+  }
+
+  const query = new URLSearchParams({
+    model: 'nova-2',
+    smart_format: 'true',
+    punctuate: 'true',
+    interim_results: 'true',
+    language: params.language || 'pt-BR',
+  });
+  // Browser-style WebSockets cannot set headers: Deepgram takes the key as a subprotocol instead
+  const ws = new Socket(`wss://api.deepgram.com/v1/listen?${query.toString()}`, ['token', key]);
+  ws.binaryType = 'arraybuffer';
+
+  const pending: (ArrayBuffer | Uint8Array)[] = [];
+  let finishing = false;
+  let closed = false;
+  let resolveClosed: () => void = () => {};
+  const whenClosed = new Promise<void>((resolve) => (resolveClosed = resolve));
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const closeStream = () => ws.send(JSON.stringify({ type: 'CloseStream' }));
+
+  ws.onopen = () => {
+    for (const chunk of pending.splice(0)) ws.send(chunk);
+    if (finishing) closeStream();
+  };
+  ws.onmessage = (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(String(event.data));
+      if (data?.type !== 'Results') return;
+      const text = String(data.channel?.alternatives?.[0]?.transcript || '').trim();
+      if (text || data.is_final) params.onTranscript(text, Boolean(data.is_final));
+    } catch {
+      // A frame that cannot be read carries no words to show
+    }
+  };
+  ws.onerror = (event: Event) => {
+    if (closed) return;
+    const detail = (event as Event & { message?: string })?.message;
+    const message = localize('Falha na conexão com o Deepgram.', 'The connection to Deepgram failed.');
+    console.error('[speech] Falha no ditado ao vivo:', detail || 'sem detalhe');
+    params.onError(detail ? `${message} (${detail})` : message);
+  };
+  ws.onclose = () => {
+    closed = true;
+    if (flushTimer) clearTimeout(flushTimer);
+    resolveClosed();
+    params.onClose();
+  };
+
+  return {
+    send(chunk) {
+      if (closed || finishing) return;
+      if (ws.readyState === Socket.OPEN) ws.send(chunk);
+      else pending.push(chunk);
+    },
+    finish() {
+      if (!closed && !finishing) {
+        finishing = true;
+        if (ws.readyState === Socket.OPEN) closeStream();
+        flushTimer = setTimeout(() => ws.close(), STREAM_FLUSH_TIMEOUT_MS);
+      }
+      return whenClosed;
+    },
+    abort() {
+      finishing = true;
+      if (!closed) ws.close();
+    },
+  };
+}

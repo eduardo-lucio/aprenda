@@ -20,9 +20,10 @@ import {
   cancelForegroundLLM,
   setResponseLanguage,
 } from '../services/llmClient';
+import { ConceptNotesGenerator } from '../services/ConceptNotesGenerator';
 import { SessionRepository } from '../persistence/SessionRepository';
 import { DEEPGRAM_SECRET, providerSecret, SecretStore } from '../persistence/SecretStore';
-import { transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
+import { DeepgramStream, openDeepgramStream, transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
 export interface IpcDependencies {
   fsm: SessionStateMachine;
@@ -31,10 +32,12 @@ export interface IpcDependencies {
   getMainWindow?: () => BrowserWindow | null;
   repository?: SessionRepository;
   secrets?: SecretStore;
+  notesGenerator?: ConceptNotesGenerator;
 }
 
 export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): void {
   const { fsm, store, socratic, getMainWindow, repository, secrets } = deps;
+  const notesGenerator = deps.notesGenerator ?? new ConceptNotesGenerator();
   fsm.setSocraticEngine(socratic);
   if (repository) {
     fsm.setPersistence((snap) => repository.saveSnapshot(snap));
@@ -61,6 +64,8 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   let currentSocraticNode: ConceptNode | undefined;
   let currentCheckData: CheckQuestionData | undefined;
   const speechConfig = { deepgramApiKey: '', voiceLanguage: 'pt-BR' };
+  let speechStream: DeepgramStream | null = null;
+  let speechStreamSeq = 0;
 
   // Foreground AI calls in flight: sessions cannot be swapped underneath them
   let foregroundOps = 0;
@@ -146,6 +151,22 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     repository?.delete(id);
   });
 
+  ipcMain.handle('session:rename', async (_event, id: string, title: string) => {
+    repository?.rename(id, String(title ?? ''));
+  });
+
+  ipcMain.handle('session:pin', async (_event, id: string, pinned: boolean) => {
+    repository?.setPinned(id, !!pinned);
+  });
+
+  ipcMain.handle('session:resume-lesson', async (_event, nodeId: string, checkQuestion: CheckQuestionData | null) => {
+    const node = fsm.hasSession() ? store.getNodeById(nodeId) : undefined;
+    if (!node) throw new Error(localize('Conceito não encontrado no grafo desta sessão.', 'Concept not found in this session\'s map.'));
+    currentSocraticNode = node;
+    currentCheckData = checkQuestion ?? undefined;
+    socratic.resumeNode(node);
+  });
+
   ipcMain.handle('session:save-ui', async (_event, id: string, ui: PersistedUi) => {
     repository?.saveUi(id, ui);
   });
@@ -207,7 +228,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     } else {
       const nextId = fsm.nextTeachingNodeId();
       targetNode = nextId ? store.getNodeById(nextId) : undefined;
-      // Nothing left in this pass (every concept mastered or already taught once)
+      // Nothing left: every concept is mastered
       if (!targetNode) return null;
     }
 
@@ -215,7 +236,9 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     currentCheckData = undefined;
     const node = targetNode;
     return foreground(async () => {
-      const predictData = await socratic.generatePredictStep(node, state.goal);
+      const predictData = await socratic.generatePredictStep(node, state.goal, {
+        failures: fsm.getLessonFailures(node.id),
+      });
       return { node, ...predictData };
     });
   });
@@ -224,8 +247,9 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (!currentSocraticNode) {
       throw new Error(localize('Nenhum conceito ativo no ciclo socrático.', 'There is no active lesson.'));
     }
+    const failures = fsm.getLessonFailures(currentSocraticNode.id);
     return foreground(async () => {
-      const teachResult = await socratic.submitPrediction(text);
+      const teachResult = await socratic.submitPrediction(text, failures);
       currentCheckData = teachResult.checkQuestion;
       return teachResult;
     });
@@ -242,15 +266,36 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     const node = currentSocraticNode;
     return foreground(async () => {
       const evalResult = socratic.evaluateCheck(selectedIndex, check);
-      if (node) {
-        await fsm.recordCheckVerdict(node.id, check, {
-          selectedOptionIndex: selectedIndex,
-          confidence,
-          thinkingText,
-        });
-      }
-      return { ...evalResult, session: fsm.getState() };
+      const verdict = node
+        ? await fsm.recordCheckVerdict(node.id, check, {
+            selectedOptionIndex: selectedIndex,
+            confidence,
+            thinkingText,
+          })
+        : undefined;
+      return { ...evalResult, mastered: verdict === 'mastered', session: fsm.getState() };
     });
+  });
+
+  ipcMain.handle('notes:generate', async (_event, sessionId: string, nodeIds: string[]) => {
+    if (!fsm.hasSession() || fsm.getActiveSessionId() !== sessionId) {
+      throw new Error(localize('Esta sessão não está mais ativa.', 'This session is no longer active.'));
+    }
+    const state = fsm.getState();
+    const lessons = repository?.get(sessionId)?.ui.lessons ?? [];
+    const evidence = nodeIds.flatMap((id) => {
+      const node = store.getNodeById(id);
+      if (!node) return [];
+      return [
+        {
+          node: { ...node, status: state.nodesState[id] || node.status },
+          attempts: state.attempts.filter((a) => a.nodeId === id),
+          lessons: lessons.filter((l) => l.nodeId === id),
+        },
+      ];
+    });
+    // Not a foreground call on purpose: the student can keep working and switch sessions meanwhile
+    return notesGenerator.generate(state.goal, evidence);
   });
 
   ipcMain.handle('graph:get', async () => {
@@ -314,6 +359,35 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
       });
     }
   );
+
+  ipcMain.handle('speech:stream-start', (event, params: { language?: string }) => {
+    speechStream?.abort();
+    const id = ++speechStreamSeq;
+    const sender = event.sender;
+    const emit = (payload: Record<string, unknown>) => {
+      if (!sender.isDestroyed()) sender.send('speech:stream-event', { id, ...payload });
+    };
+    const stream = openDeepgramStream({
+      apiKey: speechConfig.deepgramApiKey,
+      language: params?.language || speechConfig.voiceLanguage,
+      onTranscript: (text, isFinal) => emit({ type: isFinal ? 'final' : 'interim', text }),
+      onError: (message) => emit({ type: 'error', message }),
+      onClose: () => {
+        if (speechStream === stream) speechStream = null;
+        emit({ type: 'closed' });
+      },
+    });
+    speechStream = stream;
+    return id;
+  });
+
+  ipcMain.on('speech:stream-chunk', (_event, chunk: ArrayBuffer | Uint8Array) => {
+    speechStream?.send(chunk);
+  });
+
+  ipcMain.handle('speech:stream-stop', async () => {
+    await speechStream?.finish();
+  });
 
   ipcMain.on('window:action', (_event, action: 'minimize' | 'maximize' | 'close') => {
     const win = getMainWindow ? getMainWindow() : BrowserWindow.getFocusedWindow();

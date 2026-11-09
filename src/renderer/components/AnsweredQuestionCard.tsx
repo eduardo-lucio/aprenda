@@ -7,8 +7,12 @@ import { useI18n } from '../i18n';
 interface AnsweredQuestionCardProps {
   attempt: ProbeAttempt;
   index: number;
-  /** Sent, verdict not back yet: nothing here may reveal the answer key. */
+  /** Sent, judge still reading: the answer key is shown, only the judge's own conclusions are missing. */
   pending?: boolean;
+  /** Replaces the default "Question" header. */
+  label?: string;
+  /** Replaces the default "Diagnosis" title of the bottom block. */
+  diagnosisLabel?: string;
 }
 
 /** Sessions saved by older versions stored internal placeholders and prefixes in the student's text. */
@@ -20,7 +24,7 @@ function displayThinking(text: string): string {
     .trim();
 }
 
-export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.memo(({ attempt, pending = false }) => {
+export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.memo(({ attempt, pending = false, label, diagnosisLabel }) => {
   const { t } = useI18n();
   const [showUserThinking, setShowUserThinking] = useState(true);
 
@@ -35,13 +39,13 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
         className: 'bg-ink-600 text-gray-300 border border-ink-400',
       };
     }
-    if (attempt.verdict === 'mastered') {
+    if (pending ? isCorrectOption : attempt.verdict === 'mastered') {
       return {
         label: t('answered.badge.correct'),
         className: 'bg-emerald-950/90 text-emerald-400 border border-emerald-700/50',
       };
     }
-    if (attempt.verdict === 'false_positive') {
+    if (!pending && attempt.verdict === 'false_positive') {
       return {
         label: t('answered.badge.falsePositive'),
         className: 'bg-amber-950/90 text-amber-300 border border-amber-700/50',
@@ -49,7 +53,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
     }
     return {
       // A written answer has no answer-key bit: anything short of mastery is only partial
-      label: isCorrectOption || (isOwnAnswer && attempt.verdict === 'frontier') ? t('answered.badge.partial') : t('answered.badge.wrong'),
+      label: (!pending && isCorrectOption) || (isOwnAnswer && attempt.verdict === 'frontier') ? t('answered.badge.partial') : t('answered.badge.wrong'),
       className: 'bg-red-950/90 text-red-400 border border-red-800/50',
     };
   };
@@ -64,9 +68,10 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
           <span className="font-mono text-[11px] uppercase tracking-widest text-gray-400">
-            {t('answered.header')}
+            {label ?? t('answered.header')}
           </span>
-          {!pending && (
+          {/* A written answer has no answer key: only the judge can grade it */}
+          {!(pending && isOwnAnswer) && (
             <span
               className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${badge.className}`}
             >
@@ -83,12 +88,10 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
       <div className="flex flex-col gap-2">
         {attempt.options.map((opt, idx) => {
           const isSelected = attempt.selectedOptionIndex === idx;
-          const isCorrect = !pending && attempt.correctOptionIndex === idx;
+          const isCorrect = attempt.correctOptionIndex === idx;
 
           let boxStyle = 'border-ink-600 bg-ink-800/60 text-gray-400';
-          if (pending && isSelected) {
-            boxStyle = 'border-ink-400 bg-ink-700/60 text-gray-100';
-          } else if (isCorrect) {
+          if (isCorrect) {
             boxStyle = 'border-emerald-700/60 bg-emerald-950/30 text-emerald-100';
           } else if (isSelected && !isCorrect) {
             boxStyle = 'border-red-800/60 bg-red-950/25 text-red-200';
@@ -101,7 +104,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
             >
               {isCorrect ? (
                 <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              ) : isSelected && !pending ? (
+              ) : isSelected ? (
                 <X className="h-3.5 w-3.5 shrink-0 text-red-400" />
               ) : (
                 <span className="h-3.5 w-3.5 shrink-0" />
@@ -122,8 +125,12 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
           <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-ink-600">
             <div
               className={`h-full rounded-full transition-[width] ${
-                pending
+                pending && isOwnAnswer
                   ? 'bg-ink-400'
+                  : pending
+                  ? isCorrectOption
+                    ? 'bg-emerald-500'
+                    : 'bg-red-500/80'
                   : attempt.verdict === 'mastered'
                   ? 'bg-emerald-500'
                   : attempt.verdict === 'false_positive' || isCorrectOption || isOwnAnswer
@@ -165,7 +172,7 @@ export const AnsweredQuestionCard: React.FC<AnsweredQuestionCardProps> = React.m
       {showDiagnosis && (
         <div className="space-y-1.5 rounded-lg border border-ink-600 bg-ink-800/40 p-3">
           <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
-            {t('answered.diagnosis')}
+            {diagnosisLabel ?? t('answered.diagnosis')}
           </span>
           {attempt.judgeReasoning && (
             <RichText text={attempt.judgeReasoning} className="text-xs leading-relaxed text-gray-200" />

@@ -49,6 +49,7 @@ export default function App() {
           title: r.title,
           mode: r.mode,
           date: new Date(r.updatedAt).toLocaleDateString(localeOf(lang)),
+          pinned: r.pinned,
         }))
       );
     }).catch((err) => {
@@ -140,7 +141,13 @@ export default function App() {
       mode: newSession.mode || 'teaching',
       date: new Date().toLocaleDateString(localeOf(lang)),
     };
-    setSessions((prev) => [item, ...prev.filter((s) => s.id !== newSession.id)]);
+    setSessions((prev) => {
+      const existing = prev.find((s) => s.id === newSession.id);
+      const merged = existing ? { ...item, title: existing.title, pinned: existing.pinned } : item;
+      return [merged, ...prev.filter((s) => s.id !== newSession.id)].sort(
+        (a, b) => Number(!!b.pinned) - Number(!!a.pinned)
+      );
+    });
     setActiveSessionId(newSession.id);
     setCurrentSession(newSession);
     setIsCreating(false);
@@ -176,6 +183,30 @@ export default function App() {
     if (activeSessionId !== id) return;
     const next = remaining[0];
     if (!next || !(await handleSelectSession(next.id))) handleNewSession();
+  };
+
+  const handleRenameSession = async (id: string, title: string) => {
+    const clean = title.trim();
+    if (!clean) return;
+    try {
+      await window.api?.renameSession?.(id, clean);
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: clean } : s)));
+    } catch (err) {
+      setAppError(t('app.err.rename', { detail: cleanError(err, t('session.err.unexpected')) }));
+    }
+  };
+
+  const handlePinSession = async (id: string, pinned: boolean) => {
+    try {
+      await window.api?.pinSession?.(id, pinned);
+      setSessions((prev) =>
+        prev
+          .map((s) => (s.id === id ? { ...s, pinned } : s))
+          .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
+      );
+    } catch (err) {
+      setAppError(t('app.err.pin', { detail: cleanError(err, t('session.err.unexpected')) }));
+    }
   };
 
   const handleToggleDictate = () => {
@@ -248,7 +279,6 @@ export default function App() {
     ];
   }, [activeProvider, settings.strongModel, settings.model]);
 
-  const titleText = currentSession?.topic || currentSession?.goal || t('app.newSession');
   const phaseLabel = currentSession?.phase ? t(`phase.${currentSession.phase}` as MessageKey) : undefined;
 
   return (
@@ -262,12 +292,14 @@ export default function App() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        onPinSession={handlePinSession}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Right column: frameless title bar + session canvas */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TitleBar title={titleText} phaseLabel={phaseLabel} />
+        <TitleBar phaseLabel={phaseLabel} />
         {[appError, storageError, storageNotice].filter(Boolean).map((message) => (
           <div key={message} className="shrink-0 px-6 pt-3">
             <ErrorNotice message={message!} />

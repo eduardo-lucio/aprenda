@@ -84,7 +84,17 @@ export function installMockApi(): void {
     loadSession: async () => ({ session: structuredClone(session), ui }),
     getSession: async () => null,
     getGraphState: async () => nodes,
+    generateConceptNotes: async (_sessionId, nodeIds) =>
+      nodeIds.map((nodeId) => ({
+        nodeId,
+        summary: `Anotação de exemplo sobre \`${nodeId}\`, escrita sem chamar a IA.`,
+        toLearn: ['Primeiro tópico a estudar', 'Segundo tópico a estudar'],
+        learned: nodes.find((n) => n.id === nodeId)?.status === 'mastered' ? ['Tópico já dominado'] : [],
+      })),
     deleteSession: async () => {},
+    renameSession: async () => {},
+    pinSession: async () => {},
+    resumeLesson: async () => {},
     saveSessionUi: async () => {},
     updateSettings: async () => ({ success: true }),
     windowAction: () => {},
