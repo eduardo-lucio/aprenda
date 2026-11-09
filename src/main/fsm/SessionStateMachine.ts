@@ -17,6 +17,7 @@ import { CurriculumGenerator } from '../services/CurriculumGenerator';
 import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import { addGlobalTokenListener, localize } from '../services/llmClient';
+import { ProbeFrontier, ProbeTarget } from './probeFrontier';
 
 export { MIN_PROBE_QUESTIONS };
 
@@ -35,8 +36,8 @@ export class SessionStateMachine {
   private orchestrator: AgentOrchestrator;
   private session?: ProbingSession;
   private strandNodes: ConceptNode[] = [];
+  private frontier = new ProbeFrontier([]);
   private minProbeQuestions: number = MIN_PROBE_QUESTIONS;
-  private candidateQueue: string[] = [];
   private askedQuestions: string[] = [];
   private questionCache: Map<string, QuestionData> = new Map();
   private sessionTokensUsed = 0;
@@ -72,7 +73,6 @@ export class SessionStateMachine {
     return {
       session: this.getState(),
       nodes: this.store.getNodes(),
-      candidateQueue: [...this.candidateQueue],
       askedQuestions: [...this.askedQuestions],
       teachingOrder: [...this.teachingOrder],
       lessonFailures: { ...this.lessonFailures },
@@ -85,7 +85,7 @@ export class SessionStateMachine {
     this.orchestrator.clear();
     this.store.setNodes(snapshot.nodes);
     this.strandNodes = this.store.getStrand();
-    this.candidateQueue = [...snapshot.candidateQueue];
+    this.frontier = new ProbeFrontier(this.strandNodes);
     this.askedQuestions = [...snapshot.askedQuestions];
     // Sessions saved before the mastery gate may hold an order that does not start from the base
     this.teachingOrder = this.basicsFirst(snapshot.teachingOrder);
@@ -143,7 +143,7 @@ export class SessionStateMachine {
     this.store.clear();
     this.session = undefined;
     this.strandNodes = [];
-    this.candidateQueue = [];
+    this.frontier = new ProbeFrontier([]);
     this.askedQuestions = [];
     this.questionCache.clear();
     this.teachingOrder = [];
@@ -215,11 +215,16 @@ export class SessionStateMachine {
       justification: studentThinking?.trim() || undefined,
     });
     this.assertActive(session);
-    // Sort by level ascending (increasing difficulty: foundational Level 1 first -> Level 4)
-    const byLevel = [...graph.nodes].sort((a, b) => a.level - b.level);
+    const nodesState: Record<string, ConceptNode['status']> = {};
+    for (const n of graph.nodes) {
+      nodesState[n.id] = 'untested';
+    }
+    // The probe enters at the top of the map: a miss walks it down, a hit spares everything below
+    const frontier = new ProbeFrontier([...graph.nodes].sort((a, b) => a.level - b.level));
     let firstQuestion = graph.firstQuestion;
     if (!firstQuestion || !graph.nodes.some((n) => n.id === firstQuestion!.nodeId)) {
-      firstQuestion = await this.generator.generateQuestion(byLevel[0], selectedOption, []);
+      const entry = graph.nodes.find((n) => n.id === frontier.pickNext(nodesState, []).nodeId)!;
+      firstQuestion = await this.generator.generateQuestion(entry, selectedOption, []);
       this.assertActive(session);
     }
     const firstNodeId = firstQuestion.nodeId;
@@ -227,11 +232,7 @@ export class SessionStateMachine {
     // Nothing is committed before this point: a failed generation leaves the session as it was
     this.store.setNodes(graph.nodes);
     this.strandNodes = this.store.getStrand();
-    const nodesState: Record<string, ConceptNode['status']> = {};
-    for (const n of this.strandNodes) {
-      nodesState[n.id] = 'untested';
-    }
-    this.candidateQueue = byLevel.map((n) => n.id).filter((id) => id !== firstNodeId);
+    this.frontier = frontier;
     this.questionCache.set(firstNodeId, firstQuestion);
 
     if (!firstQuestion.agentThinking && graph.agentThinking) {
@@ -251,15 +252,7 @@ export class SessionStateMachine {
     }
 
     // Speculatively prefetch upcoming branch questions in the background while user solves question 1
-    this.orchestrator.speculativePrefetch({
-      currentNodeId: firstNodeId,
-      candidateQueue: this.candidateQueue,
-      strandNodes: this.strandNodes,
-      questionCache: this.questionCache,
-      askedQuestions: this.askedQuestions,
-      goal: session.goal,
-      nodesState: session.nodesState,
-    });
+    this.prefetchAfter(firstNodeId);
 
     this.persist();
     return firstQuestion;
@@ -308,7 +301,6 @@ export class SessionStateMachine {
       agentThinking: session.agentThinking,
       currentQuestion: session.currentQuestion,
       phase: session.phase,
-      candidateQueue: [...this.candidateQueue],
     };
     try {
       return await this.processProbeAnswer(data);
@@ -321,7 +313,6 @@ export class SessionStateMachine {
         session.agentThinking = snapshot.agentThinking;
         session.currentQuestion = snapshot.currentQuestion;
         session.phase = snapshot.phase;
-        this.candidateQueue = snapshot.candidateQueue;
       }
       throw err;
     }
@@ -387,23 +378,11 @@ export class SessionStateMachine {
     };
 
     session.attempts.push(attempt);
-    session.nodesState[currentNode.id] = evaluation.verdict;
-
-    const prereqs = this.store.getPrerequisites(currentNode.id);
-    if (evaluation.verdict === 'mastered') {
-      for (const p of prereqs) {
-        if (session.nodesState[p.id] === 'untested') {
-          session.nodesState[p.id] = 'mastered';
-        }
-      }
-    } else {
-      // Zoom-in: untested prerequisites take priority
-      const untested = prereqs
-        .filter((p) => session.nodesState[p.id] === 'untested')
-        .map((p) => p.id)
-        .reverse();
-      this.candidateQueue = [...untested, ...this.candidateQueue.filter((id) => !untested.includes(id))];
-    }
+    // A hit takes what the concept is built on as held; a miss leaves what depends on it unasked
+    session.nodesState =
+      evaluation.verdict === 'mastered'
+        ? this.frontier.withMastered(session.nodesState, currentNode.id)
+        : { ...session.nodesState, [currentNode.id]: evaluation.verdict };
 
     session.frontierClarity = this.calculateFrontierClarity();
 
@@ -417,8 +396,9 @@ export class SessionStateMachine {
     }
 
     // Pick next node and retrieve pre-cached question instantly (0ms)
-    const nextNodeId = this.pickNextNode();
-    const rawNextQuestion = await this.getOrGenerateQuestionFor(nextNodeId, session.goal);
+    const next = this.frontier.pickNext(session.nodesState, session.attempts, currentNode.id);
+    const nextNodeId = next.nodeId;
+    const rawNextQuestion = await this.getOrGenerateQuestionFor(next, session.goal);
     this.assertActive(session);
     const nextQuestion: QuestionData = {
       ...rawNextQuestion,
@@ -433,15 +413,7 @@ export class SessionStateMachine {
     }
 
     // Prefetch candidate branch questions in the background while user solves next question
-    this.orchestrator.speculativePrefetch({
-      currentNodeId: nextNodeId,
-      candidateQueue: this.candidateQueue,
-      strandNodes: this.strandNodes,
-      questionCache: this.questionCache,
-      askedQuestions: this.askedQuestions,
-      goal: session.goal,
-      nodesState: session.nodesState,
-    });
+    this.prefetchAfter(nextNodeId);
 
     this.persist();
     return { attempt, nextAction: 'next_question', nextQuestion };
@@ -519,19 +491,39 @@ export class SessionStateMachine {
     return evaluation.verdict;
   }
 
+  /** Share of the map whose position relative to the student's edge is known. */
   calculateFrontierClarity(): number {
-    if (!this.session || this.strandNodes.length === 0) return 0;
-    const tested = this.strandNodes.filter((n) => this.session!.nodesState[n.id] !== 'untested');
-    return Math.round((tested.length / this.strandNodes.length) * 100);
+    if (!this.session) return 0;
+    return this.frontier.clarity(this.session.nodesState, this.session.attempts);
+  }
+
+  /**
+   * Prepares the question of each way the current answer can go: with mastery or without it.
+   * Harder follow-ups are left out because they are written from the answer itself.
+   */
+  private prefetchAfter(currentNodeId: string): void {
+    const session = this.requireSession();
+    const answered = [...session.attempts, { nodeId: currentNodeId }];
+    const hit = this.frontier.pickNext(this.frontier.withMastered(session.nodesState, currentNodeId), answered, currentNodeId);
+    const miss = this.frontier.pickNext({ ...session.nodesState, [currentNodeId]: 'frontier' }, answered, currentNodeId);
+    this.orchestrator.speculativePrefetch({
+      currentNodeId,
+      targets: [hit, miss].filter((t) => !t.escalate).map((t) => t.nodeId),
+      questionCache: this.questionCache,
+      askedQuestions: this.askedQuestions,
+      goal: session.goal,
+    });
   }
 
   private async enterPlanReview(): Promise<void> {
     const session = this.requireSession();
     const nodes = this.strandNodes.map((n) => ({ ...n, status: session.nodesState[n.id] || n.status }));
+    const strands = this.frontier.summarize(session.nodesState, session.attempts);
     const { plan, order } = nodes.some((n) => n.status !== 'mastered')
       ? await this.generator.generatePlan({
           goal: session.goal,
           nodes,
+          strands,
           attempts: session.attempts.map((a) => ({
             nodeId: a.nodeId,
             verdict: a.verdict,
@@ -553,6 +545,7 @@ export class SessionStateMachine {
       .map((n) => n.id);
     this.teachingOrder = this.basicsFirst([...order, ...rest]);
     session.plan = plan;
+    session.probeSummary = strands;
     session.phase = 'plan_review';
   }
 
@@ -587,10 +580,13 @@ export class SessionStateMachine {
   /**
    * Returns the pre-cached question if it is still unseen, otherwise generates a new one.
    * A cached question that was already asked (re-probing a node) is discarded, never repeated.
+   * A harder follow-up is always written fresh, from the questions the student already answered.
    */
-  private async getOrGenerateQuestionFor(nodeId: string, goal: string): Promise<QuestionData> {
+  private async getOrGenerateQuestionFor(target: ProbeTarget, goal: string): Promise<QuestionData> {
+    const session = this.requireSession();
+    const nodeId = target.nodeId;
     const cached = this.questionCache.get(nodeId);
-    if (cached) {
+    if (cached && !target.escalate) {
       if (!this.askedQuestions.includes(cached.questionText)) return cached;
       this.questionCache.delete(nodeId);
     }
@@ -598,36 +594,11 @@ export class SessionStateMachine {
     const node = this.store.getNodeById(nodeId);
     if (!node) throw new Error(localize(`Conceito "${nodeId}" não encontrado.`, `Concept "${nodeId}" not found.`));
 
-    const question = await this.generator.generateQuestion(node, goal, this.askedQuestions);
+    const harderThan = target.escalate
+      ? session.attempts.filter((a) => a.nodeId === nodeId).map((a) => a.questionText)
+      : undefined;
+    const question = await this.generator.generateQuestion(node, goal, this.askedQuestions, { harderThan });
     this.questionCache.set(nodeId, question);
     return question;
-  }
-
-  private pickNextNode(): string {
-    const session = this.requireSession();
-    while (this.candidateQueue.length > 0) {
-      const candidateId = this.candidateQueue.shift()!;
-      if (session.nodesState[candidateId] === 'untested') return candidateId;
-    }
-
-    const untested = this.strandNodes.find((n) => session.nodesState[n.id] === 'untested');
-    if (untested) return untested.id;
-
-    // Everything was tested once: revisit what is not mastered, spreading the questions around
-    const askedFor = (id: string) => session.attempts.filter((a) => a.nodeId === id).length;
-    const priority: ConceptNode['status'][] = ['false_positive', 'frontier', 'blind_spot'];
-    const currentId = session.currentQuestion?.nodeId;
-    const retry = this.strandNodes
-      .filter((n) => priority.includes(session.nodesState[n.id]) && n.id !== currentId)
-      .sort(
-        (a, b) =>
-          askedFor(a.id) - askedFor(b.id) ||
-          priority.indexOf(session.nodesState[a.id]) - priority.indexOf(session.nodesState[b.id])
-      )[0];
-    if (retry) return retry.id;
-
-    return currentId && session.nodesState[currentId] !== 'mastered'
-      ? currentId
-      : this.strandNodes[this.strandNodes.length - 1].id;
   }
 }

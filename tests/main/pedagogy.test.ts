@@ -108,28 +108,33 @@ describe('I14: answer keys', () => {
   const graphWith = (firstQuestion: unknown): LLMCaller => async () =>
     JSON.stringify({
       nodes: [
-        { id: 'Camada Base', title: 'Base', level: 1, prerequisites: [] },
-        { id: 'meio', title: 'Meio', level: 2, prerequisites: ['Camada Base'] },
-        { id: 'topo', title: 'Topo', level: 3, prerequisites: ['meio'] },
+        { id: 'base', title: 'Base', level: 1, prerequisites: [] },
+        { id: 'meio', title: 'Meio', level: 2, prerequisites: ['base'] },
+        { id: 'Camada Topo', title: 'Topo', level: 3, prerequisites: ['meio'] },
       ],
       firstQuestion,
     });
   const q = { questionText: 'Q?', options: ['a', 'b', 'c', 'd'], correctOptionIndex: 1 };
 
   it('finds the concept by slug', async () => {
-    const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'Camada Base' }), noShuffle).generateGraph('T');
-    expect(r.firstQuestion?.nodeId).toBe('camada-base');
+    const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'Camada Topo' }), noShuffle).generateGraph('T');
+    expect(r.firstQuestion?.nodeId).toBe('camada-topo');
+  });
+
+  it('D3: a first question about the base is not used, because the probe enters at the top', async () => {
+    const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'base' }), noShuffle).generateGraph('T');
+    expect(r.firstQuestion).toBeUndefined();
   });
 
   it('never reassigns a question written for another concept', async () => {
     const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'nao-existe' }), noShuffle).generateGraph('T');
     expect(r.firstQuestion).toBeUndefined();
-    const r2 = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'topo' }), noShuffle).generateGraph('T');
+    const r2 = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'meio' }), noShuffle).generateGraph('T');
     expect(r2.firstQuestion).toBeUndefined();
   });
 
   it('a null answer key is not treated as option 0', async () => {
-    const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'Camada Base', correctOptionIndex: null }), noShuffle).generateGraph('T');
+    const r = await new CurriculumGenerator(graphWith({ ...q, nodeId: 'Camada Topo', correctOptionIndex: null }), noShuffle).generateGraph('T');
     expect(r.firstQuestion).toBeUndefined();
   });
 

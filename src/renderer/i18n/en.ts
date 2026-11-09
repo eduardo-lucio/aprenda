@@ -187,7 +187,7 @@ export const en: Record<keyof typeof pt, string> = {
   'session.thinking.scope': 'Understanding the topic…',
   'session.thinking.scopeReady': 'Topic noted: "{goal}". Pick below the focus that best matches what you want.',
   'session.thinking.graph': 'Arranging the concepts from the most basic to the most advanced…',
-  'session.thinking.graphReady': 'Focus: "{scope}". I\'ll start with the basics ("{concept}") to see where we stand.',
+  'session.thinking.graphReady': 'Focus: "{scope}". I\'ll start at an advanced point ("{concept}") to find quickly how far you already go. If you don\'t know it, the next question gets simpler.',
   'session.thinking.judge': 'Reading your answer…',
   'session.thinking.probeDone': 'Diagnosis finished after {count} questions. I built a plan from your answers.',
   'session.thinking.planReady': 'Diagnosis finished. The study plan is ready for you to review.',

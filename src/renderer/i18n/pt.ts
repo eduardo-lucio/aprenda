@@ -185,7 +185,7 @@ export const pt = {
   'session.thinking.scope': 'Entendendo o tema…',
   'session.thinking.scopeReady': 'Tema anotado: "{goal}". Escolha abaixo o foco que mais combina com o que você quer.',
   'session.thinking.graph': 'Organizando os conceitos do mais básico ao mais avançado…',
-  'session.thinking.graphReady': 'Foco: "{scope}". Vou começar pelo básico ("{concept}") para ver de onde partimos.',
+  'session.thinking.graphReady': 'Foco: "{scope}". Vou começar por um ponto avançado ("{concept}") para achar logo até onde você já vai. Se não souber, a próxima pergunta fica mais simples.',
   'session.thinking.judge': 'Lendo sua resposta…',
   'session.thinking.probeDone': 'Diagnóstico concluído depois de {count} perguntas. Montei um plano com base no que você respondeu.',
   'session.thinking.planReady': 'Diagnóstico concluído. O plano de estudo está pronto para você conferir.',

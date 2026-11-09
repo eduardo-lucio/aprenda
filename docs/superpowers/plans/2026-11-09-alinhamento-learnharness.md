@@ -4,6 +4,14 @@
 **Base:** relatório de comparação (https://claude.ai/artifact/6YXAeBJfuLMj411G84Uvjz), IDs A1–A8, D1–D7, P1–P8.
 **Referência do LearnHarness:** clone local em `~/.cache/learnharness-ref` (v0.5.0, commit `713377f`).
 
+## Andamento
+
+| Etapa | Situação |
+|---|---|
+| 0 Preparar o terreno | Concluída em 9 nov. O commit `e6dd963` (Vite 8 e Vitest 5) continua fora. |
+| 1 Licença e atribuição | Adiada por decisão de 9 nov: não adotar a AGPL por enquanto. |
+| 2 Sondagem | Implementada em 9 nov, com testes. Falta conferir com modelo real. |
+
 ## Como o plano funciona
 
 - Cada etapa é uma entrega completa: código, prompts, testes e textos PT/EN. Só começo a seguinte depois de você conferir a anterior.

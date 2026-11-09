@@ -1,4 +1,4 @@
-import { CompletedLesson, ConceptNode, LessonFailure, ProbeAttempt } from '../../shared/types';
+import { CompletedLesson, ConceptNode, LessonFailure, ProbeAttempt, StrandSummary } from '../../shared/types';
 import {
   getGraphInstructions,
   getNotesInstructions,
@@ -7,6 +7,11 @@ import {
   getPredictInstructions,
   getProberInstructions,
 } from './promptLoader';
+
+const clip = (text: string | undefined, max: number): string => {
+  const clean = (text || '').trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+};
 
 export function buildGoalOptionsPrompt(
   goal: string,
@@ -66,7 +71,7 @@ export function buildGraphPrompt(
   const systemPrompt = `Você é o Arquiteto Curricular do APRENDA.
 ${instructions}
 
-Sua tarefa é decompor o objetivo "${goal}" em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós, Níveis 1 a 4) em ordem estritamente crescente de complexidade, E formular a PRIMEIRA questão diagnóstica para o nó FUNDAMENTAL DE BASE (Nível 1).
+Sua tarefa é decompor o objetivo "${goal}" em um GRAFO ACÍCLICO DIRIGIDO (DAG) de dependências conceituais (de 6 a 8 nós, Níveis 1 a 4) em ordem estritamente crescente de complexidade, E formular a PRIMEIRA questão diagnóstica para o nó MAIS AVANÇADO que o objetivo exige (o de maior nível).
 
 Regras da Estrutura do Grafo (DAG):
 - 6 a 8 nós estruturais essenciais ao tema.
@@ -77,13 +82,13 @@ Regras da Estrutura do Grafo (DAG):
 - "unconditionalTruth": 1 frase formulando o princípio invariante aceito pelo valor de face ("Princípio i: Verdades Incondicionais Primeiro" — ex: afirmações universais "Todo X é feito através de Y").
 
 Regras da Primeira Questão ("firstQuestion"):
-- Alvo: o nó raiz de NÍVEL 1 (base fundamental) para verificar se o estudante possui o chão sólido antes de avançar na árvore.
-- "questionText": enunciado prático contextualizado com um problema real sobre o fundamento de base (NÃO use perguntas teóricas genéricas como "qual é o princípio correto"). Quando o tema envolver código, comandos ou sintaxe técnica, inclua trechos de código formatados em blocos Markdown com crases triplas (\`\`\`linguagem ... \`\`\`) e envolva identificadores, valores, tipos ou erros inline entre crases simples (\`codigo\`).
+- Alvo: o nó de MAIOR NÍVEL do grafo (o ponto mais difícil que o objetivo exige). A sondagem entra pelo topo: um acerto poupa todas as perguntas sobre o que está abaixo, e um erro faz a próxima pergunta descer. Nunca abra pela base para "aquecer".
+- "questionText": enunciado prático contextualizado com um problema real que só se resolve entendendo esse conceito (NÃO use perguntas teóricas genéricas como "qual é o princípio correto"). Quando o tema envolver código, comandos ou sintaxe técnica, inclua trechos de código formatados em blocos Markdown com crases triplas (\`\`\`linguagem ... \`\`\`) e envolva identificadores, valores, tipos ou erros inline entre crases simples (\`codigo\`).
 - "options": 4 alternativas homogêneas elaboradas estritamente sob o OPTION CRAFT (afirmações diretas, zero justificativa embutida, mesmo registro, distratores representando erros críveis). Quando as alternativas contiverem valores de retorno, saídas, comandos ou erros de código, envolva-os entre crases simples (\`...\`).
 - "correctOptionIndex": índice numérico (0 a 3) da correta.
 - "anchorConcept": título do conceito.
-- "difficulty": 1.
-- "agentThinking": uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa e linguagem simples, dizendo por onde vamos começar e por quê.
+- "difficulty": o nível do nó alvo.
+- "agentThinking": uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa e linguagem simples, dizendo que vamos começar por um ponto avançado para descobrir rápido até onde ele já vai, e que não saber é uma resposta útil: a pergunta seguinte fica mais simples.
 
 Responda SOMENTE em JSON no formato:
 {
@@ -100,12 +105,12 @@ Responda SOMENTE em JSON no formato:
     }
   ],
   "firstQuestion": {
-    "nodeId": "slug-base",
+    "nodeId": "slug-do-no-de-maior-nivel",
     "questionText": "Enunciado contextualizado com cenário real...",
     "options": ["Afirmação A", "Afirmação B", "Afirmação C", "Afirmação D"],
     "correctOptionIndex": 2,
     "anchorConcept": "Título do Conceito",
-    "difficulty": 1
+    "difficulty": 4
   }
 }`;
 
@@ -115,16 +120,26 @@ Responda SOMENTE em JSON no formato:
   ]
     .filter(Boolean)
     .join('\n');
-  const prompt = `Objetivo de estudo: "${goal}"${contextLines ? `\n${contextLines}` : ''}\nGere o grafo em ordem crescente (Nível 1 a 4), a nota do tutor e a primeira questão de Nível 1 em JSON:`;
+  const prompt = `Objetivo de estudo: "${goal}"${contextLines ? `\n${contextLines}` : ''}\nGere o grafo em ordem crescente (Nível 1 a 4), a nota do tutor e a primeira questão sobre o nó de maior nível em JSON:`;
   return { systemPrompt, prompt };
 }
 
 export function buildProbeQuestionPrompt(
   node: ConceptNode,
   goal: string,
-  previousQuestions: string[]
+  previousQuestions: string[],
+  options?: { harderThan?: string[] }
 ): { systemPrompt: string; prompt: string } {
   const proberInstructions = getProberInstructions();
+  const harderThan = options?.harderThan?.filter(Boolean) || [];
+  const escalation = harderThan.length
+    ? `
+
+ESCALADA: o aluno já respondeu com domínio a(s) pergunta(s) abaixo sobre este mesmo conceito. Um conceito que nunca quebra ainda não foi medido.
+- ${harderThan.slice(-2).map((q) => clip(q, 300)).join('\n- ')}
+- A nova pergunta deve ser visivelmente mais difícil que essas: um caso de borda, uma consequência de segunda ordem ou a combinação com outro conceito do objetivo.
+- Continue dentro do que o objetivo exige: mais difícil não é mais obscuro, nem fora do tema.`
+    : '';
 
   const systemPrompt = `Você é o Gerador Cirúrgico do APRENDA.
 ${proberInstructions}
@@ -137,7 +152,7 @@ Diretrizes da Questão Diagnóstica (Option Craft):
 - 4 alternativas homogêneas, mesmo esqueleto, mesmo tom e afirmações diretas sem justificativa embutida.
 - Distratores devem capturar atalhos heurísticos falhos ou modelos mentais equivocados comuns em estudantes universitários.
 - Não repita formulações de questões anteriores.
-- "agentThinking": uma nota curta (2 a 4 frases) do tutor, em primeira pessoa e linguagem simples, dizendo por que esta pergunta vem agora e o que ela vai mostrar. Sem jargão.
+- "agentThinking": uma nota curta (2 a 4 frases) do tutor, em primeira pessoa e linguagem simples, dizendo por que esta pergunta vem agora e o que ela vai mostrar. Sem jargão.${escalation}
 
 Responda SOMENTE em JSON:
 {
@@ -160,11 +175,6 @@ Gere a questão diagnóstica e a nota do tutor em JSON:`;
 
   return { systemPrompt, prompt };
 }
-
-const clip = (text: string | undefined, max: number): string => {
-  const clean = (text || '').trim();
-  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
-};
 
 /** What the next attempt at a concept must know about the verifications the student failed. */
 export function describeLessonFailures(failures: LessonFailure[]): string {
@@ -272,6 +282,7 @@ export function buildPlanPrompt(params: {
   goal: string;
   nodes: ConceptNode[];
   attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
+  strands?: StrandSummary[];
 }): { systemPrompt: string; prompt: string } {
   const teacherInstructions = getPlanInstructions();
 
@@ -293,6 +304,21 @@ Responda SOMENTE em JSON:
     })
     .join('\n');
 
-  const prompt = `Objetivo: "${params.goal}"\nConceitos e resultado da sondagem:\n${nodeLines}\n\nGere o plano em JSON:`;
+  const titleOf = new Map(params.nodes.map((n) => [n.id, n.title]));
+  const titles = (ids: string[]) => ids.map((id) => titleOf.get(id) || id).join(', ');
+  const strandLines = (params.strands || [])
+    .map(
+      (s) =>
+        `- Até "${titleOf.get(s.topId) || s.topId}": piso (ele sustenta) = ${titles(s.floor) || 'nada demonstrado'} | teto (onde quebra) = ${
+          titles(s.ceiling) || 'não quebrou'
+        }${s.misconceptions.length ? ` | equívocos: ${s.misconceptions.map((m) => clip(m, 200)).join('; ')}` : ''}`
+    )
+    .join('\n');
+
+  const prompt = `Objetivo: "${params.goal}"\nConceitos e resultado da sondagem:\n${nodeLines}${
+    strandLines
+      ? `\n\nO que a sondagem mediu em cada linha do mapa (conceito "untested" acima de um teto não foi perguntado porque depende do que quebrou):\n${strandLines}`
+      : ''
+  }\n\nGere o plano em JSON:`;
   return { systemPrompt, prompt };
 }

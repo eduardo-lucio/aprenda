@@ -52,6 +52,17 @@ export function isOrientationOption(option: string): boolean {
   return /\b(outro|other|something else)\b/i.test(option) && /(n[ãa]o sei|not sure)/i.test(option);
 }
 
+/** What the probe found on one line of the map (a top concept and everything it is built on). */
+export interface StrandSummary {
+  /** The concept where the line ends. */
+  topId: string;
+  /** Highest concepts of the line the student holds. */
+  floor: string[];
+  /** Lowest concepts of the line the student missed: where teaching starts. */
+  ceiling: string[];
+  misconceptions: string[];
+}
+
 export const MIN_PROBE_QUESTIONS = 8;
 export const PROBE_QUESTIONS_RANGE = { min: 3, max: 20 } as const;
 
@@ -97,6 +108,8 @@ export interface ProbingSession {
   goalClarificationOptions?: string[];
   goalThinking?: string;
   plan?: string;
+  /** Written when the probe ends (absent in sessions saved by older versions). */
+  probeSummary?: StrandSummary[];
   agentThinking?: string;
   chatHistory?: ChatTurnMessage[];
   tokensUsed?: number;
@@ -162,7 +175,8 @@ export interface PersistedUi {
 export interface SessionSnapshot {
   session: ProbingSession;
   nodes: ConceptNode[];
-  candidateQueue: string[];
+  /** Only in sessions saved by older versions: the next concept is now derived from the answers. */
+  candidateQueue?: string[];
   askedQuestions: string[];
   teachingOrder: string[];
   /** Failed verifications per concept since it was last mastered. */

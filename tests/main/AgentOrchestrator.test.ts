@@ -143,8 +143,7 @@ describe('AgentOrchestrator', () => {
 
     orchestrator.speculativePrefetch({
       currentNodeId: 'concept-target',
-      candidateQueue: ['concept-target'],
-      strandNodes: [mockNodePrereq, mockNodeTarget],
+      targets: ['concept-prereq'],
       questionCache,
       askedQuestions: [],
       goal: 'Domínio do Conceito Alvo',

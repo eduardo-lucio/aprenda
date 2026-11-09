@@ -45,12 +45,12 @@ export async function mockLLM(options: CallLLMOptions): Promise<string> {
       agentThinking: 'Grafo de dependências.',
       nodes,
       firstQuestion: {
-        nodeId: 'n1',
-        questionText: 'Qual a função da camada de transporte?',
-        options: ['Comunicação fim a fim', 'Codificar bits', 'Rotear pacotes', 'Resolver nomes'],
+        nodeId: 'n7',
+        questionText: 'O que o TCP faz ao detectar perda de segmentos?',
+        options: ['Reduz a janela de congestionamento', 'Aumenta a taxa de envio', 'Troca de porta', 'Reinicia o handshake'],
         correctOptionIndex: 0,
-        anchorConcept: 'Camada de transporte',
-        difficulty: 1,
+        anchorConcept: 'Controle de congestionamento',
+        difficulty: 4,
       },
     });
   }

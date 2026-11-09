@@ -148,7 +148,7 @@ describe('prefetch targets (F15)', () => {
     id, title: id, summary: '', level, prerequisites, unconditionalTruth: '', status: 'untested',
   });
 
-  it('spends quota only on untested concepts, next in the queue first', async () => {
+  it('spends quota on at most two distinct concepts, never the one on screen', async () => {
     const store = new KnowledgeStore([mk('a', 1), mk('b', 1), mk('c', 2, ['a', 'b']), mk('d', 3), mk('e', 3)]);
     const generated: string[] = [];
     const gen = new CurriculumGenerator(mockLLM, noShuffle);
@@ -159,12 +159,10 @@ describe('prefetch targets (F15)', () => {
     const orchestrator = new AgentOrchestrator(gen, store);
     orchestrator.speculativePrefetch({
       currentNodeId: 'c',
-      candidateQueue: ['d', 'e'],
-      strandNodes: store.getStrand(),
+      targets: ['c', 'd', 'd', 'e', 'a'],
       questionCache: new Map<string, QuestionData>(),
       askedQuestions: [],
       goal: 'g',
-      nodesState: { a: 'mastered', b: 'mastered', c: 'frontier', d: 'untested', e: 'untested' },
     });
     while (orchestrator.isBusy() || orchestrator.getQueueLength() > 0) {
       await new Promise((r) => setTimeout(r, 10));

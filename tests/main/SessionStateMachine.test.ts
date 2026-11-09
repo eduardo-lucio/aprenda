@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
 import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
 import { CurriculumGenerator } from '../../src/main/services/CurriculumGenerator';
 import { CognitiveJudgeService } from '../../src/main/services/CognitiveJudgeService';
 import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
-import { emitTokenUsage } from '../../src/main/services/llmClient';
+import { emitTokenUsage, type LLMCaller } from '../../src/main/services/llmClient';
 
 describe('SessionStateMachine', () => {
   let store: KnowledgeStore;
@@ -355,5 +355,98 @@ describe('SessionStateMachine teaching pass', () => {
     restored.restoreSnapshot(JSON.parse(JSON.stringify(f.getSnapshot())));
     expect(restored.nextTeachingNodeId()).toBe(first);
     expect(restored.getLessonFailures(first)).toHaveLength(1);
+  });
+});
+
+describe('SessionStateMachine probe direction (D3)', () => {
+  const start = async (min = 3) => {
+    const llm = vi.fn(mockLLM);
+    const f = new SessionStateMachine(
+      new KnowledgeStore(),
+      mockJudge(),
+      new CurriculumGenerator(llm as unknown as LLMCaller, noShuffle)
+    );
+    f.setMinProbeQuestions(min);
+    await f.startSession('teaching', 'Redes');
+    await f.submitGoalClarification('TCP e UDP');
+    return { f, llm };
+  };
+  const levelOf = (f: SessionStateMachine, id: string) => f.getSnapshot().nodes.find((n) => n.id === id)!.level;
+
+  it('opens at the top of the map', async () => {
+    const { f } = await start();
+    expect(levelOf(f, f.getState().currentQuestion!.nodeId)).toBe(4);
+  });
+
+  it('generates its own top question when the map comes without a usable one', async () => {
+    const noFirst: LLMCaller = async (o) => {
+      const raw = await mockLLM(o);
+      if (!(o.systemPrompt || '').includes('Arquiteto Curricular')) return raw;
+      const { firstQuestion: _dropped, ...graph } = JSON.parse(raw);
+      return JSON.stringify(graph);
+    };
+    const f = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(noFirst, noShuffle));
+    await f.startSession('teaching', 'Redes');
+    await f.submitGoalClarification('TCP e UDP');
+    expect(levelOf(f, f.getState().currentQuestion!.nodeId)).toBe(4);
+  });
+
+  it('a student who knows nothing is located in a few questions, without asking what sits above a miss', async () => {
+    const { f, llm } = await start();
+    const asked: string[] = [];
+    while (f.getState().phase === 'probing') {
+      asked.push(f.getState().currentQuestion!.nodeId);
+      await f.submitProbeAnswer({ selectedOptionIndex: -1, thinkingText: 'Não sei.' });
+    }
+    // n7 → n4 (middle of what is below) → n1 and n2 (the base)
+    expect(asked).toEqual(['n7', 'n4', 'n1', 'n2']);
+    const state = f.getState();
+    expect(state.phase).toBe('plan_review');
+    expect(state.frontierClarity).toBe(100);
+    for (const id of ['n3', 'n5', 'n6', 'n8']) expect(state.nodesState[id]).toBe('untested');
+
+    const n7 = state.probeSummary!.find((s) => s.topId === 'n7')!;
+    expect(n7.floor).toEqual([]);
+    expect([...n7.ceiling].sort()).toEqual(['n1', 'n2']);
+    const planCall = llm.mock.calls.map(([o]) => o).find((o) => (o.systemPrompt || '').includes('Planejador'))!;
+    expect(planCall.prompt).toContain('teto (onde quebra)');
+  });
+
+  it('a student who holds the goal is never asked the basics, and each top gets a harder second question', async () => {
+    const { f, llm } = await start();
+    const asked: string[] = [];
+    while (f.getState().phase === 'probing') {
+      const q = f.getState().currentQuestion!;
+      asked.push(q.nodeId);
+      await f.submitProbeAnswer({ selectedOptionIndex: q.correctOptionIndex, confidence: 95, thinkingText: 'Raciocínio sólido.' });
+    }
+    expect(asked).toEqual(['n7', 'n7', 'n8', 'n8']);
+    expect(Object.values(f.getState().nodesState).every((s) => s === 'mastered')).toBe(true);
+
+    const harder = llm.mock.calls.map(([o]) => o).filter((o) => (o.systemPrompt || '').includes('ESCALADA'));
+    expect(harder).toHaveLength(2);
+    expect(harder[0].systemPrompt).toContain('O que o TCP faz ao detectar perda de segmentos?');
+  });
+
+  it('a hit after a miss brackets the line: floor below, ceiling above', async () => {
+    const { f } = await start(8);
+    await f.submitProbeAnswer({ selectedOptionIndex: -1, thinkingText: 'Não sei.' }); // n7 missed
+    const q = f.getState().currentQuestion!;
+    expect(q.nodeId).toBe('n4');
+    await f.submitProbeAnswer({ selectedOptionIndex: q.correctOptionIndex, confidence: 95, thinkingText: 'Sólido.' });
+    const state = f.getState();
+    expect(state.nodesState).toMatchObject({ n7: 'frontier', n4: 'mastered', n1: 'mastered', n2: 'mastered' });
+    // Only n5 is left between the floor and the ceiling
+    expect(state.currentQuestion!.nodeId).toBe('n5');
+  });
+
+  it('resumes a session saved by a version that kept a candidate queue', async () => {
+    const { f } = await start(8);
+    await f.submitProbeAnswer({ selectedOptionIndex: -1, thinkingText: 'Não sei.' });
+    const old = { ...JSON.parse(JSON.stringify(f.getSnapshot())), candidateQueue: ['n1', 'n2', 'n3'] };
+    const restored = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
+    restored.restoreSnapshot(old);
+    const res = await restored.submitProbeAnswer({ selectedOptionIndex: -1, thinkingText: 'Não sei.' });
+    expect(res.nextQuestion!.nodeId).toBe('n1');
   });
 });

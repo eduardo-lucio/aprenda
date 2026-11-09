@@ -1,4 +1,4 @@
-import { ConceptNode, LessonFailure, QuestionData, isOrientationOption } from '../../shared/types';
+import { ConceptNode, LessonFailure, QuestionData, StrandSummary, isOrientationOption } from '../../shared/types';
 import {
   buildGoalOptionsPrompt,
   buildGraphPrompt,
@@ -231,18 +231,19 @@ export class CurriculumGenerator {
         let firstQuestion: QuestionData | undefined;
         const rawQ = parsed?.firstQuestion;
         const firstCorrect = Array.isArray(rawQ?.options) ? parseCorrectIndex(rawQ.correctOptionIndex, rawQ.options.length) : null;
-        const lowestLevel = Math.min(...nodes.map((n) => n.level));
+        const highestLevel = Math.max(...nodes.map((n) => n.level));
         // Ids are normalized by sanitizeGraph, so the model's id may only match as a slug
         const targetNode = rawQ?.nodeId
           ? nodes.find((n) => n.id === rawQ.nodeId) || nodes.find((n) => n.id === slugify(String(rawQ.nodeId)))
           : undefined;
-        // A question written for another concept is never reassigned: the caller generates a proper one
+        // A question written for another concept is never reassigned: the caller generates a proper one.
+        // The probe enters at the top of the map, so a question about the base is not used either.
         if (
           rawQ?.questionText &&
           rawQ.options.length === 4 &&
           firstCorrect !== null &&
           targetNode &&
-          targetNode.level <= lowestLevel
+          targetNode.level >= highestLevel
         ) {
           const arranged = this.arrangeOptions(rawQ.options.map((o: unknown) => String(o)), firstCorrect);
           const qThink =
@@ -288,9 +289,11 @@ export class CurriculumGenerator {
     node: ConceptNode,
     goal: string,
     previousQuestions: string[],
-    callOpts?: { signal?: AbortSignal; isBackground?: boolean }
+    callOpts?: { signal?: AbortSignal; isBackground?: boolean; harderThan?: string[] }
   ): Promise<QuestionData> {
-    const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions);
+    const { systemPrompt, prompt } = buildProbeQuestionPrompt(node, goal, previousQuestions, {
+      harderThan: callOpts?.harderThan,
+    });
 
     let lastReason = localize('a resposta da IA veio vazia ou num formato inesperado', 'the AI answer was empty or in an unexpected format');
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -399,6 +402,7 @@ export class CurriculumGenerator {
     goal: string;
     nodes: ConceptNode[];
     attempts: Array<{ nodeId: string; verdict: string; judgeReasoning: string }>;
+    strands?: StrandSummary[];
   }): Promise<{ plan: string; order: string[] }> {
     const { systemPrompt, prompt } = buildPlanPrompt(params);
     let reason = localize('a resposta da IA veio incompleta', 'the AI answer was incomplete');
