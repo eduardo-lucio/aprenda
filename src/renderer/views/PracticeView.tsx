@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Mic } from 'lucide-react';
 import { PracticeProblem, PracticeTurn, ProbingSession } from '../../shared/types';
 import { RichText } from '../components/RichText';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { BusyStatus } from '../components/BusyStatus';
+import { DictationOverlay } from '../components/DictationOverlay';
+import { applyDictation, useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n';
 import { cleanError, isCancelled, isSessionChanged } from '../lib/errors';
@@ -49,6 +52,34 @@ export const PracticeView: React.FC<PracticeViewProps> = ({ session: initial, on
   useEffect(() => {
     onBusyChange?.(busy);
   }, [busy, onBusyChange]);
+
+  // Dictation writes in the field on screen: the work on an open problem, the question in a pause
+  const dictationTargetRef = useRef<'work' | 'question' | null>(null);
+  dictationTargetRef.current = active ? 'work' : lastDone && !practice?.finished ? 'question' : null;
+  const dictationInterimRef = useRef('');
+  const writeDictation = (text: string, isFinal: boolean) => {
+    const previous = dictationInterimRef.current;
+    dictationInterimRef.current = isFinal ? '' : text;
+    const update = (current: string) => applyDictation(current, previous, text);
+    if (dictationTargetRef.current === 'work') setWork(update);
+    else if (dictationTargetRef.current === 'question') setQuestion(update);
+  };
+  const {
+    isListening,
+    isTranscribing,
+    toggleListening,
+    error: speechError,
+  } = useSpeechRecognition(
+    (voiceText) => writeDictation(voiceText, true),
+    (voiceText) => writeDictation(voiceText, false)
+  );
+  const isDictating = isListening || isTranscribing;
+
+  useEffect(() => {
+    const handleGlobalDictate = () => toggleListening();
+    window.addEventListener('toggle-dictate', handleGlobalDictate);
+    return () => window.removeEventListener('toggle-dictate', handleGlobalDictate);
+  }, [toggleListening]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' });
@@ -163,6 +194,33 @@ export const PracticeView: React.FC<PracticeViewProps> = ({ session: initial, on
   // The problem being discussed in the pause is shown open, below the older ones
   const older = inPause || practice.finished ? history.slice(0, -1) : history;
 
+  const dictateLabel = isListening
+    ? t('session.dictate.listening')
+    : isTranscribing
+    ? t('session.dictate.transcribing')
+    : t('session.dictate.label');
+  const dictateButton = (
+    <button
+      type="button"
+      data-testid="practice-dictate"
+      onClick={toggleListening}
+      disabled={isTranscribing || (busy && !isListening)}
+      className={`mr-auto flex items-center space-x-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors disabled:opacity-40 ${
+        isListening
+          ? 'animate-pulse border-red-600 bg-red-950/60 text-red-400'
+          : 'border-ink-600 bg-ink-850 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+      }`}
+      title={t('session.dictate.title')}
+      aria-label={dictateLabel}
+    >
+      <Mic className={`h-3 w-3 ${isListening ? 'text-red-400' : 'text-gray-400'}`} />
+      <span>{dictateLabel}</span>
+    </button>
+  );
+  const fieldClass = `block w-full resize-none bg-transparent font-sans text-sm outline-none placeholder:text-gray-500 ${
+    isDictating ? 'text-transparent caret-gray-200' : 'text-gray-200'
+  }`;
+
   const solutionBlock = (p: PracticeProblem) => (
     <div className="rounded-xl bg-ink-900 px-4 py-3">
       <span className="label-mono mb-1.5 block text-emerald-300">{t('practice.solution')}</span>
@@ -218,16 +276,20 @@ export const PracticeView: React.FC<PracticeViewProps> = ({ session: initial, on
                 <label className="label-mono mb-1.5 block" htmlFor="practice-work">
                   {t('practice.work.label')}
                 </label>
-                <textarea
-                  id="practice-work"
-                  value={work}
-                  onChange={(e) => setWork(e.target.value)}
-                  placeholder={t('practice.work.placeholder')}
-                  disabled={busy}
-                  rows={3}
-                  className="block w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
-                />
+                <div className="relative">
+                  <textarea
+                    id="practice-work"
+                    value={work}
+                    onChange={(e) => setWork(e.target.value)}
+                    placeholder={t('practice.work.placeholder')}
+                    disabled={busy}
+                    rows={3}
+                    className={fieldClass}
+                  />
+                  {isDictating && <DictationOverlay value={work} className="font-sans text-sm text-gray-200" />}
+                </div>
                 <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {dictateButton}
                   <button
                     type="button"
                     onClick={() => send('work')}
@@ -287,16 +349,20 @@ export const PracticeView: React.FC<PracticeViewProps> = ({ session: initial, on
                     <label className="label-mono mb-1.5 block" htmlFor="practice-question">
                       {t('practice.pause.label')}
                     </label>
-                    <textarea
-                      id="practice-question"
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      placeholder={t('practice.pause.placeholder')}
-                      disabled={busy}
-                      rows={2}
-                      className="block w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
-                    />
-                    <div className="mt-2 flex justify-end">
+                    <div className="relative">
+                      <textarea
+                        id="practice-question"
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        placeholder={t('practice.pause.placeholder')}
+                        disabled={busy}
+                        rows={2}
+                        className={fieldClass}
+                      />
+                      {isDictating && <DictationOverlay value={question} className="font-sans text-sm text-gray-200" />}
+                    </div>
+                    <div className="mt-2 flex items-center justify-end">
+                      {dictateButton}
                       <button
                         type="button"
                         onClick={ask}
@@ -340,12 +406,13 @@ export const PracticeView: React.FC<PracticeViewProps> = ({ session: initial, on
         </div>
       </div>
 
-      {(busy || error) && (
+      {(busy || error || speechError) && (
         <div className="shrink-0 bg-ink-950 px-6 pb-3 pt-2">
           <div className="mx-auto flex max-w-3xl flex-col gap-2">
             {error && (
               <ErrorNotice message={error.message} onRetry={error.retry} retryLabel={error.retry ? t('session.retry') : undefined} />
             )}
+            {speechError && <ErrorNotice message={speechError} />}
             {busy && (
               <BusyStatus label={busyLabel!} cancelLabel={t('session.cancel')} onCancel={() => void window.api.cancelOperation()} />
             )}
