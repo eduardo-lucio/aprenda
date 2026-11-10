@@ -3,12 +3,13 @@ import {
   buildGoalOptionsPrompt,
   buildGraphPrompt,
   buildPlanPrompt,
+  buildPlanRevisionPrompt,
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
 import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
 
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return (
     text
       .normalize('NFD')
@@ -69,20 +70,22 @@ export function sanitizeGraph(rawNodes: any[]): ConceptNode[] {
   };
   for (const { id } of drafts) if (!state.get(id)) visit(id);
 
-  // Depth-based levels (clamped to 1..4), respecting AI hints when consistent
-  const depth = new Map<string, number>();
-  const getDepth = (id: string): number => {
-    if (depth.has(id)) return depth.get(id)!;
+  // Levels 1..4: the AI's hint when it is consistent, and always above every prerequisite's level
+  // (until the scale runs out at 4), so ordering by level never puts a concept before its base
+  const rawOf = new Map(drafts.map((d) => [d.id, d.raw]));
+  const levels = new Map<string, number>();
+  const getLevel = (id: string): number => {
+    if (levels.has(id)) return levels.get(id)!;
     const prereqs = prereqMap.get(id) || [];
-    const d = prereqs.length === 0 ? 1 : 1 + Math.max(...prereqs.map(getDepth));
-    depth.set(id, d);
-    return d;
+    const floor = prereqs.length === 0 ? 1 : 1 + Math.max(...prereqs.map(getLevel));
+    const hinted = Number(rawOf.get(id)?.level);
+    const value = Math.min(4, Math.max(floor, Number.isFinite(hinted) ? Math.round(hinted) : floor));
+    levels.set(id, value);
+    return value;
   };
 
   return drafts.map(({ id, raw }) => {
-    const hinted = Number(raw.level);
-    const minLevel = Math.min(4, getDepth(id));
-    const level = Math.min(4, Math.max(minLevel, Number.isFinite(hinted) ? Math.round(hinted) : minLevel));
+    const level = getLevel(id);
     return {
       id,
       title: String(raw.title).trim(),
@@ -395,6 +398,33 @@ export class CurriculumGenerator {
         `The lesson on "${node.title}" could not be prepared: ${reason}.`
       )
     );
+  }
+
+  /**
+   * Asked when a concept could not be taught after repeated repairs: is a foundation missing from
+   * the map? Best effort, a single try. An empty `add` means the map stays as it is.
+   */
+  async revisePlan(params: {
+    goal: string;
+    nodes: ConceptNode[];
+    focus: ConceptNode;
+    failures: LessonFailure[];
+  }): Promise<{
+    add: Array<{ title: string; summary: string; unconditionalTruth: string; prerequisites: string[] }>;
+    note: string;
+  }> {
+    const { systemPrompt, prompt } = buildPlanRevisionPrompt(params);
+    const raw = await this.llm({ systemPrompt, prompt, temperature: 0.2, jsonMode: true, maxTokens: 900, timeoutMs: 45000 });
+    const parsed = parseLLMJson<any>(raw);
+    const add = (Array.isArray(parsed?.add) ? parsed.add : [])
+      .filter((a: any) => a && typeof a.title === 'string' && a.title.trim())
+      .map((a: any) => ({
+        title: String(a.title).trim().slice(0, 120),
+        summary: String(a.summary || '').trim(),
+        unconditionalTruth: String(a.unconditionalTruth || a.summary || '').trim(),
+        prerequisites: Array.isArray(a.prerequisites) ? a.prerequisites.map(String) : [],
+      }));
+    return { add, note: typeof parsed?.note === 'string' ? parsed.note.trim() : '' };
   }
 
   /** Short teaching plan + suggested node order, derived from what probing revealed. */

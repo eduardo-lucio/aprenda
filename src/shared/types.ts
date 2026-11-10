@@ -63,6 +63,19 @@ export interface StrandSummary {
   misconceptions: string[];
 }
 
+/** The plan is a hypothesis: teaching can show that a concept rests on something the map lacks. */
+export interface PlanRevision {
+  /** The concept whose lesson led to the change. */
+  nodeId: string;
+  /** Ids of the foundations added before it. */
+  added: string[];
+  /** What the student is told about the change. */
+  note: string;
+}
+/** Foundations one revision may add, and how many a whole session may gain. */
+export const MAX_ADDED_PER_REVISION = 2;
+export const MAX_ADDED_PER_SESSION = 4;
+
 export const MIN_PROBE_QUESTIONS = 8;
 export const PROBE_QUESTIONS_RANGE = { min: 3, max: 20 } as const;
 
@@ -110,6 +123,8 @@ export interface ProbingSession {
   plan?: string;
   /** Written when the probe ends (absent in sessions saved by older versions). */
   probeSummary?: StrandSummary[];
+  /** Every change made to the map during the lessons, oldest first. */
+  planRevisions?: PlanRevision[];
   agentThinking?: string;
   chatHistory?: ChatTurnMessage[];
   tokensUsed?: number;
@@ -143,6 +158,8 @@ export interface LessonProgress {
   taught: Array<{ step: number; prose: string }>;
   /** What the student said he was thinking while reading the latest explanation. */
   readingThoughts?: string;
+  /** The guess already showed the concept: one confirmation instead of the usual steps. */
+  shortcut?: boolean;
 }
 
 /** What follows a verification: the lesson stays on the concept until every step is demonstrated. */
@@ -162,6 +179,8 @@ export interface CompletedLesson {
   /** Absent in lessons saved before concepts were taught in steps. */
   stepIndex?: number;
   stepCount?: number;
+  /** What the student was told when this verification changed the plan. */
+  planNote?: string;
 }
 
 /** What the AI writes about one concept of the map, from what the student actually did on it. */
@@ -212,6 +231,8 @@ export interface SessionSnapshot {
   teachingOrder: string[];
   /** Failed verifications per concept since it was last mastered. */
   lessonFailures?: Record<string, LessonFailure[]>;
+  /** Concepts whose failure already made the plan be reconsidered: each one asks only once. */
+  planRevisedFor?: string[];
   tokensUsed: number;
 }
 
@@ -314,6 +335,8 @@ export interface ElectronAPI {
     mastered: boolean;
     outcome: LessonOutcome;
     progress?: LessonProgress;
+    /** Set when this verification made the map gain a foundation. */
+    planRevision?: PlanRevision;
     repairExplanation?: string;
     session: ProbingSession;
   }>;

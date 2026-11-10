@@ -323,3 +323,58 @@ Responda SOMENTE em JSON:
   }\n\nGere o plano em JSON:`;
   return { systemPrompt, prompt };
 }
+
+/** Asked after a concept resisted repeated repairs: does the map lack a foundation it depends on? */
+export function buildPlanRevisionPrompt(params: {
+  goal: string;
+  nodes: ConceptNode[];
+  focus: ConceptNode;
+  failures: LessonFailure[];
+}): { systemPrompt: string; prompt: string } {
+  const systemPrompt = `Você é o Planejador do APRENDA.
+${getPlanInstructions()}
+
+O PLANO É UMA HIPÓTESE. O aluno não conseguiu demonstrar um passo de "${params.focus.title}", mesmo depois de explicações diferentes do mesmo passo. Antes de insistir, pergunte: há uma FUNDAÇÃO FALTANDO — algo de que este conceito depende, que o mapa não tem e que as respostas mostram que ele não sustenta?
+
+Regras:
+- Só acrescente quando os diagnósticos apontarem para algo ANTERIOR a "${params.focus.title}" e ausente do mapa. Se a dificuldade está dentro do próprio conceito, ou se a fundação já está no mapa, devolva "add": [] — ele será retomado com passos mais simples.
+- No máximo 2 conceitos. Cada um é menor e mais básico que "${params.focus.title}": uma verdade que ele aceitaria pelo valor de face, ou a um passo disso. Nunca repita nem reformule um conceito do mapa.
+- "title": nome curto do conceito. "summary": 1 frase técnica. "unconditionalTruth": 1 frase com o princípio invariante.
+- "prerequisites": ids de conceitos do mapa de que o novo conceito depende, apenas entre os que "${params.focus.title}" já tem como base. Normalmente [].
+- "note": 1 a 2 frases ao aluno, tratando-o por "você", dizendo o que vamos ver antes de "${params.focus.title}" e por quê. Linguagem simples, sem "nó", "grafo" ou "mapa mental". Vazio se "add" for [].
+
+Responda SOMENTE em JSON:
+{
+  "add": [
+    { "title": "Conceito que faltava", "summary": "...", "unconditionalTruth": "...", "prerequisites": [] }
+  ],
+  "note": "Antes de voltar a ..., vamos ver ..., porque ..."
+}`;
+
+  const mapLines = params.nodes
+    .map((n) => `- ${n.id} | ${n.title} | nível ${n.level} | estado: ${n.status} | depende de: ${n.prerequisites.join(', ') || 'nada'}`)
+    .join('\n');
+  const failureLines = params.failures
+    .slice(-3)
+    .map(
+      (f) =>
+        `- Pergunta: ${clip(f.questionText, 300)} | respondeu: ${clip(f.chosenAnswer, 150)} | certa: ${clip(f.correctAnswer, 150)} | diagnóstico: ${clip(f.diagnosis, 300)}${
+          f.misconception ? ` | equívoco: ${clip(f.misconception, 200)}` : ''
+        }${f.readingThoughts ? ` | pensava enquanto lia: ${clip(f.readingThoughts, 200)}` : ''}`
+    )
+    .join('\n');
+
+  const prompt = `Objetivo: "${params.goal}"
+
+MAPA ATUAL:
+${mapLines}
+
+CONCEITO QUE NÃO ASSENTOU: ${params.focus.id} | ${params.focus.title}
+Ideia central: ${params.focus.unconditionalTruth}
+
+VERIFICAÇÕES SEM DOMÍNIO NESTE CONCEITO:
+${failureLines || '(sem registro)'}
+
+Decida se falta uma fundação e responda em JSON:`;
+  return { systemPrompt, prompt };
+}

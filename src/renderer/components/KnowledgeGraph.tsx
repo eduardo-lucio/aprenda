@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize2, Search, Workflow, ZoomIn, ZoomOut } from 'lucide-react';
 import { ConceptNode } from '../../shared/types';
 import { NodeDetailPanel } from './NodeDetailPanel';
-import { LABEL_DEPTH, LABEL_HALF_WIDTH, NODE_RADIUS, REGION_COLORS, collectRelations, layoutForce, layoutLayered, wrapTitle } from '../graph/forceLayout';
+import { LABEL_DEPTH, LABEL_HALF_WIDTH, NODE_RADIUS, REGION_COLORS, collectRelations, layoutForceStaged, layoutLayered, wrapTitle } from '../graph/forceLayout';
 import { NodeStatus, STATUS_ORDER, useStatusMeta } from '../graph/statusMeta';
 import { useI18n } from '../i18n';
 
@@ -14,6 +14,8 @@ interface KnowledgeGraphProps {
   onNodeSelect?: (id: string) => void;
   onStartSocratic?: (nodeId: string) => void;
   onOpenNotes?: (nodeId: string) => void;
+  /** Ids of the concepts the lessons added to the map, one group per change, oldest first. */
+  addedStages?: string[][];
 }
 
 interface View {
@@ -62,7 +64,15 @@ function saveMapStyle(style: MapStyle): void {
   }
 }
 
-export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, activeNodeId, onNodeSelect, onStartSocratic, onOpenNotes }) => {
+export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
+  nodes,
+  goal,
+  activeNodeId,
+  onNodeSelect,
+  onStartSocratic,
+  onOpenNotes,
+  addedStages,
+}) => {
   const { t } = useI18n();
   const statusMeta = useStatusMeta();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,8 +98,11 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ nodes, goal, act
   const structureKey = nodes.map((n) => `${n.id}<${n.prerequisites.join(',')}`).join('|');
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  // Concepts the lessons added settle around the original map instead of rearranging it
+  const stagesRef = useRef(addedStages);
+  stagesRef.current = addedStages;
   const layout = useMemo(
-    () => (isTrail ? layoutLayered(nodesRef.current) : layoutForce(nodesRef.current)),
+    () => (isTrail ? layoutLayered(nodesRef.current) : layoutForceStaged(nodesRef.current, stagesRef.current)),
     [structureKey, isTrail]
   );
 

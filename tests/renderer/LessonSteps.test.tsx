@@ -114,6 +114,44 @@ describe('lessons in steps (D2, A7)', () => {
     expect((screen.getByLabelText(/enquanto você lia/i) as HTMLTextAreaElement).value).toBe('');
   });
 
+  it('D4: when the answer changes the plan, the student is told, and the note is kept with the lesson', async () => {
+    api().submitCheckAnswer.mockResolvedValue({
+      isPassed: false, mastered: false, outcome: 'concept_requeued', repairExplanation: 'A certa era Sim.',
+      planRevision: { nodeId: 'n1', added: ['base'], note: 'Antes de voltar a este conceito, vamos ver a base que faltava.' },
+      session: session({ planRevisions: [{ nodeId: 'n1', added: ['base'], note: 'x' }] }),
+    });
+    await toFirstCheck();
+    fireEvent.click(screen.getByText('Não'));
+    send();
+
+    const notice = await screen.findByTestId('plan-revision');
+    expect(notice.textContent).toContain('Plano ajustado');
+    expect(notice.textContent).toContain('vamos ver a base que faltava');
+    // The next lesson is the foundation, not this concept again
+    expect(screen.getByRole('button', { name: /ver a base que faltava/i })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /retomar este conceito/i })).toBeNull();
+
+    await waitFor(() => {
+      const saved = api().saveSessionUi.mock.calls.at(-1)[1];
+      expect(saved.lessons[0].planNote).toContain('vamos ver a base que faltava');
+    });
+  });
+
+  it('D4: a guess that already shows the concept is confirmed, not taught', async () => {
+    api().submitPrediction.mockResolvedValue({
+      teachProse: 'Seu palpite já traz a ideia.',
+      checkQuestion: check('Confirmação?'),
+      progress: progress({ steps: ['O conceito'], shortcut: true }),
+    });
+    render(<SessionView currentSession={session()} />);
+    await screen.findByText('Palpite sobre isto?');
+    fireEvent.change(document.querySelector('textarea')!, { target: { value: 'meu palpite' } });
+    send();
+    await screen.findByText('Seu palpite já traz a ideia.');
+    expect(screen.getByText(/você já tem a ideia/i)).toBeDefined();
+    expect(screen.queryByTestId('lesson-step')).toBeNull();
+  });
+
   it('the reading field only exists on a lesson verification', async () => {
     render(<SessionView currentSession={session()} />);
     await screen.findByText('Palpite sobre isto?');

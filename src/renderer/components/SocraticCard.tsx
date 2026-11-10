@@ -26,6 +26,10 @@ interface SocraticCardProps {
   stepCount?: number;
   /** This explanation repeats a step whose check was not demonstrated. */
   isRetry?: boolean;
+  /** The guess already showed the concept: this is a confirmation, not a lesson in steps. */
+  shortcut?: boolean;
+  /** What the student is told when the answered check made the plan gain a foundation. */
+  planNote?: string;
   isLoading?: boolean;
   onAdvanceToCheck: () => void;
   /** Leaves the concept: on to the next one, or back to the start of this one. */
@@ -50,6 +54,8 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   stepIndex = 0,
   stepCount = 1,
   isRetry = false,
+  shortcut = false,
+  planNote,
   isLoading = false,
   onAdvanceToCheck,
   onFinishStep,
@@ -67,6 +73,8 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
       ? 'lesson.nextStep'
       : outcome === 'retry_step'
       ? 'lesson.retryStep'
+      : planNote
+      ? 'lesson.toFoundation'
       : outcome === 'concept_requeued' || (!outcome && mastered === false)
       ? 'lesson.retry'
       : 'lesson.next';
@@ -110,7 +118,10 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
       {/* 2 · Explicação */}
       {(step === 'teach' || step === 'check') && (
         <section className="flex flex-col gap-3">
-          {sectionLabel(t(isRetry ? 'lesson.section.reteach' : 'lesson.section.teach'), 'text-blue-300')}
+          {sectionLabel(
+            t(isRetry ? 'lesson.section.reteach' : shortcut ? 'lesson.section.confirm' : 'lesson.section.teach'),
+            'text-blue-300'
+          )}
           {teachProse ? (
             <div className="rounded-xl bg-ink-850 px-5 py-4">
               <RichText text={teachProse} className="text-sm leading-7 text-gray-100" />
@@ -148,6 +159,14 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
                 <p className="text-sm text-amber-200">
                   {t(answeredCheck.selectedOptionIndex === answeredCheck.correctOptionIndex ? 'lesson.retryWeak' : 'lesson.retryWrong')}
                 </p>
+              )}
+              {planNote && (
+                <div data-testid="plan-revision" className="rounded-xl border border-blue-400/40 bg-ink-850 px-4 py-3">
+                  <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-widest text-blue-300">
+                    {t('lesson.planChanged')}
+                  </span>
+                  <p className="text-sm leading-relaxed text-gray-100">{planNote}</p>
+                </div>
               )}
               <div className="flex justify-end pt-1">
                 <button

@@ -74,8 +74,13 @@ export function assignClusters(nodes: ConceptNode[]): Map<string, number> {
   return clusters;
 }
 
-/** Force-directed layout, one anchor per region around the centre. Same concepts always give the same map. */
-export function layoutForce(nodes: ConceptNode[]): GraphLayout {
+/**
+ * Force-directed layout, one anchor per region around the centre. Same concepts always give the same map.
+ * With `previous`, concepts that were already on the map stay exactly where they were and only the
+ * new ones look for a place: a map that gains a concept must not rearrange itself under the student.
+ */
+export function layoutForce(nodes: ConceptNode[], previous?: Map<string, { x: number; y: number }>): GraphLayout {
+  const kept = previous && nodes.some((n) => previous.has(n.id)) ? previous : undefined;
   const clusters = assignClusters(nodes);
   const clusterCount = new Set(clusters.values()).size;
   const anchorRadius = clusterCount > 1 ? 150 + 34 * Math.sqrt(nodes.length) : 0;
@@ -89,6 +94,20 @@ export function layoutForce(nodes: ConceptNode[]): GraphLayout {
     const home = anchor(cluster);
     const spiral = 18 * Math.sqrt(i + 1);
     const turn = i * 2.39996;
+    const was = kept?.get(n.id);
+    if (was) return { id: n.id, cluster, x: was.x, y: was.y, fx: was.x, fy: was.y };
+    if (kept) {
+      // A newcomer starts beside what it connects to, not at its region's anchor
+      const linked = nodes
+        .filter((o) => o.prerequisites.includes(n.id) || n.prerequisites.includes(o.id))
+        .map((o) => kept.get(o.id))
+        .filter((p): p is { x: number; y: number } => Boolean(p));
+      if (linked.length > 0) {
+        const cx = linked.reduce((sum, p) => sum + p.x, 0) / linked.length;
+        const cy = linked.reduce((sum, p) => sum + p.y, 0) / linked.length;
+        return { id: n.id, cluster, x: cx + Math.cos(turn) * LINK_DISTANCE, y: cy + Math.sin(turn) * LINK_DISTANCE };
+      }
+    }
     return { id: n.id, cluster, x: home.x + Math.cos(turn) * spiral, y: home.y + Math.sin(turn) * spiral };
   });
   const byId = new Map(simNodes.map((n) => [n.id, n]));
@@ -111,7 +130,32 @@ export function layoutForce(nodes: ConceptNode[]): GraphLayout {
     .force('y', forceY<GraphNode>((n) => anchor(n.cluster).y).strength(ANCHOR_PULL))
     .stop();
   simulation.tick(SETTLE_TICKS);
+  // The pins only held the old concepts in place while the new ones settled
+  for (const n of simNodes) {
+    n.fx = null;
+    n.fy = null;
+  }
   return { nodes: simNodes, byId, simulation, clusterCount };
+}
+
+/**
+ * The map as it grew: first the concepts it was born with, then each group the lessons added, in
+ * order. Every group settles around what was already placed, so reopening the map after a concept
+ * was added shows the old ones exactly where the student left them.
+ */
+export function layoutForceStaged(nodes: ConceptNode[], stages: string[][] = []): GraphLayout {
+  const present = new Set(nodes.map((n) => n.id));
+  const groups = stages.map((ids) => ids.filter((id) => present.has(id))).filter((ids) => ids.length > 0);
+  const late = new Set(groups.flat());
+  let layout = layoutForce(nodes.filter((n) => !late.has(n.id)));
+  for (const group of groups) {
+    for (const id of group) late.delete(id);
+    layout = layoutForce(
+      nodes.filter((n) => !late.has(n.id)),
+      new Map(layout.nodes.map((n) => [n.id, { x: n.x, y: n.y }]))
+    );
+  }
+  return layout;
 }
 
 const COLUMN_GAP = 138;

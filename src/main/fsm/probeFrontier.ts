@@ -69,6 +69,11 @@ export class ProbeFrontier {
     return attempts.filter((a) => a.nodeId === id).length;
   }
 
+  /** Everything the concept is built on, directly or not. */
+  ancestorsOf(id: string): string[] {
+    return [...(this.ancestors.get(id) || [])];
+  }
+
   /** Nothing depends on it: it is where a line of the map ends. */
   isTop(id: string): boolean {
     return (this.dependents.get(id) || []).length === 0;

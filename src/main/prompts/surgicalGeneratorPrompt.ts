@@ -55,10 +55,15 @@ METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):
    - Feche com a regra que o aluno leva deste passo para casos novos.
    ${PROSE_RULES}
 6. Questão de Checagem (Check Question):
-   ${CHECK_RULES}${describeLessonFailures(failures)}
+   ${CHECK_RULES}
+7. Poda — quando o palpite JÁ traz o conceito ("alreadyHeld"):
+   - O plano é uma hipótese: não se ensina o que ele já sustenta. Se o palpite enuncia a ideia central deste conceito COM o porquê (o mecanismo, não só o termo certo ou uma frase vaga), devolva "alreadyHeld": true.
+   - Nesse caso "steps" tem um único item (o próprio conceito), "teachProse" é uma confirmação de 2 a 3 frases (o que no palpite já está certo e o detalhe que fecha a ideia, sem reensinar) e a checagem cobra o conceito inteiro num caso novo, mais exigente que a de um passo comum.
+   - Na dúvida, "alreadyHeld": false e ensine pelos passos: confirmar por engano custa mais do que ensinar o que ele quase sabia.${describeLessonFailures(failures)}
 
 Retorne SOMENTE em JSON:
 {
+  "alreadyHeld": false,
   "steps": ["Fato que o passo 1 estabelece", "Fato que o passo 2 estabelece"],
   "teachProse": "Explicação motivada do passo 1, que resolve a previsão do aluno...",
   ${CHECK_JSON}

@@ -1,5 +1,5 @@
 import { BrowserWindow, IpcMain } from 'electron';
-import { SessionStateMachine } from '../fsm/SessionStateMachine';
+import { SessionChangedError, SessionStateMachine } from '../fsm/SessionStateMachine';
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import {
@@ -7,6 +7,7 @@ import {
   ConceptNode,
   LessonProgress,
   PersistedUi,
+  PlanRevision,
   ProbeAnswerKind,
   SettingsUpdatePayload,
 } from '../../shared/types';
@@ -295,8 +296,28 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
       const mastered = verdict === 'mastered';
       // The verification was answered: it cannot be sent twice against the same step
       currentCheckData = undefined;
+      const wasShortcut = Boolean(socratic.getProgress()?.shortcut);
       const outcome = socratic.recordCheck(mastered, readingThoughts);
-      return { ...evalResult, mastered, outcome, progress: socratic.getProgress(), session: fsm.getState() };
+
+      // Repairs ran out: before the concept is simply tried again, ask whether a foundation is missing.
+      // Best effort: the answer is already recorded, so a failure here must not turn into an error.
+      let planRevision: PlanRevision | null = null;
+      if (outcome === 'concept_requeued' && node && !wasShortcut) {
+        try {
+          planRevision = await fsm.reviseAfterFailure(node.id);
+        } catch (err) {
+          if (err instanceof SessionChangedError) throw err;
+          console.warn('[ipc] Não foi possível rever o plano:', err);
+        }
+      }
+      return {
+        ...evalResult,
+        mastered,
+        outcome,
+        progress: socratic.getProgress(),
+        ...(planRevision ? { planRevision } : {}),
+        session: fsm.getState(),
+      };
     });
   });
 

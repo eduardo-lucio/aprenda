@@ -185,15 +185,18 @@ export const SessionView: React.FC<SessionViewProps> = ({
     mastered?: boolean;
     outcome?: LessonOutcome;
     repairExplanation?: string;
+    /** What the student is told when this verification changed the plan. */
+    planNote?: string;
   } | null>(null);
   const [lessonProgress, setLessonProgress] = useState<LessonProgress | null>(restoredLesson?.progress ?? null);
   /** The step whose explanation is on screen: after a verification the lesson itself has already moved on. */
-  const [shownStep, setShownStep] = useState<{ index: number; count: number; isRetry: boolean } | null>(
+  const [shownStep, setShownStep] = useState<{ index: number; count: number; isRetry: boolean; shortcut?: boolean } | null>(
     restoredLesson?.progress
       ? {
           index: restoredLesson.progress.stepIndex,
           count: restoredLesson.progress.steps.length,
           isRetry: restoredLesson.progress.retries > 0,
+          shortcut: restoredLesson.progress.shortcut,
         }
       : null
   );
@@ -692,7 +695,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setTeachProse(res.teachProse);
       setCheckQuestion(res.checkQuestion);
       setLessonProgress(res.progress ?? null);
-      setShownStep({ index: 0, count: res.progress?.steps.length ?? 1, isRetry: false });
+      setShownStep({ index: 0, count: res.progress?.steps.length ?? 1, isRetry: false, shortcut: res.progress?.shortcut });
       setSocraticStep('teach');
     } catch (err: any) {
       setPrediction('');
@@ -744,6 +747,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         mastered: res.mastered,
         outcome: res.outcome,
         repairExplanation: res.repairExplanation,
+        planNote: res.planRevision?.note,
       });
       setLessonProgress(res.progress ?? null);
       setReadingThoughts('');
@@ -762,6 +766,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             isPassed: res.isPassed,
             repairExplanation: res.repairExplanation,
             ...(shownStep ? { stepIndex: shownStep.index, stepCount: shownStep.count } : {}),
+            ...(res.planRevision ? { planNote: res.planRevision.note } : {}),
           },
         ]);
       }
@@ -1264,6 +1269,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <KnowledgeGraph
                 nodes={nodes}
                 goal={session?.goal}
+                addedStages={session?.planRevisions?.map((r) => r.added)}
                 onStartSocratic={phase === 'teaching' && !isBusy ? (id) => handleStartSocraticCycle(id) : undefined}
                 onOpenNotes={openNotes}
               />
@@ -1593,6 +1599,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       <RichText text={lesson.teachProse} />
                       {lesson.checkQuestion && <RichText text={lesson.checkQuestion} className="font-semibold text-gray-200" />}
                       {lesson.repairExplanation && <RichText text={lesson.repairExplanation} className="text-amber-200" />}
+                      {lesson.planNote && (
+                        <p className="border-l-2 border-blue-400/60 pl-3 text-gray-200">
+                          <span className="mr-1.5 font-mono text-[10px] uppercase tracking-widest text-blue-300">
+                            {t('lesson.planChanged')}
+                          </span>
+                          {lesson.planNote}
+                        </p>
+                      )}
                     </div>
                   </details>
                 ))}
@@ -1618,6 +1632,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     stepIndex={shownStep?.index ?? 0}
                     stepCount={shownStep?.count ?? 1}
                     isRetry={shownStep?.isRetry ?? false}
+                    shortcut={shownStep?.shortcut ?? false}
+                    planNote={checkResult?.planNote}
                     onContinue={() => void handleContinueLesson()}
                     teachProse={teachProse}
                     prediction={prediction}

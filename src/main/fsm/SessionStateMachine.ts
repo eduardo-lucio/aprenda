@@ -2,7 +2,10 @@ import {
   CheckQuestionData,
   ConceptNode,
   LessonFailure,
+  MAX_ADDED_PER_REVISION,
+  MAX_ADDED_PER_SESSION,
   MIN_PROBE_QUESTIONS,
+  PlanRevision,
   clampProbeQuestions,
   SessionSnapshot,
   ProbeAnswerKind,
@@ -13,7 +16,7 @@ import {
 } from '../../shared/types';
 import { KnowledgeStore } from '../knowledge/KnowledgeStore';
 import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
-import { CurriculumGenerator } from '../services/CurriculumGenerator';
+import { CurriculumGenerator, sanitizeGraph, slugify } from '../services/CurriculumGenerator';
 import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import { addGlobalTokenListener, localize } from '../services/llmClient';
@@ -43,6 +46,7 @@ export class SessionStateMachine {
   private sessionTokensUsed = 0;
   private teachingOrder: string[] = [];
   private lessonFailures: Record<string, LessonFailure[]> = {};
+  private planRevisedFor: string[] = [];
   private onPersist?: (snapshot: SessionSnapshot) => void;
 
   constructor(
@@ -76,6 +80,7 @@ export class SessionStateMachine {
       askedQuestions: [...this.askedQuestions],
       teachingOrder: [...this.teachingOrder],
       lessonFailures: { ...this.lessonFailures },
+      planRevisedFor: [...this.planRevisedFor],
       tokensUsed: this.sessionTokensUsed,
     };
   }
@@ -90,6 +95,7 @@ export class SessionStateMachine {
     // Sessions saved before the mastery gate may hold an order that does not start from the base
     this.teachingOrder = this.basicsFirst(snapshot.teachingOrder);
     this.lessonFailures = { ...(snapshot.lessonFailures || {}) };
+    this.planRevisedFor = [...(snapshot.planRevisedFor || [])];
     this.sessionTokensUsed = snapshot.tokensUsed || 0;
     this.questionCache.clear();
     this.session = {
@@ -148,6 +154,7 @@ export class SessionStateMachine {
     this.questionCache.clear();
     this.teachingOrder = [];
     this.lessonFailures = {};
+    this.planRevisedFor = [];
     this.sessionTokensUsed = 0;
   }
 
@@ -565,12 +572,113 @@ export class SessionStateMachine {
   }
 
   /**
-   * The plan's order only decides among concepts of the same level. Levels follow prerequisite
-   * depth, so a concept never comes before what it depends on.
+   * The plan's order only decides among concepts that do not depend on each other. Levels follow
+   * prerequisite depth, and where the scale runs out (two concepts at the top level, one built on
+   * the other) the one with less underneath comes first: a concept never precedes its base.
    */
   private basicsFirst(ids: string[]): string[] {
     const levelOf = new Map(this.store.getNodes().map((n) => [n.id, n.level]));
-    return ids.filter((id) => levelOf.has(id)).sort((a, b) => levelOf.get(a)! - levelOf.get(b)!);
+    const depth = (id: string) => this.frontier.ancestorsOf(id).length;
+    return [...new Set(ids)]
+      .filter((id) => levelOf.has(id))
+      .sort((a, b) => levelOf.get(a)! - levelOf.get(b)! || depth(a) - depth(b));
+  }
+
+  /**
+   * The plan is a hypothesis. When a concept resisted every repair of a step, the planner is asked
+   * whether the map lacks a foundation it depends on; what it proposes is validated and placed
+   * before the concept. Each concept asks only once, and a session gains a bounded number of
+   * concepts, so the lessons cannot grow without end. Returns null when the map stays as it is.
+   */
+  async reviseAfterFailure(nodeId: string): Promise<PlanRevision | null> {
+    const session = this.requireSession();
+    const focus = this.store.getNodeById(nodeId);
+    if (!focus || session.phase !== 'teaching' || this.planRevisedFor.includes(nodeId)) return null;
+    const addedSoFar = (session.planRevisions || []).reduce((sum, r) => sum + r.added.length, 0);
+    const room = Math.min(MAX_ADDED_PER_REVISION, MAX_ADDED_PER_SESSION - addedSoFar);
+    if (room <= 0) return null;
+
+    const proposal = await this.generator.revisePlan({
+      goal: session.goal,
+      nodes: this.strandNodes.map((n) => ({ ...n, status: session.nodesState[n.id] || n.status })),
+      focus,
+      failures: this.getLessonFailures(nodeId),
+    });
+    this.assertActive(session);
+    this.planRevisedFor.push(nodeId);
+
+    const added = this.addFoundations(focus, proposal.add.slice(0, room));
+    if (added.length === 0) {
+      this.persist();
+      return null;
+    }
+    const titles = added.map((n) => `"${n.title}"`).join(localize(' e ', ' and '));
+    const revision: PlanRevision = {
+      nodeId,
+      added: added.map((n) => n.id),
+      note:
+        proposal.note ||
+        localize(
+          `Antes de voltar a "${focus.title}", vamos ver ${titles}: é a base que faltava.`,
+          `Before going back to "${focus.title}", we will look at ${titles}: it is the base that was missing.`
+        ),
+    };
+    session.planRevisions = [...(session.planRevisions || []), revision];
+    this.persist();
+    return revision;
+  }
+
+  /**
+   * Puts new concepts under `focus`. They may only rest on what `focus` already rests on, so no
+   * cycle can appear, and the whole map goes through the same repair as a generated one.
+   */
+  private addFoundations(
+    focus: ConceptNode,
+    proposals: Array<{ title: string; summary: string; unconditionalTruth: string; prerequisites: string[] }>
+  ): ConceptNode[] {
+    const session = this.requireSession();
+    const current = this.store.getNodes();
+    const takenTitles = new Set(current.map((n) => n.title.trim().toLocaleLowerCase()));
+    const takenIds = new Set(current.map((n) => n.id));
+    const base = new Set(this.frontier.ancestorsOf(focus.id));
+
+    const fresh: Array<Omit<ConceptNode, 'status'>> = [];
+    for (const p of proposals) {
+      const key = p.title.trim().toLocaleLowerCase();
+      if (!key || takenTitles.has(key)) continue;
+      takenTitles.add(key);
+      const slug = slugify(p.title);
+      let id = slug;
+      for (let n = 2; takenIds.has(id); n++) id = `${slug}-${n}`;
+      takenIds.add(id);
+      fresh.push({
+        id,
+        title: p.title.trim(),
+        summary: p.summary,
+        unconditionalTruth: p.unconditionalTruth,
+        level: Math.max(1, focus.level - 1),
+        prerequisites: p.prerequisites.filter((x) => base.has(x)),
+      });
+    }
+    if (fresh.length === 0) return [];
+
+    const freshIds = fresh.map((n) => n.id);
+    const rebuilt = sanitizeGraph([
+      ...current.map((n) => (n.id === focus.id ? { ...n, prerequisites: [...n.prerequisites, ...freshIds] } : n)),
+      ...fresh,
+    ]);
+    // Nothing is committed unless every concept, old and new, survived the repair with its id
+    const rebuiltIds = new Set(rebuilt.map((n) => n.id));
+    if (rebuilt.length !== current.length + fresh.length || [...takenIds].some((id) => !rebuiltIds.has(id))) return [];
+
+    this.store.setNodes(rebuilt);
+    this.strandNodes = this.store.getStrand();
+    this.frontier = new ProbeFrontier(this.strandNodes);
+    for (const id of freshIds) session.nodesState[id] = 'untested';
+    // First among equals: the student was just told this is what comes before going back
+    this.teachingOrder = this.basicsFirst([...freshIds, ...this.teachingOrder]);
+    session.frontierClarity = this.calculateFrontierClarity();
+    return rebuilt.filter((n) => freshIds.includes(n.id));
   }
 
   /** Called after every await: a result computed for another session must never touch this one. */

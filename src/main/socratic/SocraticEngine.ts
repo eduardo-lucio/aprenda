@@ -21,6 +21,8 @@ interface WrittenStep {
   checkQuestion: CheckQuestionData;
   /** The plan of steps, when the answer brings one (only the opening of a lesson does). */
   steps: string[];
+  /** The opening judged that the guess already states the concept. */
+  alreadyHeld: boolean;
 }
 
 export class SocraticEngine {
@@ -95,12 +97,17 @@ export class SocraticEngine {
   ): Promise<{ teachProse: string; checkQuestion: CheckQuestionData; progress: LessonProgress }> {
     const node = this.requireNode();
     const written = await this.writeStep(node, buildSocraticTeachPrompt(node, studentPrediction, failures), true);
+    const whole = [node.unconditionalTruth || node.title];
+    // Pruning: a guess that already states the concept gets one confirmation instead of the steps.
+    // Never after a failed verification of this same concept: then the guess is not enough evidence.
+    const shortcut = written.alreadyHeld && failures.length === 0;
     this.lesson = {
-      steps: written.steps.length > 0 ? written.steps : [node.unconditionalTruth || node.title],
+      steps: shortcut ? whole : written.steps.length > 0 ? written.steps : whole,
       stepIndex: 0,
       retries: 0,
       prediction: studentPrediction,
       taught: [{ step: 0, prose: written.teachProse }],
+      ...(shortcut ? { shortcut: true } : {}),
     };
     return { teachProse: written.teachProse, checkQuestion: written.checkQuestion, progress: clone(this.lesson) };
   }
@@ -124,7 +131,9 @@ export class SocraticEngine {
       lesson.retries = 0;
       return 'next_step';
     }
-    if (lesson.retries >= MAX_STEP_RETRIES) {
+    // A confirmation that fails means the guess overstated what he holds: the lesson starts over,
+    // this time with its steps
+    if (lesson.retries >= MAX_STEP_RETRIES || lesson.shortcut) {
       this.lesson = undefined;
       return 'concept_requeued';
     }
@@ -202,6 +211,7 @@ export class SocraticEngine {
               explanation: String(cq.explanation || node.unconditionalTruth),
             },
             steps,
+            alreadyHeld: parsed.alreadyHeld === true,
           };
         }
       } catch (err) {
