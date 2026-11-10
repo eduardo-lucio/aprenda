@@ -1600,10 +1600,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {/* SOCRATIC TEACHING PHASE */}
               {socraticNode && socraticPredictData && (
                 <div className="space-y-4 border-t border-ink-700 pt-4">
-                  <AgentThinkingBlock
-                    thinkingText={t('session.thinking.lesson', { concept: socraticNode.title })}
-                    defaultExpanded={true}
-                  />
+                  {/* The invitation to guess belongs to the opening of the lesson, not to its later steps */}
+                  {(!shownStep || (shownStep.index === 0 && !shownStep.isRetry)) && (
+                    <AgentThinkingBlock
+                      thinkingText={t('session.thinking.lesson', { concept: socraticNode.title })}
+                      defaultExpanded={true}
+                    />
+                  )}
                   <SocraticCard
                     key={socraticNode.id}
                     node={socraticNode}

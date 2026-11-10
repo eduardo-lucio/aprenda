@@ -19,6 +19,8 @@ export const TOP_CONFIRMATIONS = 2;
  */
 export const BASICS_GAP = 2;
 
+const NO_MISCONCEPTION = /^(nenhum|nenhuma|n\/a|não há|nao ha|sem equívoco|none|no misconception|null)\b/i;
+
 export interface ProbeTarget {
   nodeId: string;
   /** The student already answered this concept with mastery: the next question must be harder. */
@@ -199,11 +201,13 @@ export class ProbeFrontier {
         const ceiling = line.filter(
           (id) => this.isMissed(states, id) && !(this.ancestors.get(id) || []).some((a) => this.isMissed(states, a))
         );
+        // Judges often fill the field with "none: he just does not know it", which is a gap, not a mistake
         const misconceptions = [
           ...new Set(
             attempts
               .filter((a) => inLine.has(a.nodeId) && this.isMissed(states, a.nodeId) && a.identifiedMisconception)
               .map((a) => a.identifiedMisconception!.trim())
+              .filter((m) => m && !NO_MISCONCEPTION.test(m))
           ),
         ];
         return { topId: top.id, floor, ceiling, misconceptions };

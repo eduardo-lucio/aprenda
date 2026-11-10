@@ -9,6 +9,8 @@ const clip = (text: string | undefined, max: number): string => {
 
 const PROSE_RULES = `- Parágrafos curtos separados por linha em branco (use quebras de linha reais, nunca a sequência "\\n" literal).
    - No máximo 150 palavras e no máximo 3 termos em código inline. Não despeje tudo o que se sabe do assunto: apresente só o que este passo exige.
+   - Todo trecho de código de mais de uma linha vai dentro de um bloco cercado por três crases com o nome da linguagem, com a indentação original. Nunca solte linhas de código como texto corrido.
+   - A última frase enuncia a regra diretamente, como uma afirmação. Não a anuncie ("o fato deste passo é", "este passo estabelece que").
    - Não comece com interjeições ("Exato —", "Ótimo!").`;
 
 const CHECK_RULES = `- Toda checagem existe para responder: a ideia realmente foi compreendida, ou o aluno está apenas repetindo palavras?
@@ -50,7 +52,7 @@ METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):
    - Escreva SOMENTE o passo 1. Os demais virão depois, um por vez, cada um com a própria verificação: não os adiante.
    - Abra conectando-se diretamente ao que o estudante previu ("${studentPrediction}"): diga em uma frase se o palpite acertou, acertou em parte ou errou, e em que ponto exato. Não repita o palpite palavra por palavra.
    - Depois, o mecanismo do passo, em linguagem simples, partindo de um exemplo concreto pequeno (um bloco de código curto em cerca de três crases quando ajudar) e mostrando o resultado passo a passo.
-   - Feche com uma frase que diga o fato que este passo estabelece.
+   - Feche com a regra que o aluno leva deste passo para casos novos.
    ${PROSE_RULES}
 6. Questão de Checagem (Check Question):
    ${CHECK_RULES}${describeLessonFailures(failures)}
@@ -109,7 +111,7 @@ A AULA DESTE CONCEITO ESTÁ EM ANDAMENTO. Ela foi dividida em ${total} passo(s) 
 1. ${situation}
 2. Explicação ("teachProse"):
    - Um passo, um fato: só o que o passo ${current} estabelece.
-   - O mecanismo em linguagem simples, partindo de um exemplo concreto pequeno (um bloco de código curto em cerca de três crases quando ajudar), e uma frase final com o fato estabelecido.
+   - O mecanismo em linguagem simples, partindo de um exemplo concreto pequeno (um bloco de código curto em cerca de três crases quando ajudar), e uma frase final com a regra que ele leva para casos novos.
    - Se o aluno contou o que pensava enquanto lia a explicação anterior, use isso para achar onde ela não funcionou. Isso não é a resposta dele à pergunta: não corrija nem avalie esse texto.
    ${PROSE_RULES}
 3. Questão de Checagem (Check Question):

@@ -11,7 +11,7 @@
 | 0 Preparar o terreno | Concluída em 9 nov. O commit `e6dd963` (Vite 8 e Vitest 5) continua fora. |
 | 1 Licença e atribuição | Adiada por decisão de 9 nov: não adotar a AGPL por enquanto. |
 | 2 Sondagem | Concluída em 9 nov, com testes. Conferida ao vivo no app com um modelo gratuito do OpenRouter (`nvidia/nemotron-3-ultra-550b-a55b:free`): entrada pelo topo, pergunta mais difícil depois de um acerto e descida pela metade depois de um erro. Não foi conferida com o modelo configurado (Claude Opus 5.5), porque a chave não tinha crédito para ele. |
-| 3 Vários passos por conceito | Implementada em 9 nov, com testes (323 passam). Falta conferir no app com modelo real: a divisão em passos, a tela do passo e o campo "enquanto você lia". |
+| 3 Vários passos por conceito | Concluída em 10 nov, com testes (323 passam). Conferida ao vivo no app com um modelo gratuito do OpenRouter (`nvidia/nemotron-3.5-super-vl:free`): conceito dividido em 4 passos, reparo do passo depois de uma verificação sem domínio, avanço para o passo 2 e os dois campos de texto na verificação. Não foi conferida com o Claude Opus 5.5. |
 
 ## Como o plano funciona
 

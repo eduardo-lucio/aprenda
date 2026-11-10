@@ -65,6 +65,8 @@ describe('lessons in steps (D2, A7)', () => {
     expect(api().continueLesson).toHaveBeenCalledTimes(1);
     expect(api().startSocraticStep).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('lesson-step').textContent).toBe('Passo 2 de 2');
+    // The invitation to guess is gone with the opening of the lesson
+    expect(screen.queryByText(/quero ouvir o seu palpite/i)).toBeNull();
     // The guess opened the lesson: it is not asked again, and the first step stays for rereading
     expect(screen.getAllByText('Palpite sobre isto?')).toHaveLength(1);
     expect(screen.getByTestId('past-lesson').textContent).toContain('Passo 1 de 2');

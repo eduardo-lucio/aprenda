@@ -80,7 +80,9 @@ describe('interface fixes', () => {
 
     await screen.findByText(/^errada$/i);
     expect(screen.getByText('x')).toBeDefined();
-    expect((screen.getByRole('button', { name: /retomar este conceito/i }) as HTMLButtonElement).disabled).toBe(true);
+    // What comes next (another step, the same one again, the next concept) is the judge's to say
+    expect((screen.getByRole('button', { name: /conferindo/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /próximo conceito|retomar este conceito/i })).toBeNull();
   });
 
   it('U6: finished lessons of a saved session can be reread', () => {

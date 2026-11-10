@@ -59,8 +59,11 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   // The guess opens the lesson: later steps and repairs show only their own explanation
   const opensLesson = stepIndex === 0 && !isRetry;
   const staysOnConcept = Boolean(onContinue) && (outcome === 'next_step' || outcome === 'retry_step');
+  // Until the judge answers, nobody knows whether the lesson moves on, repeats the step or ends
   const actionLabel =
-    outcome === 'next_step'
+    isLoading && !outcome
+      ? 'lesson.checking'
+      : outcome === 'next_step'
       ? 'lesson.nextStep'
       : outcome === 'retry_step'
       ? 'lesson.retryStep'

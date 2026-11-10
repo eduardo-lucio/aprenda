@@ -120,6 +120,7 @@ describe('ProbeFrontier (D3: bracket every line of the map)', () => {
       { nodeId: 'a4' },
       { nodeId: 'a3', identifiedMisconception: 'Confunde A com B' },
       { nodeId: 'a2', identifiedMisconception: 'já superado' },
+      { nodeId: 'a4', identifiedMisconception: 'Nenhuma; ausência de conhecimento prévio.' },
       { nodeId: 'b3' },
     ]);
     expect(summary).toEqual([
