@@ -83,9 +83,12 @@ export function resolveChatBaseUrl(providerId: string | undefined, baseUrl?: str
   }
 }
 
-/** Extracts native reasoning (<think>...</think>) from a model response if present. */
+/** Reasoning written into the answer itself: <think> (DeepSeek, Qwen) or <thought> (Gemma). */
+const THINKING_BLOCK = /<(think|thought)>([\s\S]*?)<\/\1>/gi;
+
+/** Extracts native reasoning (<think>…</think> or <thought>…</thought>) from a model response if present. */
 export function extractLLMThinking(raw: string): string | undefined {
-  const matches = Array.from(raw.matchAll(/<think>([\s\S]*?)<\/think>/gi));
+  const matches = Array.from(raw.matchAll(THINKING_BLOCK)).map((m) => [m[0], m[2]]);
   if (matches.length > 0) {
     const combined = matches
       .map((m) => (m[1] || '').trim())
@@ -97,10 +100,10 @@ export function extractLLMThinking(raw: string): string | undefined {
   return undefined;
 }
 
-/** Removes reasoning blocks (<think>…</think>) and outer markdown JSON fences from a model answer. */
+/** Removes reasoning blocks and outer markdown JSON fences from a model answer. */
 export function cleanLLMText(raw: string): string {
   return raw
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(THINKING_BLOCK, '')
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
@@ -319,13 +322,17 @@ async function doRequest(
   // Standard models on OpenAI (gpt-4o), Groq, Gemini, DeepSeek reject these with HTTP 400.
   const effort = options.effortLevel ?? config.effortLevel;
   if (effort && !bare) {
+    // Gemini's OpenAI endpoint takes reasoning_effort; its thinking models cannot always switch it off, so "off" asks for the least
+    const isGemini = config.baseURL.includes('generativelanguage.googleapis.com');
     if (effort === 'off') {
       if (isOpenRouter) {
         bodyPayload.reasoning = { effort: 'none' };
+      } else if (isGemini) {
+        bodyPayload.reasoning_effort = 'low';
       }
     } else {
       const mapped = effort === 'minimal' ? 'low' : effort;
-      if (isReasoningModel) {
+      if (isReasoningModel || isGemini) {
         bodyPayload.reasoning_effort = mapped;
       } else if (isOpenRouter) {
         bodyPayload.reasoning = { effort: mapped };
@@ -348,13 +355,16 @@ async function doRequest(
 
 const LIVE_THINKING_INTERVAL_MS = 100;
 
+/** The answer stopped at the output cap: whatever came is a fragment (thinking models spend the cap reasoning). */
+const isCutAtCap = (reason: string): boolean => /^(length|max_tokens|MAX_TOKENS)$/.test(reason);
+
 async function readResponseOrStream(
   res: Response,
   shouldEmitLiveThinking: boolean,
   messages: Array<{ role: string; content: string }>,
   model: string,
   guard: CallGuard
-): Promise<{ content: string; nativeReasoning: string }> {
+): Promise<{ content: string; nativeReasoning: string; truncated: boolean }> {
   const contentType = res.headers?.get?.('content-type') || '';
   const isSSE = contentType.includes('text/event-stream') && res.body && typeof res.body.getReader === 'function';
 
@@ -364,6 +374,7 @@ async function readResponseOrStream(
     let sseBuffer = '';
     let contentAcc = '';
     let reasoningAcc = '';
+    let finishReason = '';
     let reportedUsage: TokenUsage | null = null;
     let streamError: any = null;
     let lastEmitAt = 0;
@@ -400,6 +411,7 @@ async function readResponseOrStream(
             }
           }
 
+          if (parsed?.choices?.[0]?.finish_reason) finishReason = String(parsed.choices[0].finish_reason);
           const delta = parsed?.choices?.[0]?.delta || parsed?.choices?.[0]?.message;
           if (!delta) continue;
 
@@ -450,7 +462,7 @@ async function readResponseOrStream(
     }
     emitTokenUsage(reportedUsage);
 
-    return { content: contentAcc, nativeReasoning: reasoningAcc.trim() };
+    return { content: contentAcc, nativeReasoning: reasoningAcc.trim(), truncated: isCutAtCap(finishReason) };
   }
 
   // Fallback for non-streaming responses (or unit test mocks returning res.json())
@@ -462,6 +474,7 @@ async function readResponseOrStream(
     throw new Error(localize(`Erro do provedor de IA${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`, `AI provider error${code ? ` (HTTP ${code})` : ''}${detail ? `: ${detail}` : ''}`));
   }
   const msg = data?.choices?.[0]?.message;
+  const truncated = isCutAtCap(String(data?.choices?.[0]?.finish_reason || ''));
   const content = String(msg?.content || '');
   const nativeReasoning = String(msg?.reasoning_content || msg?.reasoning || '').trim();
 
@@ -490,7 +503,7 @@ async function readResponseOrStream(
     }
   }
 
-  return { content, nativeReasoning };
+  return { content, nativeReasoning, truncated };
 }
 
 
@@ -543,8 +556,8 @@ function throwProviderLimit(status: number, detail: string): never {
     throw new ProviderLimitError(
       'rate_limit',
       localize(
-        `O provedor de IA recusou por excesso de pedidos (HTTP 429)${d}. Em modelos gratuitos (:free) do OpenRouter isso costuma ser o limite diário da chave: espere um pouco ou troque de chave, provedor ou modelo em Configurações.`,
-        `The AI provider refused because of too many requests (HTTP 429)${d}. On free (:free) OpenRouter models this is usually the key's daily limit: wait a bit or switch key, provider or model in Settings.`
+        `O provedor de IA recusou por excesso de pedidos (HTTP 429)${d}. Em planos gratuitos isso costuma ser o limite por minuto ou por dia (no Google, por modelo): espere um pouco ou troque o modelo, a chave ou o provedor em Configurações.`,
+        `The AI provider refused because of too many requests (HTTP 429)${d}. On free plans this is usually the per-minute or daily limit (per model on Google): wait a bit or switch model, key or provider in Settings.`
       ),
       429
     );
@@ -614,16 +627,21 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
     let detail = '';
     try {
       const body: any = await res.json();
-      detail = body?.error?.message || body?.message || '';
+      // Google's OpenAI endpoint wraps the error in an array
+      const err = Array.isArray(body) ? body[0] : body;
+      detail = String(err?.error?.message || err?.message || '').split('\n')[0].trim();
     } catch {}
     if ([401, 402, 403, 429].includes(res.status)) throwProviderLimit(res.status, detail);
     throw new Error(localize(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`, `AI provider error (HTTP ${res.status})${detail ? `: ${detail}` : ''}`));
   }
 
-  let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
+  const first = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
+  let { content, nativeReasoning } = first;
+  const truncated = first.truncated;
 
-  // A reasoning model that spent the whole cap thinking returns nothing: once more, without thinking and with room
-  if (!content || !content.trim()) {
+  // A reasoning model that spent the cap thinking returns nothing, or a fragment cut mid-JSON:
+  // once more, without thinking and with twice the room
+  if (!content || !content.trim() || truncated) {
     const retryRes = await doRequest(
       config,
       { ...options, maxTokens: (options.maxTokens ?? DEFAULT_MAX_TOKENS) * 2, effortLevel: 'off' },
@@ -633,7 +651,8 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
     );
     if (retryRes.ok) {
       const retried = await readResponseOrStream(retryRes, shouldStreamLive, messages, config.model, guard);
-      content = retried.content;
+      // A second cut fragment is no better than the first: keep whichever is longer
+      if (!retried.truncated || retried.content.length > content.length) content = retried.content;
       nativeReasoning = retried.nativeReasoning || nativeReasoning;
     }
   }

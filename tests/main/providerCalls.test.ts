@@ -69,6 +69,27 @@ describe('request parameters per model family', () => {
     expect(sentBody(f, 1).reasoning).toEqual({ effort: 'none' });
   });
 
+  it('an answer cut at the cap is asked again with twice the room and the least thinking', async () => {
+    const cut = { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ choices: [{ finish_reason: 'length', message: { content: '{"questionText": "Considere uma' } }] }) };
+    const f = vi.fn().mockResolvedValueOnce(cut).mockResolvedValueOnce(okJson('{"ok": true}'));
+    global.fetch = f as any;
+    const gemini = config('gemini-3.5-flash', 'https://generativelanguage.googleapis.com/v1beta/openai');
+    expect(await callLLM({ prompt: 'x', maxTokens: 2048, effortLevel: 'medium', config: gemini })).toBe('{"ok": true}');
+    expect(sentBody(f, 0)).toMatchObject({ max_tokens: 2048, reasoning_effort: 'medium' });
+    expect(sentBody(f, 1)).toMatchObject({ max_tokens: 4096, reasoning_effort: 'low' });
+  });
+
+  it("Google's error body (an array) reaches the message, and a 429 does not talk about OpenRouter", async () => {
+    const f = vi.fn().mockResolvedValue({
+      ok: false, status: 429, headers: { get: () => 'application/json' },
+      json: async () => [{ error: { code: 429, message: 'You exceeded your current quota.\n* Quota exceeded for metric: x, limit: 20' } }],
+    });
+    global.fetch = f as any;
+    const err: any = await callLLM({ prompt: 'x', config: config('gemini-3.5-flash', 'https://generativelanguage.googleapis.com/v1beta/openai') }).catch((e) => e);
+    expect(err.message).toContain('You exceeded your current quota.');
+    expect(err.message).not.toContain('OpenRouter');
+  });
+
   it('F9: after HTTP 400 the retry drops every optional parameter', async () => {
     const f = vi
       .fn()

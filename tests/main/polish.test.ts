@@ -112,3 +112,13 @@ describe('saving requests', () => {
     expect(fsm.getOrchestrator().isSpeculative()).toBe(true);
   });
 });
+
+describe('reasoning written into the answer', () => {
+  it("Gemma's <thought> block is not read as part of the JSON", async () => {
+    const { parseLLMJson, extractLLMThinking } = await import('../../src/main/services/llmClient');
+    const raw = '<thought>O aluno quer {um objeto}. Respondo só o JSON.</thought>\n{"verdict": "mastered"}';
+    expect(parseLLMJson(raw)).toEqual({ verdict: 'mastered' });
+    expect(extractLLMThinking(raw)).toBe('O aluno quer {um objeto}. Respondo só o JSON.');
+    expect(parseLLMJson('<think>a {b}</think>{"x": 1}')).toEqual({ x: 1 });
+  });
+});
