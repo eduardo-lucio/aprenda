@@ -20,6 +20,8 @@ export interface AppSettings {
   model: string;
   thinkingLevel: 'High' | 'Medium' | 'Low' | 'Off';
   minQuestions: number;
+  /** No questions written ahead in the background (free plans with a daily limit). */
+  saveRequests: boolean;
 
   // Multi-provider configuration
   activeProviderId: string;
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   model: '',
   thinkingLevel: 'High',
   minQuestions: 8,
+  saveRequests: false,
 
   activeProviderId: '',
   providers: [],
@@ -987,6 +990,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={clampProbeQuestions(settings.minQuestions)}
                       onChange={(e) => updateSettings({ minQuestions: clampProbeQuestions(e.target.value) })}
                       className="focus-ring mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-600 accent-amber-400"
+                    />
+                  </div>
+
+                  <div className="mt-3 flex items-start justify-between gap-4 rounded-lg border border-ink-600 bg-ink-850 px-4 py-3.5">
+                    <div>
+                      <label htmlFor="save-requests" className="text-sm text-gray-200">
+                        {t('settings.model.saveRequests')}
+                      </label>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">{t('settings.model.saveRequestsHint')}</p>
+                    </div>
+                    <input
+                      id="save-requests"
+                      type="checkbox"
+                      role="switch"
+                      aria-checked={settings.saveRequests}
+                      checked={settings.saveRequests}
+                      onChange={(e) => updateSettings({ saveRequests: e.target.checked })}
+                      className="focus-ring mt-1 h-4 w-4 shrink-0 cursor-pointer accent-amber-400"
                     />
                   </div>
                 </div>

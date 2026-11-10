@@ -2,7 +2,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CurriculumGenerator, MIN_GRAPH_NODES } from '../../src/main/services/CurriculumGenerator';
 import { ProviderLimitError, type LLMCaller } from '../../src/main/services/llmClient';
-import { mockLLM, noShuffle } from '../helpers/mockLLM';
+import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
+import { SessionStateMachine } from '../../src/main/fsm/SessionStateMachine';
+import { KnowledgeStore } from '../../src/main/knowledge/KnowledgeStore';
+import { registerIpcHandlers } from '../../src/main/ipc/registerIpcHandlers';
+import { SocraticEngine } from '../../src/main/socratic/SocraticEngine';
 import { buildCognitiveJudgePrompt } from '../../src/main/prompts/cognitiveJudgePrompt';
 
 const isMap = (o: { systemPrompt?: string }) => (o.systemPrompt || '').includes('Arquiteto Curricular');
@@ -59,5 +63,52 @@ describe('a confidence the student did not state', () => {
     } as any);
     expect(prompt).toContain('Nível de Certeza Declarado: não informado');
     expect(systemPrompt).toContain('Não informada NÃO é confiança baixa');
+  });
+});
+
+describe('saving requests', () => {
+  const isQuestion = (o: { systemPrompt?: string }) => {
+    const sys = o.systemPrompt || '';
+    return !['Arquiteto Curricular', 'Orientador Pedagógico', 'Juiz Cognitivo'].some((k) => sys.includes(k));
+  };
+  /** Runs the probe for three answers and counts the question requests sent. */
+  async function questionsAsked(save: boolean): Promise<number> {
+    let asked = 0;
+    const llm: LLMCaller = async (o) => {
+      if (isQuestion(o)) asked++;
+      return mockLLM(o);
+    };
+    const f = new SessionStateMachine(new KnowledgeStore(), mockJudge(), new CurriculumGenerator(llm, noShuffle));
+    f.setMinProbeQuestions(20);
+    f.setSaveRequests(save);
+    await f.startSession('teaching', 'Redes');
+    await f.submitGoalClarification('TCP e UDP');
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      await f.submitProbeAnswer({ selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+    }
+    await new Promise((r) => setTimeout(r, 50));
+    return asked;
+  }
+
+  it('writes each question only when it is needed', async () => {
+    const saving = await questionsAsked(true);
+    const ahead = await questionsAsked(false);
+    // One question per answer (the first comes with the map)
+    expect(saving).toBe(3);
+    expect(ahead).toBeGreaterThan(saving);
+  });
+
+  it('the setting reaches the main process', async () => {
+    const handlers = new Map<string, (...args: any[]) => any>();
+    const store = new KnowledgeStore();
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(mockLLM, noShuffle));
+    registerIpcHandlers({ handle: (ch: string, fn: any) => handlers.set(ch, fn), on: () => {} } as any, {
+      fsm, store, socratic: new SocraticEngine(mockLLM),
+    });
+    await handlers.get('settings:update')!({}, { saveRequests: true });
+    expect(fsm.getOrchestrator().isSpeculative()).toBe(false);
+    await handlers.get('settings:update')!({}, { saveRequests: false });
+    expect(fsm.getOrchestrator().isSpeculative()).toBe(true);
   });
 });

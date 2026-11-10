@@ -361,6 +361,8 @@ export const en: Record<keyof typeof pt, string> = {
   'settings.model.none': 'None selected',
   'settings.model.effortAria': 'Reasoning level: {effort}',
   'settings.model.diagnosis': 'Diagnosis',
+  'settings.model.saveRequests': 'Save requests',
+  'settings.model.saveRequestsHint': 'For free plans with a daily limit. During the diagnosis the app stops preparing the possible next questions in the background (two per answer, one always thrown away). Each question is written only once you answer the previous one, so it takes a few seconds longer.',
   'settings.model.minQuestions': 'Minimum diagnosis questions',
   'settings.model.minQuestionsHint': 'How many questions to ask before building the study plan ({min} to {max}).',
   'settings.general.title': 'General',

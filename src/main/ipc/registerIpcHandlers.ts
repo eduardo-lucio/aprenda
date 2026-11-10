@@ -412,6 +412,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     speechConfig.deepgramApiKey = payload.deepgramApiKey || secrets?.get(DEEPGRAM_SECRET) || '';
     if (payload.voiceLanguage) speechConfig.voiceLanguage = payload.voiceLanguage;
     if (payload.minProbeQuestions !== undefined) fsm.setMinProbeQuestions(payload.minProbeQuestions);
+    if (payload.saveRequests !== undefined) fsm.setSaveRequests(Boolean(payload.saveRequests));
     if (payload.uiLanguage) setResponseLanguage(payload.uiLanguage);
     return { success: true };
   });

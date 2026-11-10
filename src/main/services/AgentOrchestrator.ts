@@ -20,6 +20,8 @@ export class AgentOrchestrator {
   private activeAbortController?: AbortController;
   private isProcessing = false;
   private taskQueue: BackgroundTask[] = [];
+  /** Off when the student saves requests: a question is written only when it is needed. */
+  private speculative = true;
 
   constructor(
     private generator: CurriculumGenerator,
@@ -33,6 +35,16 @@ export class AgentOrchestrator {
 
   getSocraticEngine(): SocraticEngine | undefined {
     return this.socratic;
+  }
+
+  /** Turning it off also drops the guesses already queued. */
+  setSpeculative(enabled: boolean): void {
+    this.speculative = enabled;
+    if (!enabled) this.taskQueue = this.taskQueue.filter((t) => t.priority !== TaskPriority.LOW);
+  }
+
+  isSpeculative(): boolean {
+    return this.speculative;
   }
 
   getQueueLength(): number {
@@ -69,6 +81,7 @@ export class AgentOrchestrator {
     askedQuestions: string[];
     goal: string;
   }): void {
+    if (!this.speculative) return;
     const { currentNodeId, targets, questionCache, askedQuestions, goal } = params;
 
     // Deduplicated and capped to the immediate next 2 to preserve API quota

@@ -83,6 +83,7 @@ export default function App() {
         deepgramApiKey: settings.deepgramApiKey,
         voiceLanguage: settings.voiceLanguage,
         minProbeQuestions: settings.minQuestions,
+        saveRequests: Boolean(settings.saveRequests),
         uiLanguage: lang,
       })?.catch?.((err: unknown) => console.error('[App] Falha ao aplicar as configurações:', err));
     }

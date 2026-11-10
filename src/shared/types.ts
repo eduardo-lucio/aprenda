@@ -389,6 +389,8 @@ export interface SettingsUpdatePayload {
   deepgramApiKey?: string;
   voiceLanguage?: string;
   minProbeQuestions?: number;
+  /** No questions written ahead in the background: fewer requests, a slower next question. */
+  saveRequests?: boolean;
   /** Language of the interface; the AI also writes to the student in it. */
   uiLanguage?: 'pt' | 'en';
 }

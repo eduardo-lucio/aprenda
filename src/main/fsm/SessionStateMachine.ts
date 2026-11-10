@@ -148,6 +148,14 @@ export class SessionStateMachine {
     }
   }
 
+  /**
+   * Saving requests: the probe stops writing, in the background, the questions each answer could
+   * lead to (two per answer, one of them always thrown away). The next question takes longer instead.
+   */
+  setSaveRequests(on: boolean): void {
+    this.orchestrator.setSpeculative(!on);
+  }
+
   /** Minimum number of probe questions before the plan can be built (user setting, 3–20). */
   setMinProbeQuestions(n: number): void {
     this.minProbeQuestions = clampProbeQuestions(n);

@@ -365,6 +365,16 @@ describe('SettingsModal Functional Component', () => {
     expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ minQuestions: 12 }));
     expect(screen.getByTestId('min-questions-value').textContent).toBe('12');
   });
+
+  it('has a switch to save requests, off by default', () => {
+    const onSave = vi.fn();
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} onSave={onSave} initialSettings={DEFAULT_SETTINGS} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Modelo' }));
+    const toggle = screen.getByRole('switch', { name: 'Economizar requisições' }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ saveRequests: true }));
+  });
 });
 describe('SettingsModal providers', () => {
   const model = (id: string, defaultEffort: ModelOption['defaultEffort'] = 'medium'): ModelOption => ({

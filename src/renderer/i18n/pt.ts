@@ -359,6 +359,8 @@ export const pt = {
   'settings.model.none': 'Nenhum selecionado',
   'settings.model.effortAria': 'Nível de raciocínio: {effort}',
   'settings.model.diagnosis': 'Diagnóstico',
+  'settings.model.saveRequests': 'Economizar requisições',
+  'settings.model.saveRequestsHint': 'Para planos gratuitos com limite diário. Durante o diagnóstico, o app deixa de preparar em segundo plano as próximas perguntas possíveis (duas por resposta, uma sempre descartada). Cada pergunta passa a ser escrita só quando você responde a anterior, então demora alguns segundos a mais.',
   'settings.model.minQuestions': 'Mínimo de perguntas do diagnóstico',
   'settings.model.minQuestionsHint': 'Quantas perguntas fazer antes de montar o plano de estudo ({min} a {max}).',
   'settings.general.title': 'Geral',
