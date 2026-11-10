@@ -6,6 +6,9 @@ import {
   MAX_ADDED_PER_SESSION,
   MIN_PROBE_QUESTIONS,
   PlanRevision,
+  PracticeProblem,
+  PracticeState,
+  PracticeTarget,
   clampProbeQuestions,
   SessionSnapshot,
   ProbeAnswerKind,
@@ -21,6 +24,8 @@ import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
 import { addGlobalTokenListener, localize } from '../services/llmClient';
 import { ProbeFrontier, ProbeTarget } from './probeFrontier';
+import { PracticeEngine } from '../practice/PracticeEngine';
+import { nextDemand } from '../practice/practiceStream';
 
 export { MIN_PROBE_QUESTIONS };
 
@@ -47,14 +52,19 @@ export class SessionStateMachine {
   private teachingOrder: string[] = [];
   private lessonFailures: Record<string, LessonFailure[]> = {};
   private planRevisedFor: string[] = [];
+  private practice: PracticeEngine;
+  /** Committed when a practice problem is posed; it never leaves the main process before the problem ends. */
+  private practiceSolution?: { problemId: string; text: string };
   private onPersist?: (snapshot: SessionSnapshot) => void;
 
   constructor(
     store?: KnowledgeStore,
     judge?: CognitiveJudgeService,
     generator?: CurriculumGenerator,
-    orchestrator?: AgentOrchestrator
+    orchestrator?: AgentOrchestrator,
+    practice?: PracticeEngine
   ) {
+    this.practice = practice || new PracticeEngine();
     this.store = store || new KnowledgeStore();
     this.judge = judge || new CognitiveJudgeService();
     this.generator = generator || new CurriculumGenerator();
@@ -81,6 +91,7 @@ export class SessionStateMachine {
       teachingOrder: [...this.teachingOrder],
       lessonFailures: { ...this.lessonFailures },
       planRevisedFor: [...this.planRevisedFor],
+      ...(this.practiceSolution ? { practiceSolution: { ...this.practiceSolution } } : {}),
       tokensUsed: this.sessionTokensUsed,
     };
   }
@@ -96,6 +107,7 @@ export class SessionStateMachine {
     this.teachingOrder = this.basicsFirst(snapshot.teachingOrder);
     this.lessonFailures = { ...(snapshot.lessonFailures || {}) };
     this.planRevisedFor = [...(snapshot.planRevisedFor || [])];
+    this.practiceSolution = snapshot.practiceSolution ? { ...snapshot.practiceSolution } : undefined;
     this.sessionTokensUsed = snapshot.tokensUsed || 0;
     this.questionCache.clear();
     this.session = {
@@ -155,6 +167,7 @@ export class SessionStateMachine {
     this.teachingOrder = [];
     this.lessonFailures = {};
     this.planRevisedFor = [];
+    this.practiceSolution = undefined;
     this.sessionTokensUsed = 0;
   }
 
@@ -170,6 +183,7 @@ export class SessionStateMachine {
       ...this.session,
       attempts: [...this.session.attempts],
       nodesState: { ...this.session.nodesState },
+      ...(this.session.practice ? { practice: structuredClone(this.session.practice) } : {}),
       tokensUsed: this.sessionTokensUsed,
     };
   }
@@ -679,6 +693,177 @@ export class SessionStateMachine {
     this.teachingOrder = this.basicsFirst([...freshIds, ...this.teachingOrder]);
     session.frontierClarity = this.calculateFrontierClarity();
     return rebuilt.filter((n) => freshIds.includes(n.id));
+  }
+
+  // ---------------------------------------------------------------- practice
+
+  /**
+   * Opens a practice session. The material is either a free topic or concepts already taught
+   * (`targets`). No AI call here: the first problem is posed right after, straight to work.
+   */
+  startPractice(params: { material: string; targets?: PracticeTarget[]; sourceSessionId?: string }): ProbingSession {
+    const material = (params.material || '').trim() || localize('Prática livre', 'Free practice');
+    this.endSession();
+    this.session = {
+      id: `session-${Date.now()}`,
+      mode: 'practice',
+      disciplineId: material,
+      goal: material,
+      topic: material,
+      phase: 'practice',
+      questionCount: 0,
+      frontierClarity: 0,
+      attempts: [],
+      nodesState: {},
+      tokensUsed: 0,
+      practice: {
+        material,
+        targets: (params.targets || [])
+          .filter((t) => t && t.id && t.title)
+          .map((t) => ({ id: String(t.id), title: String(t.title), truth: String(t.truth || t.title) })),
+        history: [],
+        ...(params.sourceSessionId ? { sourceSessionId: params.sourceSessionId } : {}),
+      },
+    };
+    this.persist();
+    return this.getState();
+  }
+
+  private requirePractice(): { session: ProbingSession; practice: PracticeState } {
+    const session = this.requireSession();
+    if (session.phase !== 'practice' || !session.practice) {
+      throw new Error(localize('Esta não é uma sessão de prática.', 'This is not a practice session.'));
+    }
+    return { session, practice: session.practice };
+  }
+
+  private requireActiveProblem(practice: PracticeState): { problem: PracticeProblem; solution: string } {
+    const problem = practice.active;
+    if (!problem || this.practiceSolution?.problemId !== problem.id) {
+      throw new Error(localize('Não há problema em andamento.', 'There is no problem in progress.'));
+    }
+    return { problem, solution: this.practiceSolution.text };
+  }
+
+  /**
+   * Poses the next problem of the stream. Only one problem is active at a time, and the next one
+   * is posed only when the learner asks. When wrapping up leaves nothing to retest, the session ends.
+   */
+  async practiceNext(): Promise<ProbingSession> {
+    const { session, practice } = this.requirePractice();
+    if (practice.active) {
+      throw new Error(localize('Conclua o problema atual antes de pedir o próximo.', 'Conclude the current problem before asking for the next one.'));
+    }
+    const demand = nextDemand(practice);
+    if (!demand) {
+      practice.finished = true;
+      this.persist();
+      return this.getState();
+    }
+
+    const posed = await this.practice.pose({ material: practice.material, targets: practice.targets, demand, history: practice.history });
+    this.assertActive(session);
+    if (practice.targets.length === 0) {
+      practice.targets = posed.targets.map((t, i) => ({ id: `p${i + 1}`, title: t.title, truth: t.truth }));
+    }
+    const problem: PracticeProblem = {
+      id: `problem-${practice.history.length + 1}-${Date.now()}`,
+      statement: posed.statement,
+      targetIds: demand.targetIds.length > 0 ? demand.targetIds : [practice.targets[0].id],
+      mode: demand.mode,
+      difficulty: demand.difficulty,
+      ...(demand.retestOf ? { retestOf: demand.retestOf } : {}),
+      turns: [],
+      maxRung: -1,
+      wrongClaims: 0,
+    };
+    practice.active = problem;
+    practice.finished = false;
+    this.practiceSolution = { problemId: problem.id, text: posed.modelSolution };
+    session.questionCount = practice.history.length + 1;
+    this.persist();
+    return this.getState();
+  }
+
+  /**
+   * `work` is thinking in progress or a request for help: it gets one rung of the hint ladder.
+   * `claim` is a handed-in answer: a wrong one keeps the problem open, a right one concludes it.
+   * Nothing is recorded if the AI call fails, so the learner can simply send it again.
+   */
+  async practiceSubmit(kind: 'work' | 'claim', text: string): Promise<ProbingSession> {
+    const { session, practice } = this.requirePractice();
+    const { problem, solution } = this.requireActiveProblem(practice);
+    const said = (text || '').trim();
+    const context = { problem, modelSolution: solution, targets: practice.targets, text: said };
+
+    if (kind === 'work') {
+      const help = await this.practice.help(context);
+      this.assertActive(session);
+      problem.turns.push({ role: 'student', kind: 'work', text: said });
+      // Repairing the statement is logistics, not a hint: it costs no rung
+      if (help.statementRepair) {
+        problem.turns.push({ role: 'tutor', kind: 'hint', text: help.reply });
+      } else {
+        problem.maxRung = Math.max(problem.maxRung, help.rung);
+        problem.turns.push({ role: 'tutor', kind: 'hint', text: help.reply, rung: help.rung });
+      }
+      this.persist();
+      return this.getState();
+    }
+
+    if (!said) {
+      throw new Error(localize('Escreva sua resposta antes de entregar.', 'Write your answer before handing it in.'));
+    }
+    const verdict = await this.practice.judgeClaim(context);
+    this.assertActive(session);
+    problem.turns.push({ role: 'student', kind: 'claim', text: said });
+    problem.turns.push({ role: 'tutor', kind: 'verdict', text: verdict.reply, correct: verdict.correct });
+    if (verdict.correct) this.concludeProblem(practice, 'solved');
+    else problem.wrongClaims += 1;
+    this.persist();
+    return this.getState();
+  }
+
+  /** The learner gives the problem up or discards it: the solution is revealed and a retest is owed. */
+  practiceConclude(reason: 'surrendered' | 'dismissed'): ProbingSession {
+    const { practice } = this.requirePractice();
+    this.requireActiveProblem(practice);
+    this.concludeProblem(practice, reason === 'dismissed' ? 'dismissed' : 'surrendered');
+    this.persist();
+    return this.getState();
+  }
+
+  private concludeProblem(practice: PracticeState, outcome: NonNullable<PracticeProblem['outcome']>): void {
+    const problem = practice.active!;
+    problem.outcome = outcome;
+    // The reveal is the solution committed when the problem was posed, verbatim
+    problem.modelSolution = this.practiceSolution?.text || '';
+    practice.history = [...practice.history, problem];
+    practice.active = undefined;
+    this.practiceSolution = undefined;
+  }
+
+  /** The pause after a problem: a question about the one just concluded. */
+  async practiceAsk(question: string): Promise<ProbingSession> {
+    const { session, practice } = this.requirePractice();
+    const asked = (question || '').trim();
+    const problem = practice.history[practice.history.length - 1];
+    if (practice.active || !problem || !asked) {
+      throw new Error(localize('Não há problema concluído sobre o qual perguntar.', 'There is no concluded problem to ask about.'));
+    }
+    const reply = await this.practice.answer({ problem, targets: practice.targets, question: asked });
+    this.assertActive(session);
+    problem.turns.push({ role: 'student', kind: 'question', text: asked }, { role: 'tutor', kind: 'answer', text: reply });
+    this.persist();
+    return this.getState();
+  }
+
+  /** Wraps up: from here on only what failed is posed again, each in a fresh situation. */
+  practiceClose(): ProbingSession {
+    const { practice } = this.requirePractice();
+    practice.closing = true;
+    this.persist();
+    return this.getState();
   }
 
   /** Called after every await: a result computed for another session must never touch this one. */

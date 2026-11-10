@@ -13,6 +13,7 @@ import {
   buildProbeQuestionPrompt,
 } from '../../src/main/prompts/curriculumPrompts';
 import { isOrientationOption, type ConceptNode } from '../../src/shared/types';
+import { getPracticeInstructions } from '../../src/main/prompts/promptLoader';
 import type { LLMCaller } from '../../src/main/services/llmClient';
 import { mockJudge, mockLLM, noShuffle } from '../helpers/mockLLM';
 
@@ -86,9 +87,19 @@ describe('I6: prompts describe the app that exists', () => {
     }
   });
 
-  it('I15: the practice prompts stay out of the installer', () => {
+  it('A1: the practice prompts are loaded and ship with the installer', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
-    expect(pkg.build.extraResources[0].filter).toContain('!practice/**');
+    expect(pkg.build.extraResources[0].filter).toEqual(['**/*.md']);
+    const instructions = getPracticeInstructions();
+    expect(instructions).toContain('The practice session');
+    expect(instructions).toContain('How the app runs it');
+  });
+
+  it('A1: the practice base describes the app, not tools it does not have', () => {
+    const base = fs.readFileSync(path.join(root, 'practice', '00-base.md'), 'utf8');
+    for (const term of ['`problem`', '`conclude`', 'list_propositions', 'pdf job', 'research it']) {
+      expect(base, term).not.toContain(term);
+    }
   });
 });
 

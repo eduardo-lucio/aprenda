@@ -88,5 +88,8 @@ export const getPlanInstructions = (): string => compose([VOICE, ACCURACY, FORMA
 
 export const getNotesInstructions = (): string => compose([VOICE, ACCURACY, FORMATTING]);
 
+export const getPracticeInstructions = (): string =>
+  compose([VOICE, ACCURACY, FORMATTING, 'practice/00-base.md', 'practice/10-doctrine.md']);
+
 export const getTeachInstructions = (): string =>
   compose([VOICE, ACCURACY, FORMATTING, TEACHING, QUESTION_PRINCIPLES]);

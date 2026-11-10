@@ -8,6 +8,7 @@ import {
   LessonProgress,
   PersistedUi,
   PlanRevision,
+  PracticeTarget,
   ProbeAnswerKind,
   SettingsUpdatePayload,
 } from '../../shared/types';
@@ -100,6 +101,22 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     forgetLesson();
     return foreground(() => fsm.startSession(mode, goal));
   });
+
+  ipcMain.handle(
+    'practice:start',
+    async (_event, params: { material: string; targets?: PracticeTarget[]; sourceSessionId?: string }) => {
+      refuseWhileBusy();
+      forgetLesson();
+      return fsm.startPractice(params || { material: '' });
+    }
+  );
+  ipcMain.handle('practice:next', async () => foreground(() => fsm.practiceNext()));
+  ipcMain.handle('practice:submit', async (_event, kind: 'work' | 'claim', text: string) =>
+    foreground(() => fsm.practiceSubmit(kind === 'claim' ? 'claim' : 'work', String(text ?? '')))
+  );
+  ipcMain.handle('practice:conclude', async (_event, reason: 'surrendered' | 'dismissed') => fsm.practiceConclude(reason));
+  ipcMain.handle('practice:ask', async (_event, text: string) => foreground(() => fsm.practiceAsk(String(text ?? ''))));
+  ipcMain.handle('practice:close', async () => fsm.practiceClose());
 
   ipcMain.handle('session:cancel', async () => {
     cancelForegroundLLM();

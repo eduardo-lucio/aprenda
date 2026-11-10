@@ -6,6 +6,7 @@ import {
   ConceptNode,
   LessonOutcome,
   LessonProgress,
+  PracticeTarget,
   ProbingSession,
   QuestionData,
   ModelOption,
@@ -47,6 +48,10 @@ interface SessionViewProps {
   currentSession?: ProbingSession | null;
   restoredUi?: PersistedUi | null;
   pendingMode?: 'teaching' | 'practice' | null;
+  /** Lets the student choose, on a blank session, between learning a topic and practising it. */
+  onPendingModeChange?: (mode: 'teaching' | 'practice') => void;
+  /** Opens a practice session over the concepts this session already taught. */
+  onStartPractice?: (params: { material: string; targets: PracticeTarget[]; sourceSessionId: string }) => void;
   onSessionUpdate?: (session: ProbingSession) => void;
   onSessionCreated?: (session: ProbingSession) => void;
   /** Tells the parent an AI call is running, so it can lock session navigation. */
@@ -68,6 +73,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   currentSession = null,
   restoredUi = null,
   pendingMode = 'teaching',
+  onPendingModeChange,
+  onStartPractice,
   onSessionUpdate,
   onSessionCreated,
   onBusyChange,
@@ -459,6 +466,23 @@ export const SessionView: React.FC<SessionViewProps> = ({
     const goalToUse = (customGoal || goalInput).trim();
     if (!goalToUse) return;
 
+    // Practising a topic has no diagnosis and no plan: it goes straight to its own screen
+    if (pendingMode === 'practice') {
+      setSubmittingLabel(t('practice.status.pose'));
+      setIsSubmitting(true);
+      clearError();
+      try {
+        const sess = await window.api.startPractice({ material: goalToUse });
+        setGoalInput('');
+        if (onSessionCreated) onSessionCreated(sess);
+      } catch (err: any) {
+        reportError(err);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     setGoalInput('');
     setAnsweredScope(null);
     setStreamingThinking('');
@@ -802,6 +826,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
       : null;
 
   const phase = session?.phase || 'goal_orientation';
+  const masteredTargets: PracticeTarget[] = nodes
+    .filter((n) => session?.nodesState?.[n.id] === 'mastered')
+    .map((n) => ({ id: n.id, title: n.title, truth: n.unconditionalTruth || n.summary || n.title }));
   const pendingConceptCount = Object.values(session?.nodesState || {}).filter((st) => st !== 'mastered').length;
   const phaseDividerLabel = !session
     ? t('session.divider.new')
@@ -848,7 +875,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       : false);
 
   const inputPlaceholder = !session
-    ? t('session.input.goal')
+    ? t(pendingMode === 'practice' ? 'session.input.practice' : 'session.input.goal')
     : isScopeMode
     ? selectedIdx !== null
       ? t('session.input.scopeWhy')
@@ -1682,6 +1709,22 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 </div>
               )}
 
+              {/* What was learned can be practised at any point of the lessons */}
+              {phase === 'teaching' && onStartPractice && session && masteredTargets.length > 0 && !isBusy && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    data-testid="start-practice"
+                    onClick={() =>
+                      onStartPractice({ material: session.goal, targets: masteredTargets, sourceSessionId: session.id })
+                    }
+                    className="rounded border border-emerald-700/70 px-3.5 py-1.5 text-xs font-semibold text-emerald-200 transition-colors hover:border-emerald-500 hover:text-emerald-100"
+                  >
+                    {t('session.practiceLearned', { count: masteredTargets.length })}
+                  </button>
+                </div>
+              )}
+
               {hasDock && (
                 <div ref={activeCardRef} className="scroll-mt-4">
                   <ProbeCard
@@ -1772,6 +1815,29 @@ export const SessionView: React.FC<SessionViewProps> = ({
               <div className={`hero-motion mx-auto flex flex-col gap-2 ${heroVisible ? 'max-w-2xl' : 'max-w-3xl'}`}>
                 {statusRegion}
                 {!hasDock && hasAnswerField && chatInputBox}
+                {heroVisible && onPendingModeChange && (
+                  <div role="radiogroup" aria-label={t('hero.mode.label')} className="flex justify-center gap-2 pt-1">
+                    {(['teaching', 'practice'] as const).map((mode) => {
+                      const selected = (pendingMode || 'teaching') === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => onPendingModeChange(mode)}
+                          className={`focus-ring rounded-full border px-3.5 py-1 text-xs transition-colors ${
+                            selected
+                              ? 'border-gray-300 bg-ink-800 text-white'
+                              : 'border-ink-600 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                          }`}
+                        >
+                          {t(mode === 'teaching' ? 'hero.mode.learn' : 'hero.mode.practice')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

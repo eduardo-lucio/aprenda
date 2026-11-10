@@ -9,15 +9,16 @@ describe('Sidebar Component', () => {
     { id: '2', title: 'Cálculo de Sub-redes CIDR', mode: 'practice' as const, date: 'Ontem' },
   ];
 
-  it('has no practice mode: a single "+ Nova sessão" action and no mode filter tabs', () => {
+  it('a single "+ Nova sessão" action, no mode filter tabs, and practice sessions marked as such', () => {
     render(<Sidebar sessions={sessions} activeSessionId="1" onSelectSession={vi.fn()} onNewSession={vi.fn()} />);
 
     expect(screen.getByText('+ Nova sessão')).toBeDefined();
-    expect(screen.queryByText(/practice|prática/i)).toBeNull();
     expect(screen.queryByText('TEACHING')).toBeNull();
     expect(screen.queryByText('ALL')).toBeNull();
-    // Sessions saved by older versions in practice mode are still listed
-    expect(screen.getByText('Cálculo de Sub-redes CIDR')).toBeDefined();
+    // A1: only the practice session carries the tag
+    const tags = screen.getAllByText('Prática');
+    expect(tags).toHaveLength(1);
+    expect(tags[0].closest('button')!.textContent).toContain('Cálculo de Sub-redes CIDR');
   });
 
   it('filters sessions by the search text', () => {

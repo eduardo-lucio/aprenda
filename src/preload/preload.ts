@@ -33,6 +33,13 @@ const api: ElectronAPI = {
   submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string, readingThoughts?: string) =>
     ipcRenderer.invoke('session:submit-check', selectedIndex, confidence, thinkingText, readingThoughts),
 
+  startPractice: (params) => ipcRenderer.invoke('practice:start', params),
+  practiceNext: () => ipcRenderer.invoke('practice:next'),
+  practiceSubmit: (kind, text) => ipcRenderer.invoke('practice:submit', kind, text),
+  practiceConclude: (reason) => ipcRenderer.invoke('practice:conclude', reason),
+  practiceAsk: (text) => ipcRenderer.invoke('practice:ask', text),
+  practiceClose: () => ipcRenderer.invoke('practice:close'),
+
   cancelOperation: () => ipcRenderer.invoke('session:cancel'),
 
   getStorageStatus: () => ipcRenderer.invoke('app:storage-status'),

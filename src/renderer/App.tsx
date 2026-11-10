@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
+import { PracticeView } from './views/PracticeView';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS, normalizeEffort } from './components/SettingsModal';
 import { ErrorNotice } from './components/ErrorNotice';
 import { cleanError } from './lib/errors';
-import { ProbingSession, ModelOption, PersistedUi } from '../shared/types';
+import { ProbingSession, ModelOption, PersistedUi, PracticeTarget } from '../shared/types';
 import { I18nProvider, localeOf, MessageKey, normalizeLang, translate } from './i18n';
 
 export default function App() {
@@ -13,6 +14,8 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   /** True while a new session is open but the student has not typed the topic yet. */
   const [isCreating, setIsCreating] = useState(false);
+  /** On a blank session: learn the topic (diagnosis, plan, lessons) or practise it (problems). */
+  const [newMode, setNewMode] = useState<'teaching' | 'practice'>('teaching');
   const [currentSession, setCurrentSession] = useState<ProbingSession | null>(null);
   const [restoredUi, setRestoredUi] = useState<PersistedUi | null>(null);
   /** Bumped on navigation only: SessionView remounts, while a session gaining its id keeps the view. */
@@ -126,6 +129,7 @@ export default function App() {
   const handleNewSession = () => {
     if (isBusy) return;
     setAppError(null);
+    setNewMode('teaching');
     setIsCreating(true);
     setActiveSessionId(null);
     setCurrentSession(null);
@@ -151,6 +155,20 @@ export default function App() {
     setActiveSessionId(newSession.id);
     setCurrentSession(newSession);
     setIsCreating(false);
+  };
+
+  // Practice over what a teaching session already taught: a session of its own, opened at once
+  const handleStartPractice = async (params: { material: string; targets: PracticeTarget[]; sourceSessionId: string }) => {
+    if (isBusy) return;
+    setAppError(null);
+    try {
+      const practice = await window.api.startPractice(params);
+      setRestoredUi(null);
+      handleSessionCreated(practice);
+      setViewEpoch((e) => e + 1);
+    } catch (err) {
+      setAppError(t('app.err.practice', { detail: cleanError(err, t('session.err.unexpected')) }));
+    }
   };
 
   const handleSelectSession = async (id: string): Promise<boolean> => {
@@ -306,10 +324,20 @@ export default function App() {
           </div>
         ))}
         <main className="flex-1 overflow-hidden">
+          {currentSession?.mode === 'practice' && currentSession.phase === 'practice' ? (
+            <PracticeView
+              key={`practice-${currentSession.id}-${viewEpoch}`}
+              session={currentSession}
+              onSessionUpdate={(updated) => setCurrentSession(updated)}
+              onBusyChange={setIsBusy}
+            />
+          ) : (
           <SessionView
             key={viewEpoch}
             currentSession={currentSession}
-            pendingMode={isCreating ? 'teaching' : null}
+            pendingMode={currentSession ? null : newMode}
+            onPendingModeChange={setNewMode}
+            onStartPractice={handleStartPractice}
             restoredUi={restoredUi}
             onSessionUpdate={(updated) => setCurrentSession(updated)}
             onSessionCreated={handleSessionCreated}
@@ -325,6 +353,7 @@ export default function App() {
             onChangeModel={handleChangeModel}
             availableModels={activeProviderModels}
           />
+          )}
         </main>
       </div>
 

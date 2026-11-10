@@ -73,8 +73,7 @@
         "from": "prompts",
         "to": "prompts",
         "filter": [
-          "**/*.md",
-          "!practice/**"
+          "**/*.md"
         ]
       }
     ],

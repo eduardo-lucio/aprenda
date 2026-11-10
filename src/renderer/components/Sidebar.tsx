@@ -197,7 +197,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {s.pinned && <Pin className="h-3 w-3 shrink-0 text-gray-500" aria-label={t('sidebar.pinned')} />}
                     <span className="truncate">{s.title}</span>
                   </span>
-                  <span className="mt-1 font-mono text-[10px] text-gray-500">{s.date}</span>
+                  <span className="mt-1 font-mono text-[10px] text-gray-500">
+                    {s.mode === 'practice' && <span className="mr-1.5 uppercase tracking-widest text-emerald-400/80">{t('sidebar.practice')}</span>}
+                    {s.date}
+                  </span>
                 </button>
                 )}
 

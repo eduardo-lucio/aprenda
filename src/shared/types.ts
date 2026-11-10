@@ -76,6 +76,65 @@ export interface PlanRevision {
 export const MAX_ADDED_PER_REVISION = 2;
 export const MAX_ADDED_PER_SESSION = 4;
 
+/**
+ * Practice. Teaching's product is the click; practice makes what is held come to mind in situations
+ * unlike the lesson's. A session is a stream of problems over a set of targets.
+ */
+export type PracticeMode = 'recall' | 'discrimination' | 'composition';
+
+/** One thing the learner holds and the session exercises: a taught concept or a proposition of the topic. */
+export interface PracticeTarget {
+  id: string;
+  title: string;
+  truth: string;
+}
+
+export interface PracticeTurn {
+  role: 'student' | 'tutor';
+  /**
+   * `work`: thinking in progress or a request for help. `claim`: a final answer. `hint` and `verdict`
+   * answer them. `question` and `answer` belong to the pause after the problem is concluded.
+   */
+  kind: 'work' | 'claim' | 'hint' | 'verdict' | 'question' | 'answer';
+  text: string;
+  /** Rung of the hint ladder (0 = redirect attention … 5 = the worked step). */
+  rung?: number;
+  correct?: boolean;
+}
+
+export interface PracticeProblem {
+  id: string;
+  statement: string;
+  targetIds: string[];
+  mode: PracticeMode;
+  /** 1 (close to the lesson's own situation) to 5. */
+  difficulty: number;
+  /** Poses again, in a fresh situation, something that failed earlier in the session. */
+  retestOf?: string;
+  turns: PracticeTurn[];
+  /** Highest rung of help used so far (-1: none). */
+  maxRung: number;
+  wrongClaims: number;
+  outcome?: 'solved' | 'surrendered' | 'dismissed';
+  /** Committed before the problem is shown; only present once it is concluded. */
+  modelSolution?: string;
+}
+
+export interface PracticeState {
+  /** What the session practises, in the learner's words or as the goal of the lessons it came from. */
+  material: string;
+  targets: PracticeTarget[];
+  active?: PracticeProblem;
+  history: PracticeProblem[];
+  /** The learner asked to wrap up: only retests of what failed are posed from here on. */
+  closing?: boolean;
+  finished?: boolean;
+  /** The teaching session whose concepts are being practised, if any. */
+  sourceSessionId?: string;
+}
+
+export const MAX_HINT_RUNG = 5;
+
 export const MIN_PROBE_QUESTIONS = 8;
 export const PROBE_QUESTIONS_RANGE = { min: 3, max: 20 } as const;
 
@@ -111,7 +170,9 @@ export interface ProbingSession {
   goal: string;
   /** The topic as the student typed it (absent in sessions saved by older versions). */
   topic?: string;
-  phase: 'goal_orientation' | 'probing' | 'plan_review' | 'teaching';
+  phase: 'goal_orientation' | 'probing' | 'plan_review' | 'teaching' | 'practice';
+  /** Only in practice sessions. */
+  practice?: PracticeState;
   questionCount: number;
   frontierClarity: number;
   attempts: ProbeAttempt[];
@@ -233,6 +294,8 @@ export interface SessionSnapshot {
   lessonFailures?: Record<string, LessonFailure[]>;
   /** Concepts whose failure already made the plan be reconsidered: each one asks only once. */
   planRevisedFor?: string[];
+  /** The model solution of the active practice problem: it stays in the main process until the problem ends. */
+  practiceSolution?: { problemId: string; text: string };
   tokensUsed: number;
 }
 
@@ -347,6 +410,18 @@ export interface ElectronAPI {
     progress: LessonProgress;
     isRetry: boolean;
   }>;
+  /** Opens a practice session over a free topic or over concepts already taught. No AI call. */
+  startPractice: (params: { material: string; targets?: PracticeTarget[]; sourceSessionId?: string }) => Promise<ProbingSession>;
+  /** Poses the next problem of the stream (or ends the session when nothing is left to retest). */
+  practiceNext: () => Promise<ProbingSession>;
+  /** `work` asks for help from the thinking so far; `claim` hands in an answer. */
+  practiceSubmit: (kind: 'work' | 'claim', text: string) => Promise<ProbingSession>;
+  /** Ends the active problem without solving it and reveals the solution. */
+  practiceConclude: (reason: 'surrendered' | 'dismissed') => Promise<ProbingSession>;
+  /** A question about the problem just concluded. */
+  practiceAsk: (text: string) => Promise<ProbingSession>;
+  /** From here on only what failed is posed again, in a fresh situation. */
+  practiceClose: () => Promise<ProbingSession>;
   /** Replaces the focus options with simpler entry points (the student asked for guidance). */
   requestOrientation: (thinkingText?: string) => Promise<ProbingSession>;
   /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */
