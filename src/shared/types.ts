@@ -122,18 +122,46 @@ export interface LessonFailure {
   correctAnswer: string;
   diagnosis: string;
   misconception?: string;
+  /** What the student said he was thinking while reading the explanation that failed. */
+  readingThoughts?: string;
 }
 
-/** A finished lesson, kept so the student can reread it. */
+/** A concept is a milestone, not a lesson: it is taught in up to this many reasoning steps. */
+export const MAX_LESSON_STEPS = 4;
+/** Times one step is explained again after a failed verification before the concept goes back to the queue. */
+export const MAX_STEP_RETRIES = 2;
+
+/** How far the lesson on one concept has gone. Each step has its own explanation and verification. */
+export interface LessonProgress {
+  /** The fact each step has to establish, in order. */
+  steps: string[];
+  stepIndex: number;
+  /** Times the current step was explained again. */
+  retries: number;
+  prediction: string;
+  /** Explanations already given in this lesson, oldest first. */
+  taught: Array<{ step: number; prose: string }>;
+  /** What the student said he was thinking while reading the latest explanation. */
+  readingThoughts?: string;
+}
+
+/** What follows a verification: the lesson stays on the concept until every step is demonstrated. */
+export type LessonOutcome = 'next_step' | 'retry_step' | 'concept_mastered' | 'concept_requeued';
+
+/** One answered step of a lesson, kept so the student can reread it. */
 export interface CompletedLesson {
   nodeId: string;
   title: string;
+  /** Empty on every step after the first: the guess opens the lesson, not each step. */
   predictQuestion: string;
   prediction: string;
   teachProse: string;
   checkQuestion: string;
   isPassed: boolean;
   repairExplanation?: string;
+  /** Absent in lessons saved before concepts were taught in steps. */
+  stepIndex?: number;
+  stepCount?: number;
 }
 
 /** What the AI writes about one concept of the map, from what the student actually did on it. */
@@ -158,10 +186,13 @@ export interface PersistedUi {
     node: ConceptNode;
     questionText: string;
     promptGoal?: string;
-    step: 'predict' | 'teach' | 'check';
+    /** `continue`: the verification was answered and the next explanation was not requested yet. */
+    step: 'predict' | 'teach' | 'check' | 'continue';
     prediction: string;
     teachProse: string;
     checkQuestion: CheckQuestionData | null;
+    /** Absent in lessons saved before concepts were taught in steps. */
+    progress?: LessonProgress;
   } | null;
   answeredScope?: {
     questionText: string;
@@ -266,8 +297,33 @@ export interface ElectronAPI {
   startSocraticStep: (
     nodeId?: string
   ) => Promise<{ node: ConceptNode; questionText: string; promptGoal: string } | null>;
-  submitPrediction: (text: string) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData }>;
-  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) => Promise<{ isPassed: boolean; mastered: boolean; repairExplanation?: string; session: ProbingSession }>;
+  submitPrediction: (
+    text: string
+  ) => Promise<{ teachProse: string; checkQuestion: CheckQuestionData; progress: LessonProgress }>;
+  /**
+   * `mastered` is about the step just verified. `readingThoughts` is what the student was thinking
+   * while reading the explanation: it goes to the next explanation, never to the grading.
+   */
+  submitCheckAnswer: (
+    selectedIndex: number,
+    confidence?: number,
+    thinkingText?: string,
+    readingThoughts?: string
+  ) => Promise<{
+    isPassed: boolean;
+    mastered: boolean;
+    outcome: LessonOutcome;
+    progress?: LessonProgress;
+    repairExplanation?: string;
+    session: ProbingSession;
+  }>;
+  /** Writes the next step of the lesson, or the same step again after a failed verification. */
+  continueLesson: () => Promise<{
+    teachProse: string;
+    checkQuestion: CheckQuestionData;
+    progress: LessonProgress;
+    isRetry: boolean;
+  }>;
   /** Replaces the focus options with simpler entry points (the student asked for guidance). */
   requestOrientation: (thinkingText?: string) => Promise<ProbingSession>;
   /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */
@@ -278,7 +334,7 @@ export interface ElectronAPI {
   renameSession: (id: string, title: string) => Promise<void>;
   pinSession: (id: string, pinned: boolean) => Promise<void>;
   /** Re-arms the main process for a lesson restored from disk (no AI call). */
-  resumeLesson: (nodeId: string, checkQuestion: CheckQuestionData | null) => Promise<void>;
+  resumeLesson: (nodeId: string, checkQuestion: CheckQuestionData | null, progress?: LessonProgress) => Promise<void>;
   saveSessionUi: (id: string, ui: PersistedUi) => Promise<void>;
   /** Concepts the AI left out are simply absent from the result. */
   generateConceptNotes: (sessionId: string, nodeIds: string[]) => Promise<ConceptNoteContent[]>;

@@ -23,7 +23,9 @@ When unsure, lean Socratic for things he can clearly reason about; otherwise nar
 
 ## How each lesson runs
 
-Each concept runs as predict → one step of teaching → check. The app shows them in that order, so:
+A concept on the map is a milestone, not a lesson: you stay on it for as many reasoning steps as it takes (the app allows up to four). The prediction opens the lesson — it IS the opening move — and teaching then advances in a rhythm of step → check → repair-or-continue. The check waits behind a button the learner presses when he is ready, after reading. Nothing interrupts him mid-reading — which puts the burden on you:
 
-- **Teach first, check second.** Everything the check depends on must already be in the explanation.
-- **One step, one check.** A wrong answer is repaired with a short explanation and the lesson moves on; he can come back to the concept from the map.
+- **Teach first, check second.** The explanation, the worked example: all of it above the check, and everything the check depends on already in it. A check about teaching that never happened is a failed check.
+- **Finish the thought before the check.** If a step needs three paragraphs and an example, it gets all of them.
+- **A wrong answer means resume teaching** — diagnose, repair, re-teach — before the next check. The same step again, another way, from what his answer showed; never the next step on top of it. The button is a gate, not a quiz-show buzzer.
+- **One step, one check.** Each check is about the step just taught, nothing ahead of it.

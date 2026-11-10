@@ -18,6 +18,8 @@ interface ProbeCardProps {
   textareaRef?: React.Ref<HTMLTextAreaElement>;
   /** Voice dictation is writing in the reasoning field. */
   dictating?: boolean;
+  /** A second, optional text channel, kept apart from the reasoning about the question. */
+  extraField?: { label: string; placeholder: string; value: string; onChange: (value: string) => void };
 }
 
 /**
@@ -36,6 +38,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
   onSubmit,
   textareaRef,
   dictating = false,
+  extraField,
 }) => {
   const { t } = useI18n();
   return (
@@ -47,6 +50,22 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
     )}
 
     <div className="p-3">
+      {extraField && (
+        <div className="mb-2 rounded-xl border border-ink-600 bg-ink-950 px-3.5 py-3 transition-colors focus-within:border-ink-400">
+          <label className="label-mono mb-1.5 block" htmlFor="probe-extra">
+            {extraField.label}
+          </label>
+          <textarea
+            id="probe-extra"
+            value={extraField.value}
+            onChange={(e) => extraField.onChange(e.target.value)}
+            placeholder={extraField.placeholder}
+            disabled={disabled}
+            rows={2}
+            className="block w-full resize-none bg-transparent font-sans text-sm text-gray-200 outline-none placeholder:text-gray-500"
+          />
+        </div>
+      )}
       <div className="rounded-xl border border-ink-600 bg-ink-950 px-3.5 py-3 transition-colors focus-within:border-ink-400">
         <label className="label-mono mb-1.5 block" htmlFor="probe-reasoning">
           {t('probe.reasoning')}

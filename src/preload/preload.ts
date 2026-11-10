@@ -30,8 +30,8 @@ const api: ElectronAPI = {
   submitPrediction: (text: string) =>
     ipcRenderer.invoke('session:submit-prediction', text),
 
-  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string) =>
-    ipcRenderer.invoke('session:submit-check', selectedIndex, confidence, thinkingText),
+  submitCheckAnswer: (selectedIndex: number, confidence?: number, thinkingText?: string, readingThoughts?: string) =>
+    ipcRenderer.invoke('session:submit-check', selectedIndex, confidence, thinkingText, readingThoughts),
 
   cancelOperation: () => ipcRenderer.invoke('session:cancel'),
 
@@ -58,7 +58,9 @@ const api: ElectronAPI = {
   deleteSession: (id: string) => ipcRenderer.invoke('session:delete', id),
   renameSession: (id: string, title: string) => ipcRenderer.invoke('session:rename', id, title),
   pinSession: (id: string, pinned: boolean) => ipcRenderer.invoke('session:pin', id, pinned),
-  resumeLesson: (nodeId: string, checkQuestion: unknown) => ipcRenderer.invoke('session:resume-lesson', nodeId, checkQuestion),
+  resumeLesson: (nodeId: string, checkQuestion: unknown, progress?: unknown) =>
+    ipcRenderer.invoke('session:resume-lesson', nodeId, checkQuestion, progress),
+  continueLesson: () => ipcRenderer.invoke('session:continue-lesson'),
 
   saveSessionUi: (id: string, ui: any) => ipcRenderer.invoke('session:save-ui', id, ui),
 

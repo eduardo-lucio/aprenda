@@ -84,3 +84,124 @@ describe('SocraticEngine', () => {
     expect(prompts[1]).toContain('confundiu X');
   });
 });
+
+describe('SocraticEngine lessons in steps (D2)', () => {
+  const node: ConceptNode = {
+    id: 'n', title: 'Conceito', summary: 's', level: 2, prerequisites: [], unconditionalTruth: 'Verdade.', status: 'frontier',
+  };
+  const written = (extra: object = {}) =>
+    JSON.stringify({
+      // Also read by the guess that opens a lesson
+      questionText: 'O que você acha que acontece?',
+      teachProse: 'Texto do passo.',
+      checkQuestion: { questionText: 'Q?', options: ['a', 'b', 'c', 'd'], correctOptionIndex: 0, explanation: 'e' },
+      ...extra,
+    });
+  /** The opening answer brings the plan; every later call writes one step. */
+  const engineWith = (steps: unknown, failAt: number[] = []) => {
+    const calls: any[] = [];
+    const llm = vi.fn(async (req: any) => {
+      calls.push(req);
+      if (failAt.includes(calls.length)) throw new Error('Network timeout');
+      return written(calls.length === 1 ? { steps } : {});
+    });
+    const engine = new SocraticEngine(llm as any, new CurriculumGenerator(llm as any, noShuffle));
+    engine.resumeNode(node);
+    return { engine, calls };
+  };
+
+  it('opens with the plan of steps and stays on the concept until each one is demonstrated', async () => {
+    const { engine, calls } = engineWith(['Fato 1', 'Fato 2']);
+    const first = await engine.submitPrediction('meu palpite');
+    expect(first.progress).toMatchObject({ steps: ['Fato 1', 'Fato 2'], stepIndex: 0, retries: 0, prediction: 'meu palpite' });
+    expect(calls[0].systemPrompt).toContain('Plano de passos');
+    expect(engine.isLastStep()).toBe(false);
+
+    expect(engine.recordCheck(true)).toBe('next_step');
+    const second = await engine.continueLesson();
+    expect(second.isRetry).toBe(false);
+    expect(second.progress).toMatchObject({ stepIndex: 1, retries: 0 });
+    expect(second.progress.taught).toHaveLength(2);
+    expect(calls[1].systemPrompt).toContain('AVANÇO PARA O PASSO 2');
+    expect(calls[1].prompt).toContain('1. Fato 1 (demonstrado)');
+    expect(calls[1].prompt).toContain('2. Fato 2 (AGORA)');
+    expect(calls[1].prompt).toContain('meu palpite');
+
+    expect(engine.isLastStep()).toBe(true);
+    expect(engine.recordCheck(true)).toBe('concept_mastered');
+    expect(engine.getProgress()).toBeUndefined();
+  });
+
+  it('a miss repeats the same step from the diagnosis, twice at most, before the concept goes back to the queue', async () => {
+    const { engine, calls } = engineWith(['Fato 1', 'Fato 2']);
+    await engine.submitPrediction('palpite');
+    const failure = { questionText: 'Q?', chosenAnswer: 'b', correctAnswer: 'a', diagnosis: 'confundiu causa e efeito' };
+
+    expect(engine.recordCheck(false, 'achei o exemplo estranho')).toBe('retry_step');
+    const repair = await engine.continueLesson(failure);
+    expect(repair.isRetry).toBe(true);
+    expect(repair.progress).toMatchObject({ stepIndex: 0, retries: 1 });
+    expect(calls[1].systemPrompt).toContain('REPARO DO PASSO 1');
+    expect(calls[1].prompt).toContain('confundiu causa e efeito');
+    // The reading channel is handed over as what it is, apart from the answer
+    expect(calls[1].prompt).toContain('O QUE ELE PENSAVA ENQUANTO LIA');
+    expect(calls[1].prompt).toContain('achei o exemplo estranho');
+
+    expect(engine.recordCheck(false)).toBe('retry_step');
+    await engine.continueLesson(failure);
+    expect(engine.getProgress()).toMatchObject({ stepIndex: 0, retries: 2 });
+
+    expect(engine.recordCheck(false)).toBe('concept_requeued');
+    expect(engine.getProgress()).toBeUndefined();
+    await expect(engine.continueLesson()).rejects.toThrow(/andamento/);
+  });
+
+  it('a repaired step that lands moves on with a clean count', async () => {
+    const { engine } = engineWith(['Fato 1', 'Fato 2']);
+    await engine.submitPrediction('palpite');
+    engine.recordCheck(false);
+    await engine.continueLesson({ questionText: 'Q?', chosenAnswer: 'b', correctAnswer: 'a', diagnosis: 'd' });
+    expect(engine.recordCheck(true)).toBe('next_step');
+    expect(engine.getProgress()).toMatchObject({ stepIndex: 1, retries: 0 });
+  });
+
+  it('keeps at most four steps, and a concept without a plan is taught in one', async () => {
+    const many = engineWith(['1', '2', ' ', '3', '4', '5', 6]);
+    expect((await many.engine.submitPrediction('p')).progress.steps).toEqual(['1', '2', '3', '4']);
+
+    const none = engineWith(undefined);
+    expect((await none.engine.submitPrediction('p')).progress.steps).toEqual(['Verdade.']);
+    expect(none.engine.isLastStep()).toBe(true);
+    expect(none.engine.recordCheck(true)).toBe('concept_mastered');
+  });
+
+  it('a step that cannot be written leaves the lesson where it was', async () => {
+    // Calls 2 and 3 are the two tries of the second step
+    const { engine } = engineWith(['Fato 1', 'Fato 2'], [2, 3]);
+    await engine.submitPrediction('palpite');
+    engine.recordCheck(true);
+    await expect(engine.continueLesson()).rejects.toThrow(/Sua resposta já foi registrada/);
+    expect(engine.getProgress()).toMatchObject({ stepIndex: 1, retries: 0 });
+    expect(engine.getProgress()!.taught).toHaveLength(1);
+
+    const again = await engine.continueLesson();
+    expect(again.progress.taught).toHaveLength(2);
+  });
+
+  it('picks a lesson back up with its progress, and a new guess starts a new lesson', async () => {
+    const { engine } = engineWith(['x']);
+    const progress = { steps: ['A', 'B', 'C'], stepIndex: 1, retries: 1, prediction: 'p', taught: [{ step: 0, prose: 'um' }] };
+    engine.resumeNode(node, progress);
+    expect(engine.getProgress()).toEqual(progress);
+    expect(engine.isLastStep()).toBe(false);
+
+    // Saved before lessons had steps: one step, no repair in place
+    engine.resumeNode(node);
+    expect(engine.isLastStep()).toBe(true);
+    expect(engine.recordCheck(false)).toBe('concept_requeued');
+
+    engine.resumeNode(node, progress);
+    await engine.generatePredictStep(node, 'g');
+    expect(engine.getProgress()).toBeUndefined();
+  });
+});

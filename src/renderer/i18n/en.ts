@@ -99,8 +99,14 @@ export const en: Record<keyof typeof pt, string> = {
   'lesson.checking': 'Checking…',
   'lesson.checkHint': 'Pick an option below and send it.',
   'lesson.next': 'Next concept',
+  'lesson.nextStep': 'Next step',
+  'lesson.retryStep': 'See this step another way',
+  'lesson.stepOf': 'Step {n} of {total}',
+  'lesson.section.reteach': 'Explanation, another way',
+  'lesson.reading.label': 'While you were reading (optional)',
+  'lesson.reading.placeholder': 'What went through your mind while reading the explanation? A doubt, something odd, what felt obvious…',
   'lesson.retry': 'Go over this concept again',
-  'lesson.retryWrong': 'You have not mastered this concept yet. Let\'s go over it another way before moving on.',
+  'lesson.retryWrong': 'This point is not solid yet. Let\'s go over it another way before moving on.',
   'lesson.retryWeak': 'You got it right, but your reasoning did not show mastery yet. Let\'s reinforce it before moving on.',
 
   // Concept map

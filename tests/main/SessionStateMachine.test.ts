@@ -333,6 +333,36 @@ describe('SessionStateMachine teaching pass', () => {
     expect(f.getLessonFailures(first)).toHaveLength(0);
   });
 
+  it('D2: mastering a step that is not the last one does not master the concept', async () => {
+    const f = await toTeaching();
+    const first = f.nextTeachingNodeId()!;
+    const before = f.getState().nodesState[first];
+
+    const verdict = await f.recordCheckVerdict(
+      first,
+      check,
+      { selectedOptionIndex: 0, confidence: 95, thinkingText: 'x' },
+      { conceptDone: false }
+    );
+    expect(verdict).toBe('mastered');
+    expect(f.getState().nodesState[first]).toBe(before);
+    expect(f.nextTeachingNodeId()).toBe(first);
+
+    // A miss on any step marks the concept and keeps what the student was thinking while reading
+    await f.recordCheckVerdict(
+      first,
+      check,
+      { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' },
+      { conceptDone: false, readingThoughts: '  o exemplo me confundiu ' }
+    );
+    expect(f.getState().nodesState[first]).not.toBe('mastered');
+    expect(f.getLessonFailures(first).at(-1)).toMatchObject({ readingThoughts: 'o exemplo me confundiu' });
+
+    await f.recordCheckVerdict(first, check, { selectedOptionIndex: 0, confidence: 95, thinkingText: 'x' }, { conceptDone: true });
+    expect(f.getState().nodesState[first]).toBe('mastered');
+    expect(f.getLessonFailures(first)).toHaveLength(0);
+  });
+
   it('teaches the most basic concepts first, whatever order the plan proposes', async () => {
     const f = await toTeaching();
     const levelOf = new Map(f.getSnapshot().nodes.map((n) => [n.id, n.level]));

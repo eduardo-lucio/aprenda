@@ -66,7 +66,8 @@ describe('no canned text pretending to be the AI (I8, E10)', () => {
 describe('state machine failures leave the session usable', () => {
   const setup = async (llm: LLMCaller, min = 3) => {
     const store = new KnowledgeStore();
-    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(llm));
+    // Fixed option order: answering option 1 is always a miss, never a lucky hit that masters the map
+    const fsm = new SessionStateMachine(store, mockJudge(), new CurriculumGenerator(llm, noShuffle));
     fsm.setMinProbeQuestions(min);
     await fsm.startSession('teaching', 'Tema');
     return { fsm, store };

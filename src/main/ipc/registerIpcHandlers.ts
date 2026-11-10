@@ -5,6 +5,7 @@ import { SocraticEngine } from '../socratic/SocraticEngine';
 import {
   CheckQuestionData,
   ConceptNode,
+  LessonProgress,
   PersistedUi,
   ProbeAnswerKind,
   SettingsUpdatePayload,
@@ -159,13 +160,16 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     repository?.setPinned(id, !!pinned);
   });
 
-  ipcMain.handle('session:resume-lesson', async (_event, nodeId: string, checkQuestion: CheckQuestionData | null) => {
-    const node = fsm.hasSession() ? store.getNodeById(nodeId) : undefined;
-    if (!node) throw new Error(localize('Conceito não encontrado no grafo desta sessão.', 'Concept not found in this session\'s map.'));
-    currentSocraticNode = node;
-    currentCheckData = checkQuestion ?? undefined;
-    socratic.resumeNode(node);
-  });
+  ipcMain.handle(
+    'session:resume-lesson',
+    async (_event, nodeId: string, checkQuestion: CheckQuestionData | null, progress?: LessonProgress) => {
+      const node = fsm.hasSession() ? store.getNodeById(nodeId) : undefined;
+      if (!node) throw new Error(localize('Conceito não encontrado no grafo desta sessão.', 'Concept not found in this session\'s map.'));
+      currentSocraticNode = node;
+      currentCheckData = checkQuestion ?? undefined;
+      socratic.resumeNode(node, progress);
+    }
+  );
 
   ipcMain.handle('session:save-ui', async (_event, id: string, ui: PersistedUi) => {
     repository?.saveUi(id, ui);
@@ -255,9 +259,23 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     });
   });
 
+  ipcMain.handle('session:continue-lesson', async () => {
+    const node = currentSocraticNode;
+    if (!node) {
+      throw new Error(localize('Nenhum conceito ativo no ciclo socrático.', 'There is no active lesson.'));
+    }
+    // A repair is written from the verification that failed; a new step starts clean
+    const lastFailure = fsm.getLessonFailures(node.id).slice(-1)[0];
+    return foreground(async () => {
+      const step = await socratic.continueLesson(lastFailure);
+      currentCheckData = step.checkQuestion;
+      return step;
+    });
+  });
+
   ipcMain.handle(
     'session:submit-check',
-    async (_event, selectedIndex: number, confidence?: number, thinkingText?: string) => {
+    async (_event, selectedIndex: number, confidence?: number, thinkingText?: string, readingThoughts?: string) => {
     if (!currentCheckData) {
       throw new Error(localize('Nenhuma pergunta de verificação ativa. Reinicie a etapa socrática deste conceito.', 'There is no active verification question. Restart this concept\'s lesson.'));
     }
@@ -267,13 +285,18 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     return foreground(async () => {
       const evalResult = socratic.evaluateCheck(selectedIndex, check);
       const verdict = node
-        ? await fsm.recordCheckVerdict(node.id, check, {
-            selectedOptionIndex: selectedIndex,
-            confidence,
-            thinkingText,
-          })
+        ? await fsm.recordCheckVerdict(
+            node.id,
+            check,
+            { selectedOptionIndex: selectedIndex, confidence, thinkingText },
+            { conceptDone: socratic.isLastStep(), readingThoughts }
+          )
         : undefined;
-      return { ...evalResult, mastered: verdict === 'mastered', session: fsm.getState() };
+      const mastered = verdict === 'mastered';
+      // The verification was answered: it cannot be sent twice against the same step
+      currentCheckData = undefined;
+      const outcome = socratic.recordCheck(mastered, readingThoughts);
+      return { ...evalResult, mastered, outcome, progress: socratic.getProgress(), session: fsm.getState() };
     });
   });
 

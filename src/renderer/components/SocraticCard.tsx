@@ -1,5 +1,5 @@
 import React from 'react';
-import { ConceptNode, ProbeAttempt } from '../../shared/types';
+import { ConceptNode, LessonOutcome, ProbeAttempt } from '../../shared/types';
 import { RichText } from './RichText';
 import { AnsweredQuestionCard } from './AnsweredQuestionCard';
 import { useI18n } from '../i18n';
@@ -17,11 +17,21 @@ interface SocraticCardProps {
   prediction?: string;
   /** The answered check, shown like an answered probe question. */
   answeredCheck?: ProbeAttempt | null;
-  /** False once the verdict says the concept is not mastered: the next lesson repeats it. */
+  /** False once the verdict says this step was not demonstrated: it is explained again. */
   mastered?: boolean;
+  /** What follows the answered check: another step, the same step again, or the end of the lesson. */
+  outcome?: LessonOutcome;
+  /** A concept is taught in a few steps, each with its own explanation and check. */
+  stepIndex?: number;
+  stepCount?: number;
+  /** This explanation repeats a step whose check was not demonstrated. */
+  isRetry?: boolean;
   isLoading?: boolean;
   onAdvanceToCheck: () => void;
+  /** Leaves the concept: on to the next one, or back to the start of this one. */
   onFinishStep: () => void;
+  /** Asks for the next explanation of this same concept. */
+  onContinue?: () => void;
 }
 
 /**
@@ -36,11 +46,27 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
   prediction = '',
   answeredCheck = null,
   mastered,
+  outcome,
+  stepIndex = 0,
+  stepCount = 1,
+  isRetry = false,
   isLoading = false,
   onAdvanceToCheck,
   onFinishStep,
+  onContinue,
 }) => {
   const { t } = useI18n();
+  // The guess opens the lesson: later steps and repairs show only their own explanation
+  const opensLesson = stepIndex === 0 && !isRetry;
+  const staysOnConcept = Boolean(onContinue) && (outcome === 'next_step' || outcome === 'retry_step');
+  const actionLabel =
+    outcome === 'next_step'
+      ? 'lesson.nextStep'
+      : outcome === 'retry_step'
+      ? 'lesson.retryStep'
+      : outcome === 'concept_requeued' || (!outcome && mastered === false)
+      ? 'lesson.retry'
+      : 'lesson.next';
   const sectionLabel = (text: string, tone: string) => (
     <span className={`font-mono text-[10px] font-bold uppercase tracking-widest ${tone}`}>{text}</span>
   );
@@ -51,18 +77,25 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
         <span className="truncate font-mono text-[11px] font-semibold uppercase tracking-widest text-gray-300">
           {node.title}
         </span>
+        {stepCount > 1 && step !== 'predict' && (
+          <span data-testid="lesson-step" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-gray-500">
+            {t('lesson.stepOf', { n: stepIndex + 1, total: stepCount })}
+          </span>
+        )}
       </div>
 
       {/* 1 · Palpite: the question, then what the student answered, as in a conversation */}
-      <section className="flex flex-col gap-3">
-        {sectionLabel(t('lesson.section.predict'), 'text-purple-300')}
-        <RichText text={predictQuestion} className="font-serif text-base leading-relaxed text-gray-100" />
-        {step === 'predict' && (
-          <p className="text-[11px] text-gray-500">{isLoading ? t('lesson.loading') : t('lesson.predictHint')}</p>
-        )}
-      </section>
+      {opensLesson && (
+        <section className="flex flex-col gap-3">
+          {sectionLabel(t('lesson.section.predict'), 'text-purple-300')}
+          <RichText text={predictQuestion} className="font-serif text-base leading-relaxed text-gray-100" />
+          {step === 'predict' && (
+            <p className="text-[11px] text-gray-500">{isLoading ? t('lesson.loading') : t('lesson.predictHint')}</p>
+          )}
+        </section>
+      )}
 
-      {prediction && (
+      {opensLesson && prediction && (
         <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-ink-700 px-4 py-2.5">
           <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-gray-400">
             {t('lesson.yourPrediction')}
@@ -74,11 +107,15 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
       {/* 2 · Explicação */}
       {(step === 'teach' || step === 'check') && (
         <section className="flex flex-col gap-3">
-          {sectionLabel(t('lesson.section.teach'), 'text-blue-300')}
-          <div className="rounded-xl bg-ink-850 px-5 py-4">
-            <RichText text={teachProse} className="text-sm leading-7 text-gray-100" />
-          </div>
-          {step === 'teach' && (
+          {sectionLabel(t(isRetry ? 'lesson.section.reteach' : 'lesson.section.teach'), 'text-blue-300')}
+          {teachProse ? (
+            <div className="rounded-xl bg-ink-850 px-5 py-4">
+              <RichText text={teachProse} className="text-sm leading-7 text-gray-100" />
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-500">{t('lesson.loading')}</p>
+          )}
+          {step === 'teach' && teachProse && (
             <div className="flex justify-end">
               <button
                 type="button"
@@ -112,11 +149,11 @@ export const SocraticCard: React.FC<SocraticCardProps> = ({
               <div className="flex justify-end pt-1">
                 <button
                   type="button"
-                  onClick={onFinishStep}
+                  onClick={staysOnConcept ? onContinue : onFinishStep}
                   disabled={isLoading}
                   className="rounded bg-gray-200 px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-50"
                 >
-                  {t(mastered === false ? 'lesson.retry' : 'lesson.next')}
+                  {t(actionLabel)}
                 </button>
               </div>
             </>

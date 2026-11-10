@@ -4,6 +4,8 @@ import {
   CheckQuestionData,
   CompletedLesson,
   ConceptNode,
+  LessonOutcome,
+  LessonProgress,
   ProbingSession,
   QuestionData,
   ModelOption,
@@ -168,11 +170,35 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const [confidence, setConfidence] = useState<number>(DEFAULT_CONFIDENCE);
 
   // Socratic cycle state (lifted out of the card: inputs live in the chat field)
-  const [socraticStep, setSocraticStep] = useState<SocraticStep>(restoredLesson?.step ?? 'predict');
-  const [teachProse, setTeachProse] = useState(restoredLesson?.teachProse ?? '');
+  // A lesson closed between a verification and the next explanation reopens asking for that explanation
+  const restoredToContinue = restoredLesson?.step === 'continue';
+  const [socraticStep, setSocraticStep] = useState<SocraticStep>(
+    restoredLesson ? (restoredLesson.step === 'continue' ? 'teach' : restoredLesson.step) : 'predict'
+  );
+  const [teachProse, setTeachProse] = useState(restoredToContinue ? '' : restoredLesson?.teachProse ?? '');
   const [prediction, setPrediction] = useState(restoredLesson?.prediction ?? '');
-  const [checkQuestion, setCheckQuestion] = useState<CheckQuestionData | null>(restoredLesson?.checkQuestion ?? null);
-  const [checkResult, setCheckResult] = useState<{ isPassed: boolean; mastered?: boolean; repairExplanation?: string } | null>(null);
+  const [checkQuestion, setCheckQuestion] = useState<CheckQuestionData | null>(
+    restoredToContinue ? null : restoredLesson?.checkQuestion ?? null
+  );
+  const [checkResult, setCheckResult] = useState<{
+    isPassed: boolean;
+    mastered?: boolean;
+    outcome?: LessonOutcome;
+    repairExplanation?: string;
+  } | null>(null);
+  const [lessonProgress, setLessonProgress] = useState<LessonProgress | null>(restoredLesson?.progress ?? null);
+  /** The step whose explanation is on screen: after a verification the lesson itself has already moved on. */
+  const [shownStep, setShownStep] = useState<{ index: number; count: number; isRetry: boolean } | null>(
+    restoredLesson?.progress
+      ? {
+          index: restoredLesson.progress.stepIndex,
+          count: restoredLesson.progress.steps.length,
+          isRetry: restoredLesson.progress.retries > 0,
+        }
+      : null
+  );
+  /** What the student was thinking while reading the explanation: a channel apart from the reasoning. */
+  const [readingThoughts, setReadingThoughts] = useState('');
   const [checkAnswer, setCheckAnswer] = useState<{ index: number; confidence?: number; reasoning: string } | null>(null);
   const [socraticLoading, setSocraticLoading] = useState(false);
   // True once the teaching pass has gone through every concept that was still pending
@@ -255,12 +281,19 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setConfidence(DEFAULT_CONFIDENCE);
   }, [currentQuestion?.id, session?.id, socraticStep, checkQuestion?.questionText]);
 
+  // A lesson restored from disk arrives with its own state: only a change of concept clears it
+  const lessonNodeRef = useRef(socraticNode?.id);
   useEffect(() => {
+    if (lessonNodeRef.current === socraticNode?.id) return;
+    lessonNodeRef.current = socraticNode?.id;
     setSocraticStep('predict');
     setTeachProse('');
     setPrediction('');
     setCheckQuestion(null);
     setCheckResult(null);
+    setLessonProgress(null);
+    setShownStep(null);
+    setReadingThoughts('');
   }, [socraticNode?.id]);
 
   const smoothOrInstant = (): ScrollBehavior =>
@@ -302,21 +335,34 @@ export const SessionView: React.FC<SessionViewProps> = ({
   });
   const savedNotes = conceptNotes.notes;
 
-  // Only a lesson still in progress is kept: once it is answered it lives in `lessons`
+  // Only a lesson still in progress is kept: an answered step lives in `lessons`, and the lesson
+  // stays here while it still owes the student another explanation
+  const owesExplanation = checkResult?.outcome === 'next_step' || checkResult?.outcome === 'retry_step';
   const activeLesson = useMemo<PersistedUi['activeLesson']>(
     () =>
-      socraticNode && socraticPredictData && !checkResult
+      socraticNode && socraticPredictData && (!checkResult || owesExplanation)
         ? {
             node: socraticNode,
             questionText: socraticPredictData.questionText,
             promptGoal: socraticPredictData.promptGoal,
-            step: socraticStep,
+            step: owesExplanation ? 'continue' : socraticStep,
             prediction,
             teachProse,
             checkQuestion,
+            ...(lessonProgress ? { progress: lessonProgress } : {}),
           }
         : null,
-    [socraticNode, socraticPredictData, checkResult, socraticStep, prediction, teachProse, checkQuestion]
+    [
+      socraticNode,
+      socraticPredictData,
+      checkResult,
+      owesExplanation,
+      socraticStep,
+      prediction,
+      teachProse,
+      checkQuestion,
+      lessonProgress,
+    ]
   );
 
   // These only change on student actions, and the repository already batches disk writes
@@ -332,10 +378,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // A lesson restored from disk: re-arm the main process (no AI call); if that fails, generate it again
   useEffect(() => {
     if (!restoredLesson || !window.api?.resumeLesson) return;
-    window.api.resumeLesson(restoredLesson.node.id, restoredLesson.checkQuestion).catch(() => {
-      resumedTeachingRef.current = session?.id ?? null;
-      void handleStartSocraticCycle(restoredLesson.node.id);
-    });
+    window.api
+      .resumeLesson(restoredLesson.node.id, restoredToContinue ? null : restoredLesson.checkQuestion, restoredLesson.progress)
+      .then(() => {
+        if (restoredToContinue) void handleContinueLesson();
+      })
+      .catch(() => {
+        resumedTeachingRef.current = session?.id ?? null;
+        void handleStartSocraticCycle(restoredLesson.node.id);
+      });
   }, []);
 
   // Resume teaching of a session restored from disk
@@ -640,6 +691,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
       const res = await window.api.submitPrediction(text);
       setTeachProse(res.teachProse);
       setCheckQuestion(res.checkQuestion);
+      setLessonProgress(res.progress ?? null);
+      setShownStep({ index: 0, count: res.progress?.steps.length ?? 1, isRetry: false });
       setSocraticStep('teach');
     } catch (err: any) {
       setPrediction('');
@@ -650,7 +703,28 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
   };
 
-  const handleCheckSubmit = async (index: number, conf: number | undefined, reasoning: string) => {
+  /** The next step of the lesson, or the same step explained again after a failed verification. */
+  const handleContinueLesson = async () => {
+    setSubmittingLabel(t('session.status.teach'));
+    setSocraticLoading(true);
+    clearError();
+    try {
+      const res = await window.api.continueLesson();
+      setTeachProse(res.teachProse);
+      setCheckQuestion(res.checkQuestion);
+      setCheckResult(null);
+      setCheckAnswer(null);
+      setLessonProgress(res.progress);
+      setShownStep({ index: res.progress.stepIndex, count: res.progress.steps.length, isRetry: res.isRetry });
+      setSocraticStep('teach');
+    } catch (err: any) {
+      reportError(err, () => void handleContinueLesson());
+    } finally {
+      setSocraticLoading(false);
+    }
+  };
+
+  const handleCheckSubmit = async (index: number, conf: number | undefined, reasoning: string, reading = '') => {
     setSubmittingLabel(t('session.status.judge'));
     setSocraticLoading(true);
     clearError();
@@ -662,22 +736,32 @@ export const SessionView: React.FC<SessionViewProps> = ({
       setCheckResult({ isPassed, mastered: isPassed ? undefined : false });
     }
     try {
-      const res = await window.api.submitCheckAnswer(index, conf, reasoning);
+      const res = await window.api.submitCheckAnswer(index, conf, reasoning, reading || undefined);
       await refreshGraph();
       if (res.session) setSession(res.session);
-      setCheckResult({ isPassed: res.isPassed, mastered: res.mastered, repairExplanation: res.repairExplanation });
+      setCheckResult({
+        isPassed: res.isPassed,
+        mastered: res.mastered,
+        outcome: res.outcome,
+        repairExplanation: res.repairExplanation,
+      });
+      setLessonProgress(res.progress ?? null);
+      setReadingThoughts('');
       if (socraticNode && socraticPredictData) {
+        // The guess opens the lesson: later steps and repairs are kept without it
+        const opensLesson = !shownStep || (shownStep.index === 0 && !shownStep.isRetry);
         setLessons((prev) => [
           ...prev,
           {
             nodeId: socraticNode.id,
             title: socraticNode.title,
-            predictQuestion: socraticPredictData.questionText,
-            prediction,
+            predictQuestion: opensLesson ? socraticPredictData.questionText : '',
+            prediction: opensLesson ? prediction : '',
             teachProse,
             checkQuestion: checkQuestion?.questionText || '',
             isPassed: res.isPassed,
             repairExplanation: res.repairExplanation,
+            ...(shownStep ? { stepIndex: shownStep.index, stepCount: shownStep.count } : {}),
           },
         ]);
       }
@@ -821,7 +905,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
     if (isSocraticCheck && selectedIdx !== null) {
       setBottomChatInput('');
-      handleCheckSubmit(selectedIdx, confidence, text);
+      handleCheckSubmit(selectedIdx, confidence, text, readingThoughts.trim());
       return;
     }
 
@@ -1490,10 +1574,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     className="rounded-lg border border-ink-700 bg-ink-900 px-4 py-2.5 text-xs text-gray-300"
                   >
                     <summary className="cursor-pointer font-mono text-[11px] text-gray-400 hover:text-gray-200">
-                      {lesson.title} · {lesson.isPassed ? t('lesson.pastPassed') : t('lesson.pastFailed')}
+                      {lesson.title}
+                      {lesson.stepCount && lesson.stepCount > 1
+                        ? ` · ${t('lesson.stepOf', { n: (lesson.stepIndex ?? 0) + 1, total: lesson.stepCount })}`
+                        : ''}{' '}
+                      · {lesson.isPassed ? t('lesson.pastPassed') : t('lesson.pastFailed')}
                     </summary>
                     <div className="mt-3 space-y-3 leading-relaxed">
-                      <RichText text={lesson.predictQuestion} className="text-gray-200" />
+                      {lesson.predictQuestion && <RichText text={lesson.predictQuestion} className="text-gray-200" />}
                       {lesson.prediction && (
                         <div className="border-l-2 border-ink-500 pl-3">
                           <span className="block font-mono text-[10px] uppercase tracking-widest text-gray-400">
@@ -1523,6 +1611,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     predictQuestion={socraticPredictData.questionText}
                     promptGoal={socraticPredictData.promptGoal}
                     mastered={checkResult?.mastered}
+                    outcome={checkResult?.outcome}
+                    stepIndex={shownStep?.index ?? 0}
+                    stepCount={shownStep?.count ?? 1}
+                    isRetry={shownStep?.isRetry ?? false}
+                    onContinue={() => void handleContinueLesson()}
                     teachProse={teachProse}
                     prediction={prediction}
                     answeredCheck={answeredCheck}
@@ -1583,6 +1676,16 @@ export const SessionView: React.FC<SessionViewProps> = ({
                     onSubmit={handleDockSubmit}
                     textareaRef={chatInputRef}
                     dictating={isDictating}
+                    extraField={
+                      isSocraticCheck
+                        ? {
+                            label: t('lesson.reading.label'),
+                            placeholder: t('lesson.reading.placeholder'),
+                            value: readingThoughts,
+                            onChange: setReadingThoughts,
+                          }
+                        : undefined
+                    }
                   >
                     {isScopeMode && session && (
                       <QuestionCard

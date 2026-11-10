@@ -97,8 +97,14 @@ export const pt = {
   'lesson.checking': 'Conferindo…',
   'lesson.checkHint': 'Escolha uma alternativa abaixo e envie.',
   'lesson.next': 'Próximo conceito',
+  'lesson.nextStep': 'Próximo passo',
+  'lesson.retryStep': 'Ver este passo de outro jeito',
+  'lesson.stepOf': 'Passo {n} de {total}',
+  'lesson.section.reteach': 'Explicação, de outro jeito',
+  'lesson.reading.label': 'Enquanto você lia (opcional)',
+  'lesson.reading.placeholder': 'O que passou pela sua cabeça ao ler a explicação? Dúvida, estranhamento, o que pareceu óbvio…',
   'lesson.retry': 'Retomar este conceito',
-  'lesson.retryWrong': 'Você ainda não dominou este conceito. Vamos retomar de outro jeito antes de avançar.',
+  'lesson.retryWrong': 'Este ponto ainda não ficou firme. Vamos retomar de outro jeito antes de avançar.',
   'lesson.retryWeak': 'Você acertou, mas o raciocínio ainda não mostrou domínio. Vamos reforçar antes de avançar.',
 
   // Concept map

@@ -104,6 +104,78 @@ describe('IPC Handlers', () => {
     expect(await handlers['session:socratic-start']({})).toBeNull();
   });
 
+  it('D2: a concept taught in steps stays open until every step is demonstrated', async () => {
+    // The opening of a lesson declares two steps; every other call behaves like the plain mock
+    const stepped = async (o: any) => {
+      const raw = await mockLLM(o);
+      return (o.systemPrompt || '').includes('Plano de passos')
+        ? JSON.stringify({ ...JSON.parse(raw), steps: ['Fato 1', 'Fato 2'] })
+        : raw;
+    };
+    socratic = new SocraticEngine(stepped as any, new CurriculumGenerator(mockLLM, noShuffle));
+    registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
+    await handlers['session:start']({}, 'teaching', 'Redes');
+    await handlers['session:submit-goal']({}, 'TCP e UDP');
+    for (let i = 0; i < 8; i++) {
+      const res = await handlers['session:submit-probe']({}, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+      if (res.nextAction === 'transition_plan') break;
+    }
+    if (fsm.getState().phase === 'probing') await handlers['session:advance-plan']({});
+    await handlers['session:confirm-plan']({});
+
+    const start = await handlers['session:socratic-start']({});
+    const id = start.node.id as string;
+    const opening = await handlers['session:submit-prediction']({}, 'palpite');
+    expect(opening.progress).toMatchObject({ steps: ['Fato 1', 'Fato 2'], stepIndex: 0 });
+
+    // Step 1 demonstrated: the lesson goes on, the concept is not mastered yet
+    const one = await handlers['session:submit-check']({}, opening.checkQuestion.correctOptionIndex, 95, 'raciocínio');
+    expect(one).toMatchObject({ mastered: true, outcome: 'next_step' });
+    expect(fsm.getState().nodesState[id]).not.toBe('mastered');
+    // An answered verification cannot be sent again
+    await expect(handlers['session:submit-check']({}, 0, 95, 'de novo')).rejects.toThrow(/verificação ativa/);
+
+    // Step 2 missed: the same step is explained again, from what the student said while reading
+    const two = await handlers['session:continue-lesson']({});
+    expect(two).toMatchObject({ isRetry: false, progress: { stepIndex: 1 } });
+    const miss = await handlers['session:submit-check']({}, (two.checkQuestion.correctOptionIndex + 1) % 4, 80, 'chute', 'não entendi o exemplo');
+    expect(miss).toMatchObject({ mastered: false, outcome: 'retry_step', progress: { stepIndex: 1, retries: 1 } });
+    expect(fsm.getLessonFailures(id).at(-1)).toMatchObject({ readingThoughts: 'não entendi o exemplo' });
+
+    const repair = await handlers['session:continue-lesson']({});
+    expect(repair.isRetry).toBe(true);
+    const done = await handlers['session:submit-check']({}, repair.checkQuestion.correctOptionIndex, 95, 'agora sim');
+    expect(done).toMatchObject({ mastered: true, outcome: 'concept_mastered' });
+    expect(done.progress).toBeUndefined();
+    expect(fsm.getState().nodesState[id]).toBe('mastered');
+    await expect(handlers['session:continue-lesson']({})).rejects.toThrow(/andamento/);
+  });
+
+  it('D2: after two repairs of the same step the concept goes back to the queue', async () => {
+    registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
+    await handlers['session:start']({}, 'teaching', 'Redes');
+    await handlers['session:submit-goal']({}, 'TCP e UDP');
+    for (let i = 0; i < 8; i++) {
+      const res = await handlers['session:submit-probe']({}, { selectedOptionIndex: 1, confidence: 90, thinkingText: 'x' });
+      if (res.nextAction === 'transition_plan') break;
+    }
+    if (fsm.getState().phase === 'probing') await handlers['session:advance-plan']({});
+    await handlers['session:confirm-plan']({});
+
+    const start = await handlers['session:socratic-start']({});
+    let step = await handlers['session:submit-prediction']({}, 'palpite');
+    const outcomes: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await handlers['session:submit-check']({}, (step.checkQuestion.correctOptionIndex + 1) % 4, 80, 'chute');
+      outcomes.push(res.outcome);
+      if (res.outcome === 'retry_step') step = await handlers['session:continue-lesson']({});
+    }
+    expect(outcomes).toEqual(['retry_step', 'retry_step', 'concept_requeued']);
+    expect(fsm.getLessonFailures(start.node.id)).toHaveLength(3);
+    // The concept is still the next lesson, opened again from the guess
+    expect((await handlers['session:socratic-start']({})).node.id).toBe(start.node.id);
+  });
+
   it('still lets the student re-open a specific concept explicitly', async () => {
     registerIpcHandlers(mockIpcMain, { fsm, store, socratic });
     await handlers['session:start']({}, 'teaching', 'Redes');

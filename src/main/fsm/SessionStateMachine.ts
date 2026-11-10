@@ -445,14 +445,16 @@ export class SessionStateMachine {
   }
 
   /**
-   * Teaching-phase check: the judge reads the answer (correctness, confidence, reasoning)
-   * and the verdict is recorded in nodesState. Anything short of "mastered" keeps the concept as
-   * the next lesson, and what went wrong is kept so the new attempt can target it.
+   * Teaching-phase check: the judge reads the answer (correctness, confidence, reasoning).
+   * Anything short of "mastered" marks the concept as not held and keeps what went wrong, so the
+   * next explanation can target it. A concept is taught in steps: "mastered" on a step that is not
+   * the last one (`conceptDone: false`) leaves the concept's own state as it was.
    */
   async recordCheckVerdict(
     nodeId: string,
     check: CheckQuestionData,
-    data: { selectedOptionIndex: number; confidence?: number; thinkingText?: string }
+    data: { selectedOptionIndex: number; confidence?: number; thinkingText?: string },
+    opts: { conceptDone?: boolean; readingThoughts?: string } = {}
   ): Promise<ProbeAttempt['verdict']> {
     const session = this.requireSession();
     const node = this.store.getNodeById(nodeId);
@@ -467,10 +469,13 @@ export class SessionStateMachine {
       thinkingText: data.thinkingText || '',
     });
     this.assertActive(session);
-    session.nodesState[nodeId] = evaluation.verdict;
     if (evaluation.verdict === 'mastered') {
-      delete this.lessonFailures[nodeId];
+      if (opts.conceptDone !== false) {
+        session.nodesState[nodeId] = 'mastered';
+        delete this.lessonFailures[nodeId];
+      }
     } else {
+      session.nodesState[nodeId] = evaluation.verdict;
       this.lessonFailures[nodeId] = [
         ...(this.lessonFailures[nodeId] || []),
         {
@@ -479,6 +484,7 @@ export class SessionStateMachine {
           correctAnswer: check.options[check.correctOptionIndex] ?? '',
           diagnosis: evaluation.reasoningDiagnosis,
           misconception: evaluation.identifiedMisconception,
+          ...(opts.readingThoughts?.trim() ? { readingThoughts: opts.readingThoughts.trim() } : {}),
         },
       ];
       // A concept mastered in the diagnosis and failed in a review goes back to the queue
