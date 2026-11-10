@@ -13,6 +13,12 @@ const MISSED: Status[] = ['false_positive', 'frontier', 'blind_spot'];
  */
 export const TOP_CONFIRMATIONS = 2;
 
+/**
+ * A hit says the basics are held, not that every neighbor is: only a side line that ends at least
+ * this many levels below the concept just mastered is taken as held without a question.
+ */
+export const BASICS_GAP = 2;
+
 export interface ProbeTarget {
   nodeId: string;
   /** The student already answered this concept with mastery: the next question must be harder. */
@@ -78,9 +84,18 @@ export class ProbeFrontier {
   }
 
   private needsEscalation(states: States, attempts: Answered, id: string): boolean {
-    return (
-      this.isTop(id) && this.status(states, id) === 'mastered' && this.askedCount(attempts, id) < TOP_CONFIRMATIONS
-    );
+    const asked = this.askedCount(attempts, id);
+    // A top that was only inferred is not pushed: there is no answer to build a harder question on
+    return this.isTop(id) && this.status(states, id) === 'mastered' && asked >= 1 && asked < TOP_CONFIRMATIONS;
+  }
+
+  private level(id: string): number {
+    return this.nodes.find((n) => n.id === id)?.level ?? 1;
+  }
+
+  /** The highest level a concept leads to: its own, or that of whatever is built on it. */
+  private reach(id: string): number {
+    return Math.max(this.level(id), ...(this.dependents.get(id) || []).map((d) => this.level(d)));
   }
 
   /** Its place relative to the edge is known: answered, inferred from a concept above, or above a miss. */
@@ -96,17 +111,24 @@ export class ProbeFrontier {
     return Math.round((located / this.nodes.length) * 100);
   }
 
-  /** The states after a mastered answer: what the concept is built on is taken as held too. */
+  /**
+   * The states after a mastered answer. What the concept is built on is taken as held, and so is
+   * any side line that ends well below it: the probe never opens at the basics once the student
+   * has shown he is past them. A line that ends near the same height still gets its own question.
+   */
   withMastered(states: States, id: string): States {
     const next: States = { ...states, [id]: 'mastered' };
     for (const a of this.ancestors.get(id) || []) {
       if (this.status(next, a) === 'untested') next[a] = 'mastered';
     }
+    for (const n of this.nodes) {
+      if (this.isOpen(next, n.id) && this.reach(n.id) + BASICS_GAP <= this.level(id)) next[n.id] = 'mastered';
+    }
     return next;
   }
 
   pickNext(states: States, attempts: Answered, currentId?: string): ProbeTarget {
-    const level = (id: string) => this.nodes.find((n) => n.id === id)?.level ?? 1;
+    const level = (id: string) => this.level(id);
 
     // 1. Walk down from the latest miss: halve the range below it instead of stepping one level
     const seen = new Set<string>();
@@ -128,8 +150,11 @@ export class ProbeFrontier {
       return { nodeId: (toEscalate.find((n) => n.id === currentId) || toEscalate[0]).id, escalate: true };
     }
 
-    // 3. Enter the next line at its top
-    const open = this.nodes.filter((n) => this.isOpen(states, n.id)).sort((a, b) => b.level - a.level);
+    // 3. Enter the next line at its top: among the highest concepts, the one built on the most
+    const depth = (id: string) => (this.ancestors.get(id) || []).length;
+    const open = this.nodes
+      .filter((n) => this.isOpen(states, n.id))
+      .sort((a, b) => b.level - a.level || depth(b.id) - depth(a.id));
     if (open.length > 0) return { nodeId: open[0].id, escalate: false };
 
     // 4. Everything is located: confirm what was only inferred, then go around the misses again

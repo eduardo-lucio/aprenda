@@ -138,7 +138,8 @@ export function buildProbeQuestionPrompt(
 ESCALADA: o aluno já respondeu com domínio a(s) pergunta(s) abaixo sobre este mesmo conceito. Um conceito que nunca quebra ainda não foi medido.
 - ${harderThan.slice(-2).map((q) => clip(q, 300)).join('\n- ')}
 - A nova pergunta deve ser visivelmente mais difícil que essas: um caso de borda, uma consequência de segunda ordem ou a combinação com outro conceito do objetivo.
-- Continue dentro do que o objetivo exige: mais difícil não é mais obscuro, nem fora do tema.`
+- Continue dentro do que o objetivo exige: mais difícil não é mais obscuro, nem fora do tema.
+- A nota do tutor continua curta (2 a 4 frases) e fala com ele por "você": diga só que a anterior foi bem e que esta sobe o nível. Nunca adiante o que a pergunta testa nem o caminho da resposta.`
     : '';
 
   const systemPrompt = `Você é o Gerador Cirúrgico do APRENDA.
@@ -152,7 +153,7 @@ Diretrizes da Questão Diagnóstica (Option Craft):
 - 4 alternativas homogêneas, mesmo esqueleto, mesmo tom e afirmações diretas sem justificativa embutida.
 - Distratores devem capturar atalhos heurísticos falhos ou modelos mentais equivocados comuns em estudantes universitários.
 - Não repita formulações de questões anteriores.
-- "agentThinking": uma nota curta (2 a 4 frases) do tutor, em primeira pessoa e linguagem simples, dizendo por que esta pergunta vem agora e o que ela vai mostrar. Sem jargão.${escalation}
+- "agentThinking": uma nota curta (2 a 4 frases) do tutor ao aluno, em primeira pessoa, tratando-o por "você" e em linguagem simples, dizendo por que esta pergunta vem agora. Sem jargão. O aluno lê a nota antes de responder: nunca comente as alternativas, os erros que elas capturam, a resposta ou o que você fará depois, e não diga em que ponto da sessão estamos.${escalation}
 
 Responda SOMENTE em JSON:
 {

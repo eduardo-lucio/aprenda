@@ -54,6 +54,31 @@ describe('ProbeFrontier (D3: bracket every line of the map)', () => {
     expect(f.pickNext(s, answers('a4', 'a4'), 'a4')).toEqual({ nodeId: 'b3', escalate: false });
   });
 
+  it('never opens at the basics once the student is past them', () => {
+    // side is a base concept nothing else is built on; low ends at level 2
+    const g = new ProbeFrontier([...nodes, mk('side', 1), mk('low1', 1), mk('low2', 2, ['low1'])]);
+    const all = (): States => ({ ...untested(), side: 'untested', low1: 'untested', low2: 'untested' });
+
+    const s = g.withMastered(all(), 'a4');
+    expect(s).toMatchObject({ side: 'mastered', low1: 'mastered', low2: 'mastered' });
+    // A line that ends one level below is a neighbor, not the basics: it still gets its question
+    expect(s.b3).toBe('untested');
+    expect(s.b2).toBe('untested');
+    // Inferred tops are not pushed with a harder question
+    expect(g.isLocated(s, answers('a4', 'a4'), 'side')).toBe(true);
+    expect(g.pickNext(s, answers('a4', 'a4'), 'a4').nodeId).toBe('b3');
+
+    // A hit at level 2 is too close to the base to speak for other lines
+    const lowHit = g.withMastered({ ...all(), a4: 'frontier' }, 'a2');
+    expect(lowHit.side).toBe('untested');
+    expect(lowHit.low2).toBe('untested');
+  });
+
+  it('among the highest concepts, enters by the one built on the most', () => {
+    const g = new ProbeFrontier([mk('x1', 1), mk('x2', 2, ['x1']), mk('y3', 3, ['x2']), mk('z3', 3, ['x2', 'y3'])]);
+    expect(g.pickNext({ x1: 'untested', x2: 'untested', y3: 'untested', z3: 'untested' }, []).nodeId).toBe('z3');
+  });
+
   it('clarity counts located concepts, not asked ones', () => {
     expect(f.clarity(untested(), [])).toBe(0);
     // One miss at the base locates the whole map
