@@ -62,9 +62,18 @@ Responda EXCLUSIVAMENTE em formato JSON:
   return { systemPrompt, prompt };
 }
 
+/** An earlier demonstration as the map prompt sees it: `ref` is a short handle valid for one call. */
+export interface RememberedForPrompt {
+  ref: string;
+  title: string;
+  truth: string;
+  /** YYYY-MM-DD */
+  date: string;
+}
+
 export function buildGraphPrompt(
   goal: string,
-  context?: { topic?: string; justification?: string }
+  context?: { topic?: string; justification?: string; remembered?: RememberedForPrompt[] }
 ): { systemPrompt: string; prompt: string } {
   const instructions = getGraphInstructions();
 
@@ -80,6 +89,12 @@ Regras da Estrutura do Grafo (DAG):
 - "prerequisites": lista de ids de nós de nível MENOR necessários para compreender o conceito atual. Nós de nível 1 têm prerequisites vazios [].
 - "summary": 1 frase direta e técnica sintetizando o mecanismo.
 - "unconditionalTruth": 1 frase formulando o princípio invariante aceito pelo valor de face ("Princípio i: Verdades Incondicionais Primeiro" — ex: afirmações universais "Todo X é feito através de Y").
+
+Memória de sessões anteriores (só quando a mensagem trouxer a lista "O que o aluno já demonstrou"):
+- A lista diz o que ele demonstrou e quando. É um ponto de partida a confirmar, não uma certeza: o que foi visto há muito tempo pode ter se perdido.
+- Não gaste nós do grafo com o que está abaixo do que ele já demonstrou: comece o grafo na altura do que foi demonstrado e suba a partir daí.
+- Quando um nó do grafo for o MESMO conceito de um item da lista (mesma ideia, ainda que com outras palavras), inclua nele o campo "remembered" com a referência do item (ex: "m3"). Conceito apenas parecido ou vizinho NÃO recebe o campo.
+- Itens de outro assunto são ignorados: não force relação.
 
 Regras da Primeira Questão ("firstQuestion"):
 - Alvo: o nó de MAIOR NÍVEL do grafo (o ponto mais difícil que o objetivo exige). A sondagem entra pelo topo: um acerto poupa todas as perguntas sobre o que está abaixo, e um erro faz a próxima pergunta descer. Nunca abra pela base para "aquecer".
@@ -114,9 +129,15 @@ Responda SOMENTE em JSON no formato:
   }
 }`;
 
+  const remembered = context?.remembered || [];
   const contextLines = [
     context?.topic && context.topic !== goal ? `Tema que o aluno digitou: "${context.topic}"` : '',
     context?.justification ? `Por que o aluno escolheu esse foco: "${context.justification}"` : '',
+    remembered.length > 0
+      ? `O que o aluno já demonstrou em sessões anteriores (referência · data · conceito: verdade):\n${remembered
+          .map((m) => `- ${m.ref} · ${m.date} · ${m.title}: ${m.truth}`)
+          .join('\n')}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');

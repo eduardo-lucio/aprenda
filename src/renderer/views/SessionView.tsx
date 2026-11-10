@@ -947,6 +947,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const hasAnswerField = !session || hasDock || isSocraticPredict;
   const toggleSelected = (idx: number) => setSelectedIdx((prev) => (prev === idx ? null : idx));
 
+  const rememberedTitles = nodes.filter((n) => session?.remembered?.[n.id]).map((n) => n.title);
+
   const handleDictatePill = () => {
     if (onToggleDictate) onToggleDictate();
     else toggleListening();
@@ -1291,6 +1293,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
                 <span>{t('session.map.start')}</span>
               </button>
             </div>
+
+            {rememberedTitles.length > 0 && (
+              <p data-testid="remembered-note" className="rounded-lg border border-ink-700 bg-ink-900 px-3.5 py-2 text-[11px] leading-relaxed text-gray-300">
+                {t('session.map.remembered', { n: rememberedTitles.length, titles: rememberedTitles.join(', ') })}
+              </p>
+            )}
 
             <div className="flex-1 min-h-0 rounded-lg border border-ink-700 overflow-hidden">
               <KnowledgeGraph

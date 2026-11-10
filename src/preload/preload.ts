@@ -58,6 +58,9 @@ const api: ElectronAPI = {
     };
   },
 
+  listMemory: () => ipcRenderer.invoke('memory:list'),
+  deleteMemory: (ids) => ipcRenderer.invoke('memory:delete', ids),
+  clearMemory: () => ipcRenderer.invoke('memory:clear'),
   listSessions: () => ipcRenderer.invoke('session:list'),
 
   loadSession: (id: string) => ipcRenderer.invoke('session:load', id),

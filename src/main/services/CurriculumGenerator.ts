@@ -103,6 +103,16 @@ export interface GeneratedGraphResult {
   nodes: ConceptNode[];
   firstQuestion?: QuestionData;
   agentThinking?: string;
+  /** Concepts of the map the model matched to an earlier demonstration: concept id → memory id. */
+  remembered?: Record<string, string>;
+}
+
+/** An earlier demonstration offered to the map generator. */
+export interface RememberedInput {
+  id: string;
+  title: string;
+  truth: string;
+  lastAt: number;
 }
 
 export interface GoalClarificationResult {
@@ -211,11 +221,24 @@ export class CurriculumGenerator {
     );
   }
 
-  async generateGraph(goal: string, context?: { topic?: string; justification?: string }): Promise<GeneratedGraphResult> {
+  async generateGraph(
+    goal: string,
+    context?: { topic?: string; justification?: string; remembered?: RememberedInput[] }
+  ): Promise<GeneratedGraphResult> {
     let lastErr: unknown;
+    const offered = (context?.remembered || []).map((m, i) => ({ ...m, ref: `m${i + 1}` }));
     for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { systemPrompt, prompt } = buildGraphPrompt(goal, context);
+      const { systemPrompt, prompt } = buildGraphPrompt(goal, {
+        topic: context?.topic,
+        justification: context?.justification,
+        remembered: offered.map((m) => ({
+          ref: m.ref,
+          title: m.title,
+          truth: m.truth.slice(0, 240),
+          date: new Date(m.lastAt).toISOString().slice(0, 10),
+        })),
+      });
       const raw = await this.llm({
         systemPrompt,
         prompt,
@@ -231,6 +254,13 @@ export class CurriculumGenerator {
         (typeof parsed?.agentThinking === 'string' && parsed.agentThinking.trim()) || undefined;
 
       if (nodes.length >= 3) {
+        // Only a reference that was offered counts, and each demonstration matches one concept
+        const remembered: Record<string, string> = {};
+        for (const raw of Array.isArray(rawNodes) ? rawNodes : []) {
+          const match = offered.find((m) => m.ref === String(raw?.remembered ?? '').trim().toLowerCase());
+          const node = match && nodes.find((n) => n.id === slugify(String(raw.id || raw.title || '')));
+          if (match && node && !Object.values(remembered).includes(match.id)) remembered[node.id] = match.id;
+        }
         let firstQuestion: QuestionData | undefined;
         const rawQ = parsed?.firstQuestion;
         const firstCorrect = Array.isArray(rawQ?.options) ? parseCorrectIndex(rawQ.correctOptionIndex, rawQ.options.length) : null;
@@ -272,6 +302,7 @@ export class CurriculumGenerator {
           nodes,
           firstQuestion,
           agentThinking: graphThinking,
+          ...(Object.keys(remembered).length > 0 ? { remembered } : {}),
         };
       }
       lastErr = new Error(localize('A IA retornou um grafo conceitual inválido.', 'The AI returned an invalid concept map.'));

@@ -36,7 +36,14 @@ export class ProbeFrontier {
   private ancestors = new Map<string, string[]>();
   private dependents = new Map<string, string[]>();
 
-  constructor(nodes: ConceptNode[]) {
+  private presumed: Set<string>;
+
+  /**
+   * `presumed`: concepts the student demonstrated in an earlier session. They are not taken as
+   * held; a descent stops at them instead of going below, and only a miss on one opens what is under it.
+   */
+  constructor(nodes: ConceptNode[], presumed: Iterable<string> = []) {
+    this.presumed = new Set(presumed);
     this.nodes = nodes;
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const collect = (id: string, seen: Set<string>): void => {
@@ -144,7 +151,10 @@ export class ProbeFrontier {
       if (seen.has(id)) continue;
       seen.add(id);
       if (!this.isMissed(states, id)) continue;
-      const open = (this.ancestors.get(id) || []).filter((a) => this.isOpen(states, a));
+      const below = (this.ancestors.get(id) || []).filter((a) => this.isOpen(states, a));
+      // What sits under something shown before is not asked: that concept is asked instead
+      const floors = below.filter((a) => this.presumed.has(a));
+      const open = below.filter((a) => !floors.some((f) => (this.ancestors.get(f) || []).includes(a)));
       if (open.length === 0) continue;
       const levels = [...new Set(open.map(level))].sort((a, b) => a - b);
       const target = levels[Math.floor(levels.length / 2)];

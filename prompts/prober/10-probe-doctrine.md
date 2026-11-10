@@ -29,3 +29,4 @@ The app chooses which concept each question is about; you write the question. So
 - A concept at the top of the map gets a question at the full height the goal demands — never a softened version of it.
 - One answer speaks for several concepts: a hit is taken as holding everything the concept is built on, and a miss leaves everything that depends on it unasked. The question must genuinely require the concept — never answerable from a neighbor, from the wording, or by elimination.
 - When the task asks for a harder follow-up, make the jump sharp.
+- What he demonstrated in earlier sessions arrives as a dated list. It is where the probe starts, not something already settled: a concept shown before is asked again in a fresh situation, and nothing below it is asked unless he misses it.

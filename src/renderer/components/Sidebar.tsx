@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Settings, Trash2, PanelLeft, Pin, PinOff, Pencil } from 'lucide-react';
+import { Search, Settings, Trash2, PanelLeft, Pin, PinOff, Pencil, BookMarked } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 export interface SessionItem {
@@ -23,6 +23,8 @@ interface SidebarProps {
   onRenameSession?: (id: string, title: string) => void;
   onPinSession?: (id: string, pinned: boolean) => void;
   onOpenSettings?: () => void;
+  /** Opens what is kept between sessions. */
+  onOpenMemory?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -36,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRenameSession,
   onPinSession,
   onOpenSettings,
+  onOpenMemory,
 }) => {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +84,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <PanelLeft className="h-4 w-4" />
         </button>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={onOpenMemory}
+          title={t('sidebar.memory')}
+          aria-label={t('sidebar.memory')}
+          className="mb-1 flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-ink-700 hover:text-gray-200"
+        >
+          <BookMarked className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}
@@ -292,6 +304,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Footer */}
+      <button
+        type="button"
+        onClick={onOpenMemory}
+        title={t('sidebar.memory')}
+        aria-label={t('sidebar.memory')}
+        className="flex items-center gap-2 border-t border-ink-700 px-5 py-3 font-mono text-[11px] font-semibold uppercase tracking-widest text-gray-500 transition-colors hover:text-gray-200"
+      >
+        <BookMarked className="h-3.5 w-3.5" />
+        <span>{t('sidebar.memory')}</span>
+      </button>
       <button
         type="button"
         onClick={onOpenSettings}

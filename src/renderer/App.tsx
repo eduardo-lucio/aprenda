@@ -3,6 +3,7 @@ import { TitleBar } from './components/TitleBar';
 import { Sidebar, SessionItem } from './components/Sidebar';
 import { SessionView } from './views/SessionView';
 import { PracticeView } from './views/PracticeView';
+import { MemoryModal } from './components/MemoryModal';
 import { SettingsModal, AppSettings, DEFAULT_SETTINGS, normalizeEffort } from './components/SettingsModal';
 import { ErrorNotice } from './components/ErrorNotice';
 import { cleanError } from './lib/errors';
@@ -24,6 +25,7 @@ export default function App() {
   const [isBusy, setIsBusy] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
@@ -158,8 +160,9 @@ export default function App() {
   };
 
   // Practice over what a teaching session already taught: a session of its own, opened at once
-  const handleStartPractice = async (params: { material: string; targets: PracticeTarget[]; sourceSessionId: string }) => {
+  const handleStartPractice = async (params: { material: string; targets: PracticeTarget[]; sourceSessionId?: string }) => {
     if (isBusy) return;
+    setIsMemoryOpen(false);
     setAppError(null);
     try {
       const practice = await window.api.startPractice(params);
@@ -313,6 +316,7 @@ export default function App() {
         onRenameSession={handleRenameSession}
         onPinSession={handlePinSession}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenMemory={() => setIsMemoryOpen(true)}
       />
 
       {/* Right column: frameless title bar + session canvas */}
@@ -356,6 +360,12 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <MemoryModal
+        isOpen={isMemoryOpen}
+        onClose={() => setIsMemoryOpen(false)}
+        onPractice={isBusy ? undefined : handleStartPractice}
+      />
 
       {/* Settings Modal */}
       <SettingsModal

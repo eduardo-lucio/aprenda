@@ -25,6 +25,7 @@ import {
 } from '../services/llmClient';
 import { ConceptNotesGenerator } from '../services/ConceptNotesGenerator';
 import { SessionRepository } from '../persistence/SessionRepository';
+import { LearnerMemory } from '../persistence/LearnerMemory';
 import { DEEPGRAM_SECRET, providerSecret, SecretStore } from '../persistence/SecretStore';
 import { DeepgramStream, openDeepgramStream, transcribeWithDeepgram, validateDeepgramKey } from '../services/speechService';
 
@@ -34,6 +35,7 @@ export interface IpcDependencies {
   socratic: SocraticEngine;
   getMainWindow?: () => BrowserWindow | null;
   repository?: SessionRepository;
+  memory?: LearnerMemory;
   secrets?: SecretStore;
   notesGenerator?: ConceptNotesGenerator;
 }
@@ -42,6 +44,8 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   const { fsm, store, socratic, getMainWindow, repository, secrets } = deps;
   const notesGenerator = deps.notesGenerator ?? new ConceptNotesGenerator();
   fsm.setSocraticEngine(socratic);
+  const memory = deps.memory;
+  fsm.setMemory(memory);
   if (repository) {
     fsm.setPersistence((snap) => repository.saveSnapshot(snap));
     repository.setWriteListener((error) => {
@@ -145,6 +149,16 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
   ipcMain.handle('secrets:delete-deepgram', async () => {
     secrets?.delete(DEEPGRAM_SECRET);
     speechConfig.deepgramApiKey = '';
+  });
+
+  ipcMain.handle('memory:list', async () => memory?.list() ?? []);
+  ipcMain.handle('memory:delete', async (_event, ids: string[]) => {
+    memory?.delete(Array.isArray(ids) ? ids.map(String) : []);
+    return memory?.list() ?? [];
+  });
+  ipcMain.handle('memory:clear', async () => {
+    memory?.clear();
+    return [];
   });
 
   ipcMain.handle('session:list', async () => (repository ? repository.list() : []));

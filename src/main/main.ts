@@ -5,6 +5,7 @@ import { KnowledgeStore } from './knowledge/KnowledgeStore';
 import { SessionStateMachine } from './fsm/SessionStateMachine';
 import { SocraticEngine } from './socratic/SocraticEngine';
 import { SessionRepository } from './persistence/SessionRepository';
+import { LearnerMemory } from './persistence/LearnerMemory';
 import { SecretStore } from './persistence/SecretStore';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
 
@@ -96,6 +97,7 @@ async function start(): Promise<void> {
     store,
     socratic,
     repository,
+    memory: new LearnerMemory(path.join(app.getPath('userData'), 'memory.json')),
     secrets: new SecretStore(path.join(app.getPath('userData'), 'secrets.json'), safeStorage),
     getMainWindow: () => mainWindow,
   });

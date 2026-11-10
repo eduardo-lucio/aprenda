@@ -186,9 +186,35 @@ export interface ProbingSession {
   probeSummary?: StrandSummary[];
   /** Every change made to the map during the lessons, oldest first. */
   planRevisions?: PlanRevision[];
+  /** Concepts of this map the student demonstrated in an earlier session, by concept id. */
+  remembered?: Record<string, RememberedConcept>;
   agentThinking?: string;
   chatHistory?: ChatTurnMessage[];
   tokensUsed?: number;
+}
+
+/**
+ * Something the student demonstrated: mastering a concept in a lesson or solving a practice problem
+ * without relevant help. It says what was shown and when, not that it is held forever.
+ */
+export interface DemonstratedConcept {
+  id: string;
+  title: string;
+  /** The unconditional truth of the concept. */
+  truth: string;
+  discipline: string;
+  /** The session of the latest demonstration. */
+  sessionId: string;
+  source: 'lesson' | 'practice';
+  firstAt: number;
+  lastAt: number;
+  times: number;
+}
+
+/** A concept of the current map matched to an earlier demonstration: where the probe starts, to be confirmed. */
+export interface RememberedConcept {
+  memoryId: string;
+  lastAt: number;
 }
 
 /** One failed verification of a concept: what the next attempt at the lesson has to fix. */
@@ -422,6 +448,10 @@ export interface ElectronAPI {
   practiceAsk: (text: string) => Promise<ProbingSession>;
   /** From here on only what failed is posed again, in a fresh situation. */
   practiceClose: () => Promise<ProbingSession>;
+  /** What the student demonstrated in every session so far, latest first. */
+  listMemory: () => Promise<DemonstratedConcept[]>;
+  deleteMemory: (ids: string[]) => Promise<DemonstratedConcept[]>;
+  clearMemory: () => Promise<DemonstratedConcept[]>;
   /** Replaces the focus options with simpler entry points (the student asked for guidance). */
   requestOrientation: (thinkingText?: string) => Promise<ProbingSession>;
   /** Stops the AI call the student is waiting on; the pending promise rejects as cancelled. */

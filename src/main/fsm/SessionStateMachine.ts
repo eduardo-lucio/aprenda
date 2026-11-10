@@ -25,7 +25,8 @@ import { SocraticEngine } from '../socratic/SocraticEngine';
 import { addGlobalTokenListener, localize } from '../services/llmClient';
 import { ProbeFrontier, ProbeTarget } from './probeFrontier';
 import { PracticeEngine } from '../practice/PracticeEngine';
-import { nextDemand } from '../practice/practiceStream';
+import { nextDemand, resultOf } from '../practice/practiceStream';
+import { LearnerMemory, MAX_REMEMBERED_IN_PROMPT } from '../persistence/LearnerMemory';
 
 export { MIN_PROBE_QUESTIONS };
 
@@ -56,6 +57,7 @@ export class SessionStateMachine {
   /** Committed when a practice problem is posed; it never leaves the main process before the problem ends. */
   private practiceSolution?: { problemId: string; text: string };
   private onPersist?: (snapshot: SessionSnapshot) => void;
+  private memory?: LearnerMemory;
 
   constructor(
     store?: KnowledgeStore,
@@ -79,6 +81,22 @@ export class SessionStateMachine {
   }
 
   /** Registers a listener that receives a snapshot after every state change. */
+  /** Where demonstrations are kept across sessions. Without it every session starts from nothing. */
+  setMemory(memory: LearnerMemory | undefined): void {
+    this.memory = memory;
+  }
+
+  /** A failure to write the record never breaks the lesson or the problem that produced it. */
+  private remember(title: string, truth: string, source: 'lesson' | 'practice'): void {
+    const session = this.session;
+    if (!this.memory || !session) return;
+    try {
+      this.memory.record({ title, truth, discipline: session.disciplineId, sessionId: session.id, source });
+    } catch (err) {
+      console.error('[SessionStateMachine] Falha ao guardar o que foi demonstrado:', err);
+    }
+  }
+
   setPersistence(listener: (snapshot: SessionSnapshot) => void): void {
     this.onPersist = listener;
   }
@@ -101,7 +119,7 @@ export class SessionStateMachine {
     this.orchestrator.clear();
     this.store.setNodes(snapshot.nodes);
     this.strandNodes = this.store.getStrand();
-    this.frontier = new ProbeFrontier(this.strandNodes);
+    this.frontier = new ProbeFrontier(this.strandNodes, Object.keys(snapshot.session.remembered || {}));
     this.askedQuestions = [...snapshot.askedQuestions];
     // Sessions saved before the mastery gate may hold an order that does not start from the base
     this.teachingOrder = this.basicsFirst(snapshot.teachingOrder);
@@ -231,17 +249,27 @@ export class SessionStateMachine {
     const session = this.requireSession();
 
     // 1 single combined call generates the DAG and the first probe question together
+    const known = this.memory?.list().slice(0, MAX_REMEMBERED_IN_PROMPT) || [];
     const graph = await this.generator.generateGraph(selectedOption, {
       topic: session.topic,
       justification: studentThinking?.trim() || undefined,
+      ...(known.length > 0
+        ? { remembered: known.map((m) => ({ id: m.id, title: m.title, truth: m.truth, lastAt: m.lastAt })) }
+        : {}),
     });
     this.assertActive(session);
+    // The match is the model's: it only stands for a concept on the map and a record that exists
+    const remembered: NonNullable<ProbingSession['remembered']> = {};
+    for (const [nodeId, memoryId] of Object.entries(graph.remembered || {})) {
+      const entry = known.find((m) => m.id === memoryId);
+      if (entry && graph.nodes.some((n) => n.id === nodeId)) remembered[nodeId] = { memoryId, lastAt: entry.lastAt };
+    }
     const nodesState: Record<string, ConceptNode['status']> = {};
     for (const n of graph.nodes) {
       nodesState[n.id] = 'untested';
     }
     // The probe enters at the top of the map: a miss walks it down, a hit spares everything below
-    const frontier = new ProbeFrontier([...graph.nodes].sort((a, b) => a.level - b.level));
+    const frontier = new ProbeFrontier([...graph.nodes].sort((a, b) => a.level - b.level), Object.keys(remembered));
     let firstQuestion = graph.firstQuestion;
     if (!firstQuestion || !graph.nodes.some((n) => n.id === firstQuestion!.nodeId)) {
       const entry = graph.nodes.find((n) => n.id === frontier.pickNext(nodesState, []).nodeId)!;
@@ -265,6 +293,7 @@ export class SessionStateMachine {
     session.goal = selectedOption;
     session.disciplineId = graph.discipline;
     session.nodesState = nodesState;
+    if (Object.keys(remembered).length > 0) session.remembered = remembered;
     session.phase = 'probing';
     session.questionCount = 1;
     session.currentQuestion = firstQuestion;
@@ -494,6 +523,7 @@ export class SessionStateMachine {
       if (opts.conceptDone !== false) {
         session.nodesState[nodeId] = 'mastered';
         delete this.lessonFailures[nodeId];
+        this.remember(node.title, node.unconditionalTruth, 'lesson');
       }
     } else {
       session.nodesState[nodeId] = evaluation.verdict;
@@ -818,8 +848,15 @@ export class SessionStateMachine {
     this.assertActive(session);
     problem.turns.push({ role: 'student', kind: 'claim', text: said });
     problem.turns.push({ role: 'tutor', kind: 'verdict', text: verdict.reply, correct: verdict.correct });
-    if (verdict.correct) this.concludeProblem(practice, 'solved');
-    else problem.wrongClaims += 1;
+    if (verdict.correct) {
+      this.concludeProblem(practice, 'solved');
+      // Solved with the path handed over is not a demonstration: only the unaided ones are kept
+      if (resultOf(problem) === 'clean') {
+        for (const target of practice.targets.filter((t) => problem.targetIds.includes(t.id))) {
+          this.remember(target.title, target.truth, 'practice');
+        }
+      }
+    } else problem.wrongClaims += 1;
     this.persist();
     return this.getState();
   }
