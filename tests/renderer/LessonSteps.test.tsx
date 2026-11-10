@@ -102,7 +102,7 @@ describe('lessons in steps (D2, A7)', () => {
     fireEvent.click(screen.getByText('Não'));
     send();
 
-    await waitFor(() => expect(api().submitCheckAnswer).toHaveBeenCalledWith(1, 50, 'chutei', 'o exemplo me confundiu'));
+    await waitFor(() => expect(api().submitCheckAnswer).toHaveBeenCalledWith(1, undefined, 'chutei', 'o exemplo me confundiu'));
     fireEvent.click(await screen.findByRole('button', { name: /ver este passo de outro jeito/i }));
 
     await screen.findByText('Outra explicação do passo 1.');

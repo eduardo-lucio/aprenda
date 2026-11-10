@@ -96,6 +96,7 @@ export const pt = {
   'lesson.section.check': 'Verificação',
   'lesson.pastPassed': 'acertou a verificação',
   'lesson.pastFailed': 'errou a verificação',
+  'lesson.pastFragile': 'acertou a alternativa sem domínio',
   'app.warn.corrupt': 'O arquivo de sessões não pôde ser lido e foi guardado em {file}. As próximas sessões serão salvas em um arquivo novo.',
   'app.warn.plainKeys': 'Este sistema não oferece um cofre de senhas: suas chaves de API ficam em um arquivo sem criptografia, acessível só pelo seu usuário.',
   'app.err.save': 'Seu progresso não está sendo salvo: {detail}',
@@ -143,6 +144,8 @@ export const pt = {
   'probe.keysHint': '↵ envia · ⇧↵ nova linha',
   'probe.send': 'Enviar resposta',
   'confidence.label': 'Confiança',
+  'confidence.unset': 'não informada',
+  'confidence.unsetHint': 'Arraste para dizer o quanto você confia na resposta. Sem mexer, ela vai sem confiança declarada.',
 
   // Answered question
   'answered.header': 'Pergunta',

@@ -6,7 +6,8 @@ import { useI18n } from '../i18n';
 interface ProbeCardProps {
   /** The question block (QuestionCard). */
   children: React.ReactNode;
-  /** Confidence row is shown only when a value handler is provided. */
+  /** Confidence row is shown only when `showConfidence` and a handler are given; undefined means not declared. */
+  showConfidence?: boolean;
   confidence?: number;
   onConfidenceChange?: (value: number) => void;
   reasoning: string;
@@ -28,6 +29,7 @@ interface ProbeCardProps {
  */
 export const ProbeCard: React.FC<ProbeCardProps> = ({
   children,
+  showConfidence = false,
   confidence,
   onConfidenceChange,
   reasoning,
@@ -45,7 +47,7 @@ export const ProbeCard: React.FC<ProbeCardProps> = ({
   <div data-testid="probe-card" className="card dock-variant overflow-hidden">
     <div className="p-5">{children}</div>
 
-    {confidence !== undefined && onConfidenceChange && (
+    {showConfidence && onConfidenceChange && (
       <ConfidenceSlider value={confidence} onChange={onConfidenceChange} />
     )}
 

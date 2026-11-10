@@ -98,6 +98,9 @@ export function sanitizeGraph(rawNodes: any[]): ConceptNode[] {
   });
 }
 
+/** The map is asked for with 6 to 8 concepts; fewer is accepted only after a second request. */
+export const MIN_GRAPH_NODES = 6;
+
 export interface GeneratedGraphResult {
   discipline: string;
   nodes: ConceptNode[];
@@ -184,6 +187,7 @@ export class CurriculumGenerator {
           prompt,
           temperature: 0.4,
           jsonMode: true,
+          maxTokens: 2048,
           effortLevel: 'low',
           timeoutMs: 60000,
         });
@@ -227,9 +231,11 @@ export class CurriculumGenerator {
   ): Promise<GeneratedGraphResult> {
     let lastErr: unknown;
     const offered = (context?.remembered || []).map((m, i) => ({ ...m, ref: `m${i + 1}` }));
+    // A map below the minimum is kept as a fallback and asked for once more: a short map makes a shallow probe
+    let shortMap: GeneratedGraphResult | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { systemPrompt, prompt } = buildGraphPrompt(goal, {
+      const built = buildGraphPrompt(goal, {
         topic: context?.topic,
         justification: context?.justification,
         remembered: offered.map((m) => ({
@@ -239,6 +245,10 @@ export class CurriculumGenerator {
           date: new Date(m.lastAt).toISOString().slice(0, 10),
         })),
       });
+      const systemPrompt = built.systemPrompt;
+      const prompt = shortMap
+        ? `${built.prompt}\n\nATENÇÃO: a resposta anterior trouxe só ${shortMap.nodes.length} conceitos. O grafo precisa de ${MIN_GRAPH_NODES} a 8 nós: decomponha em passos menores o que ficou junto.`
+        : built.prompt;
       const raw = await this.llm({
         systemPrompt,
         prompt,
@@ -294,7 +304,7 @@ export class CurriculumGenerator {
           };
         }
 
-        return {
+        const result: GeneratedGraphResult = {
           discipline:
             typeof parsed?.discipline === 'string' && parsed.discipline.trim()
               ? parsed.discipline.trim()
@@ -304,16 +314,22 @@ export class CurriculumGenerator {
           agentThinking: graphThinking,
           ...(Object.keys(remembered).length > 0 ? { remembered } : {}),
         };
+        if (nodes.length >= MIN_GRAPH_NODES) return result;
+        if (!shortMap || nodes.length > shortMap.nodes.length) shortMap = result;
+        continue;
       }
       lastErr = new Error(localize('A IA retornou um grafo conceitual inválido.', 'The AI returned an invalid concept map.'));
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
       lastErr = err;
       if (this.isFatalProviderError(err)) {
+        // The second request is only a try for a fuller map: the short one still makes a session
+        if (shortMap) return shortMap;
         throw err;
       }
     }
     }
+    if (shortMap) return shortMap;
     throw new Error(
       localize(`Não foi possível gerar o grafo de conceitos com a IA: ${String((lastErr as any)?.message || lastErr)}`, `The concept map could not be generated: ${String((lastErr as any)?.message || lastErr)}`)
     );

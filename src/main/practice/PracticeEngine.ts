@@ -22,7 +22,7 @@ export class PracticeEngine {
   private async ask<T>(built: { systemPrompt: string; prompt: string }, accept: (parsed: any) => T | null, failure: string): Promise<T> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await this.llm({ ...built, temperature: 0.4, jsonMode: true, timeoutMs: 60000 });
+        const raw = await this.llm({ ...built, temperature: 0.4, jsonMode: true, maxTokens: 6144, timeoutMs: 60000 });
         const value = accept(parseLLMJson<any>(raw));
         if (value !== null) return value;
       } catch (err) {

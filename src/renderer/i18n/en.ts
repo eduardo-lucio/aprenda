@@ -98,6 +98,7 @@ export const en: Record<keyof typeof pt, string> = {
   'lesson.section.check': 'Check',
   'lesson.pastPassed': 'verification passed',
   'lesson.pastFailed': 'verification missed',
+  'lesson.pastFragile': 'right option, not yet mastered',
   'app.warn.corrupt': 'The session file could not be read and was kept at {file}. New sessions will be saved in a new file.',
   'app.warn.plainKeys': 'This system has no password vault: your API keys are stored unencrypted in a file only your user can access.',
   'app.err.save': 'Your progress is not being saved: {detail}',
@@ -145,6 +146,8 @@ export const en: Record<keyof typeof pt, string> = {
   'probe.keysHint': '↵ send · ⇧↵ new line',
   'probe.send': 'Send answer',
   'confidence.label': 'Confidence',
+  'confidence.unset': 'not stated',
+  'confidence.unsetHint': 'Drag to say how sure you are of the answer. Left alone, it goes with no stated confidence.',
 
   // Answered question
   'answered.header': 'Question',

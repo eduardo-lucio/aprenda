@@ -45,6 +45,78 @@ function splitUnfencedCode(text: string): Segment[] {
   return out.length > 0 ? out : [{ type: 'text', value: text }];
 }
 
+/** A line that can only be code: a definition, a control statement, a statement ending in ; or a brace. */
+const STRONG_CODE_LINE = [
+  /^\s*(def|class)\s+\w+.*:\s*(#.*)?$/,
+  /^\s*(if|elif|while|with)\s+.+:\s*(#.*)?$/,
+  /^\s*for\s+.+\s+in\s+.+:\s*(#.*)?$/,
+  /^\s*(else|try|finally)\s*:\s*(#.*)?$/,
+  /^\s*except\b.*:\s*(#.*)?$/,
+  /^\s*return\b.*$/,
+  /^\s*(import\s+[\w.]+|from\s+[\w.]+\s+import\s+.+)\s*$/,
+  /^\s*(const|let|var)\s+[\w$]+\s*=.*$/,
+  /^\s*(async\s+)?function\s*[\w$]*\s*\(.*$/,
+  /^\s*(public|private|static)\s.*[;{]\s*$/,
+  /^\s*[}\])]+[;,)]*\s*$/,
+  /^[^\s].*[;{]\s*$/,
+];
+/** A line that reads as code once a strong line is around: an assignment or a bare call. */
+const WEAK_CODE_LINE = [
+  /^\s*[A-Za-z_][\w.]*(\[[^\]]*\])?\s*([+\-*/%]|\/\/)?=\s*[^=\s].*$/,
+  /^\s*[A-Za-z_][\w.]*\(.*\)\s*;?\s*(#.*)?$/,
+  /^\s*#\s.*$/,
+];
+const isStrong = (line: string) => STRONG_CODE_LINE.some((re) => re.test(line));
+const isWeak = (line: string) => WEAK_CODE_LINE.some((re) => re.test(line));
+
+function guessLang(code: string): string {
+  if (/^\s*(def|class|elif|import|from)\b|:\s*$|\bprint\(|\b(None|True|False)\b/m.test(code)) return 'python';
+  if (/;\s*$|\b(const|let|var|function)\b|=>/m.test(code)) return 'javascript';
+  return '';
+}
+
+/**
+ * Code a model wrote without a fence: two or more lines in a row that read as code, at least one of
+ * them unmistakably. Prose never matches: a sentence with "x = 5" is one line and has no strong sign.
+ * Markdown would join those lines into one paragraph and lose the indentation that carries meaning.
+ */
+export function splitLooseCode(text: string): Segment[] {
+  const lines = text.split('\n');
+  const out: Segment[] = [];
+  let prose: string[] = [];
+  const flushProse = () => {
+    if (prose.length) out.push({ type: 'text', value: prose.join('\n') });
+    prose = [];
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const start = i;
+    let strong = 0;
+    // A code line, or an indented line right after one (the body of a block)
+    while (
+      i < lines.length &&
+      !lines[i].includes('`') &&
+      (isStrong(lines[i]) || isWeak(lines[i]) || (i > start && /^(\s{2,}|\t)\S/.test(lines[i])))
+    ) {
+      if (isStrong(lines[i])) strong++;
+      i++;
+    }
+    if (i - start >= 2 && strong >= 1) {
+      flushProse();
+      const code = lines.slice(start, i).join('\n');
+      out.push({ type: 'code', lang: guessLang(code), value: code });
+    } else {
+      prose.push(...lines.slice(start, Math.max(i, start + 1)));
+      i = Math.max(i, start + 1);
+    }
+  }
+  flushProse();
+  return out.length > 0 ? out : [{ type: 'text', value: text }];
+}
+
+const splitAllUnfenced = (text: string): Segment[] =>
+  splitUnfencedCode(text).flatMap((seg) => (seg.type === 'text' ? splitLooseCode(seg.value) : [seg]));
+
 /** Splits text into plain-text and fenced code segments (tolerates an unclosed fence while streaming). */
 export function parseSegments(input: string): Segment[] {
   const segments: Segment[] = [];
@@ -54,7 +126,7 @@ export function parseSegments(input: string): Segment[] {
 
   while ((match = fence.exec(input)) !== null) {
     if (match.index > last) {
-      segments.push(...splitUnfencedCode(input.slice(last, match.index)));
+      segments.push(...splitAllUnfenced(input.slice(last, match.index)));
     }
 
     let lang = match[1].trim();
@@ -74,7 +146,7 @@ export function parseSegments(input: string): Segment[] {
     if (match[3] === '') break;
   }
   if (last < input.length) {
-    segments.push(...splitUnfencedCode(input.slice(last)));
+    segments.push(...splitAllUnfenced(input.slice(last)));
   }
   return segments;
 }

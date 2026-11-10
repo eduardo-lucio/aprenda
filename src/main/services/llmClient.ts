@@ -268,6 +268,12 @@ export function cancelForegroundLLM(): void {
   for (const guard of foregroundCalls) guard.cancel();
 }
 
+/**
+ * Cap used when a call names none. Without a cap OpenRouter reserves the model's whole output
+ * window (65,536 tokens for some models), and a key with little credit is refused before anything runs.
+ */
+export const DEFAULT_MAX_TOKENS = 8192;
+
 async function doRequest(
   config: LLMConfig,
   options: CallLLMOptions,
@@ -299,11 +305,12 @@ async function doRequest(
         ...(useStream ? { stream: true, stream_options: { include_usage: true } } : {}),
       };
 
-  if (options.maxTokens && !bare) {
+  const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (!bare) {
     if (isReasoningModel) {
-      bodyPayload.max_completion_tokens = options.maxTokens;
+      bodyPayload.max_completion_tokens = maxTokens;
     } else {
-      bodyPayload.max_tokens = options.maxTokens;
+      bodyPayload.max_tokens = maxTokens;
     }
   }
 
@@ -615,11 +622,11 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
 
   let { content, nativeReasoning } = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
 
-  // If a reasoning model exhausted max_tokens inside <think> and returned empty content, retry once without maxTokens cap
-  if ((!content || !content.trim()) && options.maxTokens) {
+  // A reasoning model that spent the whole cap thinking returns nothing: once more, without thinking and with room
+  if (!content || !content.trim()) {
     const retryRes = await doRequest(
       config,
-      { ...options, maxTokens: undefined, effortLevel: 'off' },
+      { ...options, maxTokens: (options.maxTokens ?? DEFAULT_MAX_TOKENS) * 2, effortLevel: 'off' },
       false,
       shouldStreamLive,
       guard

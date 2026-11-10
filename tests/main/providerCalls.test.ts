@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   callLLM,
+  DEFAULT_MAX_TOKENS,
   defaultLLMConfig,
   setGlobalThinkingStreamListener,
   updateDefaultLLMConfig,
@@ -57,6 +58,15 @@ describe('request parameters per model family', () => {
     global.fetch = f as any;
     await callLLM({ prompt: 'x', maxTokens: 100, config: config('openai/gpt-5', 'https://openrouter.ai/api/v1') });
     expect(sentBody(f).max_tokens).toBe(100);
+  });
+
+  it('a call that names no cap still sends one, and an empty answer is retried with more room, not unlimited', async () => {
+    const f = vi.fn().mockResolvedValueOnce(okJson('')).mockResolvedValueOnce(okJson('oi'));
+    global.fetch = f as any;
+    expect(await callLLM({ prompt: 'x', config: config('anthropic/claude-opus-5.5', 'https://openrouter.ai/api/v1') })).toBe('oi');
+    expect(sentBody(f, 0).max_tokens).toBe(DEFAULT_MAX_TOKENS);
+    expect(sentBody(f, 1).max_tokens).toBe(DEFAULT_MAX_TOKENS * 2);
+    expect(sentBody(f, 1).reasoning).toEqual({ effort: 'none' });
   });
 
   it('F9: after HTTP 400 the retry drops every optional parameter', async () => {

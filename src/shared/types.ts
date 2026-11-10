@@ -144,6 +144,10 @@ export function clampProbeQuestions(n: unknown): number {
   return Math.min(PROBE_QUESTIONS_RANGE.max, Math.max(PROBE_QUESTIONS_RANGE.min, v));
 }
 export const CONFIDENCE_STOPS = [0, 30, 50, 70, 90, 100] as const;
+/**
+ * Where the confidence control rests before the student touches it. Resting there says nothing:
+ * the answer goes to the judge with no confidence, never as a coin toss he did not declare.
+ */
 export const DEFAULT_CONFIDENCE = 50;
 
 export interface CheckQuestionData {
@@ -262,6 +266,8 @@ export interface CompletedLesson {
   teachProse: string;
   checkQuestion: string;
   isPassed: boolean;
+  /** The right option without the understanding behind it (absent in lessons saved before this was kept). */
+  mastered?: boolean;
   repairExplanation?: string;
   /** Absent in lessons saved before concepts were taught in steps. */
   stepIndex?: number;

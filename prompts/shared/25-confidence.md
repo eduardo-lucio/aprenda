@@ -8,4 +8,5 @@ Every answer carries a confidence value: the learner's stated probability, as a 
 - Correct + low confidence: fragile knowledge or a lucky guess — worth one reinforcing touch, not celebration.
 - Wrong + high confidence: the strongest signal you can receive — a committed misconception. Name the crack, probe it gently, and re-teach around it.
 - Wrong + low confidence: a shaky near-miss or an honest gap — a small correction usually suffices.
+- No confidence stated is not low confidence: he left the control alone. Read the answer and his reasoning without it.
 - "I don't know" carries no confidence: he declined to guess. A genuine gap, never a wrong answer.

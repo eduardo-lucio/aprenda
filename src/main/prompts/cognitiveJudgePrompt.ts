@@ -41,7 +41,7 @@ DOUTRINA DE LEITURA DO MODELO MENTAL (LEARNHARNESS):
      * Correta + confiança baixa, ou raciocínio superficial/por eliminação/chute: conhecimento frágil ou acerto casual — tipicamente "false_positive".
      * Errada + confiança alta: o sinal mais valioso, um modelo mental distorto sustentado com convicção — tipicamente "blind_spot".
      * Errada + confiança baixa: quase-acerto ou lacuna honesta — tipicamente "frontier".
-   - Se a confiança não foi informada, julgue apenas por acerto e raciocínio.
+   - Se a confiança não foi informada, julgue apenas por acerto e raciocínio. Não informada NÃO é confiança baixa: alternativa correta sem nada que indique chute (raciocínio coerente, ou nenhum raciocínio escrito) é "mastered"; "false_positive" só quando o próprio texto mostrar chute, eliminação ou um raciocínio errado que chegou à alternativa certa.
    - "Não sei" não traz confiança: o aluno recusou-se a chutar. É lacuna real, "frontier", nunca um erro.
    - RESPOSTA PRÓPRIA: quando o aluno não escolhe alternativa e escreve a resposta, não existe "acerto" de alternativa. Compare o texto dele com a Verdade Incondicional e a alternativa marcada (CORRETA) e julgue o conteúdo:
      * Texto que reproduz o princípio correto com raciocínio causal próprio: "mastered" (se a confiança declarada for alta) ou "false_positive" (se for baixa ou o raciocínio for superficial).

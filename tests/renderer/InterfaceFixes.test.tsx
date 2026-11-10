@@ -99,6 +99,27 @@ describe('interface fixes', () => {
     expect(screen.getByText('Texto antigo')).toBeDefined();
   });
 
+  it('a past step answered right without mastery is not labeled as passed', () => {
+    const base = { nodeId: 'n', predictQuestion: '', prediction: '', teachProse: 't', checkQuestion: 'c' };
+    render(
+      <SessionView
+        currentSession={session({ phase: 'plan_review', currentQuestion: undefined })}
+        restoredUi={{
+          chatMessages: [],
+          lessons: [
+            { ...base, title: 'Frágil', isPassed: true, mastered: false },
+            { ...base, title: 'Firme', isPassed: true, mastered: true },
+            { ...base, title: 'Antiga', isPassed: true },
+          ],
+        }}
+      />
+    );
+    const [fragile, firm, old] = screen.getAllByTestId('past-lesson').map((el) => el.textContent);
+    expect(fragile).toContain('acertou a alternativa sem domínio');
+    expect(firm).toContain('acertou a verificação');
+    expect(old).toContain('acertou a verificação');
+  });
+
   it('U7: no message field when nothing is expected from the student', () => {
     render(<SessionView currentSession={session({ phase: 'plan_review', plan: 'Plano', currentQuestion: undefined })} />);
     expect(document.querySelector('textarea')).toBeNull();
@@ -113,12 +134,15 @@ describe('interface fixes', () => {
     expect(option.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('U12: leaving "Não sei" gives the confidence back', async () => {
+  it('U12: leaving "Não sei" gives the confidence back, not declared', async () => {
     render(<SessionView currentSession={session()} />);
     fireEvent.click(await screen.findByText(/não sei/i));
     fireEvent.click(screen.getByText('Primeira'));
-    expect(screen.getByRole('slider').getAttribute('aria-valuenow')).toBe('50');
+    const slider = screen.getByRole('slider');
+    expect(slider.getAttribute('aria-valuetext')).toBe('não informada');
+    expect(screen.getByText('—')).toBeDefined();
   });
+
 
   it('U12: comment colors follow the language', () => {
     const { container, rerender } = render(<CodeBlock code="ls --all // nada" lang="bash" />);

@@ -405,7 +405,7 @@ describe('SessionView Integration', () => {
     await waitFor(() => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
         selectedOptionIndex: 1,
-        confidence: 50,
+        confidence: undefined,
         thinkingText: 'Porque o roteador reenvia sempre.',
       });
     });
@@ -435,7 +435,7 @@ describe('SessionView Integration', () => {
       expect((window as any).api.submitProbeAnswer).toHaveBeenCalledWith({
         selectedOptionIndex: -1,
         answerKind: 'own_answer',
-        confidence: 50,
+        confidence: undefined,
         thinkingText: 'O pacote some e o roteador avisa a origem.',
       });
     });

@@ -30,7 +30,7 @@ import { NotesView } from '../components/NotesView';
 import { HeroGraph } from '../components/HeroGraph';
 import { HeroHeadline } from '../components/HeroHeadline';
 import { localeOf, useI18n } from '../i18n';
-import { DEFAULT_CONFIDENCE, MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions, isOrientationOption } from '../../shared/types';
+import { MIN_PROBE_QUESTIONS, PersistedUi, clampProbeQuestions, isOrientationOption } from '../../shared/types';
 import {
   CheckCircle2,
   Sparkles,
@@ -174,7 +174,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // Shared answer state for the question docked above the chat field
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [isDontKnow, setIsDontKnow] = useState(false);
-  const [confidence, setConfidence] = useState<number>(DEFAULT_CONFIDENCE);
+  // Undefined until the student moves the control: an untouched control declares nothing
+  const [confidence, setConfidence] = useState<number | undefined>(undefined);
 
   // Socratic cycle state (lifted out of the card: inputs live in the chat field)
   // A lesson closed between a verification and the next explanation reopens asking for that explanation
@@ -288,7 +289,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   useEffect(() => {
     setSelectedIdx(null);
     setIsDontKnow(false);
-    setConfidence(DEFAULT_CONFIDENCE);
+    setConfidence(undefined);
   }, [currentQuestion?.id, session?.id, socraticStep, checkQuestion?.questionText]);
 
   // A lesson restored from disk arrives with its own state: only a change of concept clears it
@@ -788,6 +789,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
             teachProse,
             checkQuestion: checkQuestion?.questionText || '',
             isPassed: res.isPassed,
+            mastered: res.mastered,
             repairExplanation: res.repairExplanation,
             ...(shownStep ? { stepIndex: shownStep.index, stepCount: shownStep.count } : {}),
             ...(res.planRevision ? { planNote: res.planRevision.note } : {}),
@@ -1619,7 +1621,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
                       {lesson.stepCount && lesson.stepCount > 1
                         ? ` · ${t('lesson.stepOf', { n: (lesson.stepIndex ?? 0) + 1, total: lesson.stepCount })}`
                         : ''}{' '}
-                      · {lesson.isPassed ? t('lesson.pastPassed') : t('lesson.pastFailed')}
+                      ·{' '}
+                      {!lesson.isPassed
+                        ? t('lesson.pastFailed')
+                        : lesson.mastered === false
+                        ? t('lesson.pastFragile')
+                        : t('lesson.pastPassed')}
                     </summary>
                     <div className="mt-3 space-y-3 leading-relaxed">
                       {lesson.predictQuestion && <RichText text={lesson.predictQuestion} className="text-gray-200" />}
@@ -1736,7 +1743,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
               {hasDock && (
                 <div ref={activeCardRef} className="scroll-mt-4">
                   <ProbeCard
-                    confidence={(isProbeMode && !isDontKnow) || isSocraticCheck ? confidence : undefined}
+                    showConfidence={(isProbeMode && !isDontKnow) || isSocraticCheck}
+                    confidence={confidence}
                     onConfidenceChange={setConfidence}
                     reasoning={inputValue}
                     onReasoningChange={setInputValue}
@@ -1785,7 +1793,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
                           toggleSelected(idx);
                           if (isDontKnow) {
                             setIsDontKnow(false);
-                            setConfidence(DEFAULT_CONFIDENCE);
+                            setConfidence(undefined);
                           }
                         }}
                         dashedOption={{

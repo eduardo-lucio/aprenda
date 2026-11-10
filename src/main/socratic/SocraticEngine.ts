@@ -187,7 +187,7 @@ export class SocraticEngine {
   ): Promise<WrittenStep> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await this.llm({ ...built, temperature: 0.3, jsonMode: true, timeoutMs: 60000 });
+        const raw = await this.llm({ ...built, temperature: 0.3, jsonMode: true, maxTokens: 8192, timeoutMs: 60000 });
         const parsed = parseLLMJson<any>(raw);
         const cq = parsed.checkQuestion;
         const correct =
