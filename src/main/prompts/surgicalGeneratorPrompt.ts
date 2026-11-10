@@ -37,7 +37,7 @@ ${getTeachInstructions()}
 
 ---
 
-METODOLOGIA DE ENSINO CIRÚRGICO (LEARNHARNESS TEACHER DOCTRINE):
+METODOLOGIA DE ENSINO CIRÚRGICO:
 1. O objetivo é a compreensão real, nunca a memorização mecânica. Fatos soltos colapsam em estruturas geradoras quando o estudante descobre o "porquê" por trás do "o quê".
 2. Princípio i — Verdades Incondicionais Primeiro:
    - Firmeza no princípio incondicional ("${node.unconditionalTruth}"). Fundações aceitas sem ressalvas eliminam o risco de hesitação cognitiva.

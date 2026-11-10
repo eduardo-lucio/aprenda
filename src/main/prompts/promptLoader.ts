@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Loads markdown prompt files from `prompts/` directory, mirroring the learnharness structure.
+ * Loads markdown prompt files from `prompts/` directory
  * Falls back to embedded strings if files are not accessible on disk.
  */
 
