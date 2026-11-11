@@ -8,6 +8,9 @@ import { SessionRepository } from './persistence/SessionRepository';
 import { LearnerMemory } from './persistence/LearnerMemory';
 import { SecretStore } from './persistence/SecretStore';
 import { registerIpcHandlers } from './ipc/registerIpcHandlers';
+import { configureNetworkDefaults } from './services/http';
+
+configureNetworkDefaults();
 
 let mainWindow: BrowserWindow | null = null;
 

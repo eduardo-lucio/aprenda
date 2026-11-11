@@ -7,7 +7,7 @@ import {
   buildPredictPrompt,
   buildProbeQuestionPrompt,
 } from '../prompts/curriculumPrompts';
-import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
+import { callLLM, isFatalLLMError, LLMCaller, LLMNetworkError, localize, parseLLMJson } from './llmClient';
 
 export function slugify(text: string): string {
   return (
@@ -126,9 +126,13 @@ export interface GoalClarificationResult {
 
 /** Short, human reason for a failed generation attempt. */
 function describeGenerationFailure(err: unknown): string {
+  if (err instanceof LLMNetworkError) {
+    return localize(`falha de conexão com o provedor de IA (${err.reason})`, `could not reach the AI provider (${err.reason})`);
+  }
   const msg = String((err as any)?.message || err || '');
   if (/Tempo limite|timed out|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
   if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');
+  if (/resposta vazia|empty answer/i.test(msg)) return localize('o modelo devolveu uma resposta vazia', 'the model returned an empty answer');
   if (/JSON|Unexpected token|parse/i.test(msg)) return localize('a IA respondeu num formato inesperado', 'the AI answered in an unexpected format');
   return msg
     ? localize(`erro do provedor de IA (${msg.slice(0, 120)})`, `AI provider error (${msg.slice(0, 120)})`)
@@ -136,6 +140,18 @@ function describeGenerationFailure(err: unknown): string {
 }
 
 const CANCELLED_BY_ORCHESTRATOR = 'Operação cancelada pelo orquestrador.';
+
+function retryHint(): string {
+  return localize(
+    'Tente de novo; se continuar falhando, escolha outro modelo em Configurações → Modelo.',
+    'Try again; if it keeps failing, pick another model in Settings → Model.'
+  );
+}
+
+/** The start of an answer that could not be read, so the log shows what the model actually sent. */
+function logUnreadable(raw: string): void {
+  if (raw) console.error('[CurriculumGenerator] Início da resposta recebida:', JSON.stringify(raw.slice(0, 400)));
+}
 
 /** The answer-key index, only if it is really an index into `length` options (null, 1.5 and "" are not). */
 export function parseCorrectIndex(value: unknown, length: number): number | null {
@@ -178,11 +194,12 @@ export class CurriculumGenerator {
 
   async generateGoalOptions(goal: string, orientation?: { justification?: string }): Promise<GoalClarificationResult> {
     const { systemPrompt, prompt } = buildGoalOptionsPrompt(goal, orientation);
-    let lastErr: unknown;
+    let reason = localize('a IA não retornou opções de escopo válidas', 'the AI did not return valid focus options');
 
     for (let attempt = 0; attempt < 3; attempt++) {
+      let raw = '';
       try {
-        const raw = await this.llm({
+        raw = await this.llm({
           systemPrompt,
           prompt,
           temperature: 0.4,
@@ -213,15 +230,20 @@ export class CurriculumGenerator {
           }
           return { question, options, agentThinking: jsonThink };
         }
-        lastErr = new Error(localize('A IA não retornou opções de escopo válidas.', 'The AI did not return valid focus options.'));
+        reason = localize('a IA não retornou opções de escopo válidas', 'the AI did not return valid focus options');
+        logUnreadable(raw);
       } catch (err) {
         console.error(`[CurriculumGenerator] Falha ao gerar opções de escopo via IA (tentativa ${attempt + 1}):`, err);
-        lastErr = err;
         if (this.isFatalProviderError(err)) throw err;
+        reason = describeGenerationFailure(err);
+        logUnreadable(raw);
       }
     }
     throw new Error(
-      localize(`Não foi possível gerar as opções de escopo com a IA: ${String((lastErr as any)?.message || lastErr)}`, `The focus options could not be generated: ${String((lastErr as any)?.message || lastErr)}`)
+      localize(
+        `Não foi possível gerar as opções de escopo com a IA: ${reason}. ${retryHint()}`,
+        `The focus options could not be generated: ${reason}. ${retryHint()}`
+      )
     );
   }
 
@@ -229,11 +251,12 @@ export class CurriculumGenerator {
     goal: string,
     context?: { topic?: string; justification?: string; remembered?: RememberedInput[] }
   ): Promise<GeneratedGraphResult> {
-    let lastErr: unknown;
+    let reason = localize('a IA retornou um grafo conceitual inválido', 'the AI returned an invalid concept map');
     const offered = (context?.remembered || []).map((m, i) => ({ ...m, ref: `m${i + 1}` }));
     // A map below the minimum is kept as a fallback and asked for once more: a short map makes a shallow probe
     let shortMap: GeneratedGraphResult | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
+    let raw = '';
     try {
       const built = buildGraphPrompt(goal, {
         topic: context?.topic,
@@ -249,7 +272,7 @@ export class CurriculumGenerator {
       const prompt = shortMap
         ? `${built.prompt}\n\nATENÇÃO: a resposta anterior trouxe só ${shortMap.nodes.length} conceitos. O grafo precisa de ${MIN_GRAPH_NODES} a 8 nós: decomponha em passos menores o que ficou junto.`
         : built.prompt;
-      const raw = await this.llm({
+      raw = await this.llm({
         systemPrompt,
         prompt,
         temperature: 0.2,
@@ -318,20 +341,25 @@ export class CurriculumGenerator {
         if (!shortMap || nodes.length > shortMap.nodes.length) shortMap = result;
         continue;
       }
-      lastErr = new Error(localize('A IA retornou um grafo conceitual inválido.', 'The AI returned an invalid concept map.'));
+      reason = localize('a IA retornou um grafo conceitual inválido', 'the AI returned an invalid concept map');
+      logUnreadable(raw);
     } catch (err) {
       console.error('[CurriculumGenerator] Falha ao gerar grafo DAG via IA:', err);
-      lastErr = err;
       if (this.isFatalProviderError(err)) {
         // The second request is only a try for a fuller map: the short one still makes a session
         if (shortMap) return shortMap;
         throw err;
       }
+      reason = describeGenerationFailure(err);
+      logUnreadable(raw);
     }
     }
     if (shortMap) return shortMap;
     throw new Error(
-      localize(`Não foi possível gerar o grafo de conceitos com a IA: ${String((lastErr as any)?.message || lastErr)}`, `The concept map could not be generated: ${String((lastErr as any)?.message || lastErr)}`)
+      localize(
+        `Não foi possível gerar o grafo de conceitos com a IA: ${reason}. ${retryHint()}`,
+        `The concept map could not be generated: ${reason}. ${retryHint()}`
+      )
     );
   }
 

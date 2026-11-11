@@ -5,7 +5,7 @@ import {
   resolveAnswerKind,
 } from '../../shared/types';
 import { buildCognitiveJudgePrompt } from '../prompts/cognitiveJudgePrompt';
-import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from './llmClient';
+import { callLLM, isFatalLLMError, LLMCaller, LLMNetworkError, localize, parseLLMJson } from './llmClient';
 
 const VERDICTS = ['mastered', 'false_positive', 'blind_spot', 'frontier'] as const;
 type Verdict = (typeof VERDICTS)[number];
@@ -137,6 +137,9 @@ export class CognitiveJudgeService {
   }
 
   private describeFailure(err: unknown): string {
+    if (err instanceof LLMNetworkError) {
+      return localize(`falha de conexão com o provedor de IA (${err.reason})`, `could not reach the AI provider (${err.reason})`);
+    }
     const msg = String((err as any)?.message || err || '');
     if (/Tempo limite|timed out|timeout|aborted/i.test(msg)) return localize('o modelo demorou demais para responder', 'the model took too long to answer');
     if (/fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|network/i.test(msg)) return localize('falha de conexão com o provedor de IA', 'could not reach the AI provider');

@@ -122,10 +122,185 @@ export function parseLLMJson<T = any>(raw: string): T {
     endChar = ']';
   }
   const end = text.lastIndexOf(endChar);
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error(localize('A resposta do modelo não contém JSON válido.', 'The model answer has no valid JSON.'));
+  let parseError: unknown;
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1)) as T;
+    } catch (err) {
+      parseError = err;
+    }
   }
-  return JSON.parse(text.slice(start, end + 1)) as T;
+
+  // Models slip in ways a strict parser refuses: braces in the prose before the JSON, text after it,
+  // a quote or a LaTeX backslash left unescaped, a line break inside a string, a comma too many or too few
+  for (let pos = start; pos !== -1; ) {
+    const repaired = repairJson(text, pos);
+    if (repaired !== null) {
+      try {
+        return JSON.parse(repaired) as T;
+      } catch {}
+    }
+    const closedAt = matchingClose(text, pos);
+    // A cut or broken structure: its inner objects are not the answer
+    if (closedAt === -1) break;
+    pos = nextOpener(text, closedAt + 1);
+  }
+
+  throw parseError ?? new Error(localize('A resposta do modelo não contém JSON válido.', 'The model answer has no valid JSON.'));
+}
+
+function nextOpener(text: string, from: number): number {
+  for (let i = from; i < text.length; i++) if (text[i] === '{' || text[i] === '[') return i;
+  return -1;
+}
+
+/** Where the structure opened at `start` closes (quotes respected), or -1 if it never does. */
+function matchingClose(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      depth++;
+    } else if ((ch === '}' || ch === ']') && --depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** What may follow a comma inside an array: another element, or the end of a trailing comma. */
+const JSON_ELEMENT_AHEAD = /^(?:["{[\]]|-?\d|(?:true|false|null)\s*[,\]])/;
+const JSON_LITERAL = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/;
+const JSON_KEY_AHEAD = /^"(?:[^"\\]|\\.)*"\s*:/;
+const JSON_STRING_ELEMENT_AHEAD = /^"(?:[^"\\]|\\.)+"\s*[,\]]/;
+
+function skipSpaces(text: string, i: number): number {
+  while (i < text.length && /\s/.test(text[i])) i++;
+  return i;
+}
+
+/** Is the quote at `i` the end of the string, or a quote inside the text the model forgot to escape? */
+function quoteEndsString(text: string, i: number, container: string | undefined, isKey: boolean): boolean {
+  const j = skipSpaces(text, i + 1);
+  if (j >= text.length) return true;
+  const next = text[j];
+  if (isKey) return next === ':';
+  if (next === '}') return container === '{';
+  if (next === ']') return container === '[';
+  if (next === ',') {
+    const k = skipSpaces(text, j + 1);
+    if (k >= text.length) return true;
+    if (container === '{') return text[k] === '}' || JSON_KEY_AHEAD.test(text.slice(k, k + 200));
+    return JSON_ELEMENT_AHEAD.test(text.slice(k, k + 12));
+  }
+  // The comma before the next member or element is missing
+  if (next === '"') return (container === '[' ? JSON_STRING_ELEMENT_AHEAD : JSON_KEY_AHEAD).test(text.slice(j, j + 400));
+  return false;
+}
+
+function escapeControl(ch: string): string {
+  if (ch === '\n') return '\\n';
+  if (ch === '\r') return '\\r';
+  if (ch === '\t') return '\\t';
+  return `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+}
+
+/**
+ * Rewrites the JSON value that opens at `start` into strict JSON, stopping where it closes. Fixes
+ * only slips that lose nothing (escapes, commas, comments, line breaks in strings); an answer cut
+ * before the end, or something that is not JSON at all, gives null: nothing is guessed.
+ */
+export function repairJson(text: string, start: number): string | null {
+  const out: string[] = [];
+  const stack: string[] = [];
+  // Last token outside strings: an opener, ',', ':', 'key' or 'value' (a closed string, number or container)
+  let last = '';
+  let lastComma = -1;
+  let inString = false;
+  let isKey = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    const container = stack[stack.length - 1];
+
+    if (inString) {
+      if (ch === '\\') {
+        const next = text[i + 1];
+        if (next !== undefined && '"\\/bfnrt'.includes(next)) {
+          out.push(ch, next);
+          i++;
+        } else if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) {
+          out.push(text.slice(i, i + 6));
+          i += 5;
+        } else {
+          out.push('\\\\'); // a lone backslash, as in LaTeX: keep it as text
+        }
+      } else if (ch === '"') {
+        if (quoteEndsString(text, i, container, isKey)) {
+          out.push('"');
+          inString = false;
+          last = isKey ? 'key' : 'value';
+        } else {
+          out.push('\\"');
+        }
+      } else {
+        out.push(ch < ' ' ? escapeControl(ch) : ch);
+      }
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      out.push(' \t\n\r'.includes(ch) ? ch : ' ');
+    } else if (ch === '/' && (text[i + 1] === '/' || text[i + 1] === '*')) {
+      const close = text[i + 1] === '/' ? '\n' : '*/';
+      const endAt = text.indexOf(close, i + 2);
+      if (endAt === -1) return null;
+      i = endAt + close.length - 1;
+    } else if (ch === '"') {
+      if (last === 'value') {
+        out.push(',');
+        last = ',';
+      }
+      isKey = container === '{' && (last === '{' || last === ',');
+      inString = true;
+      out.push(ch);
+    } else if (ch === '{' || ch === '[') {
+      if (last === 'value') out.push(',');
+      stack.push(ch);
+      out.push(ch);
+      last = ch;
+    } else if (ch === '}' || ch === ']') {
+      if (container !== (ch === '}' ? '{' : '[')) return null;
+      if (last === ',') out[lastComma] = '';
+      stack.pop();
+      out.push(ch);
+      last = 'value';
+      if (stack.length === 0) return out.join('');
+    } else if (ch === ',') {
+      if (last === 'value') {
+        lastComma = out.length;
+        out.push(ch);
+        last = ',';
+      }
+    } else if (ch === ':') {
+      out.push(ch);
+      last = ':';
+    } else {
+      const literal = JSON_LITERAL.exec(text.slice(i, i + 40));
+      if (!literal) return null;
+      if (last === 'value') out.push(',');
+      out.push(literal[0]);
+      last = 'value';
+      i += literal[0].length - 1;
+    }
+  }
+  return null;
 }
 
 export type ThinkingStreamListener = (payload: { text: string; done?: boolean }) => void;
@@ -340,7 +515,7 @@ async function doRequest(
     }
   }
 
-  return fetch(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
+  return postWithRetry(`${config.baseURL.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -350,7 +525,133 @@ async function doRequest(
     },
     body: JSON.stringify(bodyPayload),
     signal: guard.signal,
+  }, guard);
+}
+
+/**
+ * Pauses before sending again a request that could not reach the provider. It never got there,
+ * so it cost nothing: on an unstable connection the next try usually goes through.
+ */
+export const NETWORK_RETRY_DELAYS_MS = [1000, 3000];
+
+/** The system error behind a `fetch failed` (undici puts it in `cause`, sometimes inside an AggregateError). */
+export function networkErrorCode(err: unknown): string {
+  let e: any = err;
+  for (let depth = 0; e && depth < 5; depth++, e = e.cause) {
+    if (typeof e.code === 'string' && e.code) return e.code;
+    const inner = Array.isArray(e.errors) ? e.errors.find((x: any) => typeof x?.code === 'string') : undefined;
+    if (inner) return inner.code;
+  }
+  return '';
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** Short reason for a failed connection, and whether trying again can help. */
+function describeNetworkFailure(code: string): { reason: string; retryable: boolean } {
+  if (/CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET/i.test(code)) {
+    return {
+      reason: localize('o certificado de segurança do servidor não foi aceito', "the server's security certificate was not accepted"),
+      retryable: false,
+    };
+  }
+  if (code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT') {
+    return { reason: localize('a conexão demorou demais para abrir', 'the connection took too long to open'), retryable: true };
+  }
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_FAIL') {
+    return { reason: localize('o endereço não foi encontrado (DNS)', 'the address could not be resolved (DNS)'), retryable: true };
+  }
+  if (code === 'ECONNREFUSED') {
+    return { reason: localize('a conexão foi recusada', 'the connection was refused'), retryable: true };
+  }
+  if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED' || code === 'UND_ERR_SOCKET') {
+    return { reason: localize('a conexão caiu', 'the connection dropped'), retryable: true };
+  }
+  if (/^E(NET|HOST)(UNREACH|DOWN)$|^EADDRNOTAVAIL$/.test(code)) {
+    return { reason: localize('não há rota de rede até o servidor', 'there is no network route to the server'), retryable: true };
+  }
+  return { reason: localize('falha de rede', 'network failure'), retryable: true };
+}
+
+/**
+ * The provider could not be reached, or the connection dropped while it answered. `phase` tells
+ * which: a connection that never opened was already tried again, so retrying it once more is pointless.
+ */
+export class LLMNetworkError extends Error {
+  constructor(
+    public host: string,
+    public reason: string,
+    public phase: 'connect' | 'response',
+    public code = ''
+  ) {
+    const local = /^(localhost|127\.|\[::1\])/.test(host);
+    super(
+      localize(
+        `Não foi possível falar com o provedor de IA (${host}): ${reason}. ` +
+          (local
+            ? 'Confira se o servidor local (como o Ollama) está aberto e tente de novo.'
+            : 'Verifique sua internet (e VPN, proxy ou firewall, se usar) e tente de novo.'),
+        `Could not talk to the AI provider (${host}): ${reason}. ` +
+          (local
+            ? 'Check that the local server (such as Ollama) is running and try again.'
+            : 'Check your internet connection (and VPN, proxy or firewall, if any) and try again.')
+      )
+    );
+    this.name = 'LLMNetworkError';
+  }
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+async function postWithRetry(url: string, init: RequestInit, guard: CallGuard): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      // A cancel or a deadline is explained by the guard, not retried
+      if (guard.signal.aborted) throw err;
+      const code = networkErrorCode(err);
+      const { reason, retryable } = describeNetworkFailure(code);
+      if (!retryable || attempt >= NETWORK_RETRY_DELAYS_MS.length) {
+        throw new LLMNetworkError(hostOf(url), reason, 'connect', code);
+      }
+      console.warn(`[llmClient] ${hostOf(url)}: ${code || String((err as any)?.message || err)}; nova tentativa em ${NETWORK_RETRY_DELAYS_MS[attempt]} ms.`);
+      guard.touch();
+      await abortableDelay(NETWORK_RETRY_DELAYS_MS[attempt], guard.signal);
+    }
+  }
+}
+
+/** A read that failed because the connection dropped mid-answer becomes a readable network error. */
+function asDroppedConnection(err: unknown, url: string, guard: CallGuard): unknown {
+  if (guard.signal.aborted || !(err instanceof TypeError)) return err;
+  const code = networkErrorCode(err);
+  if (!code && !/terminated|fetch failed|network/i.test(err.message)) return err;
+  return new LLMNetworkError(
+    hostOf(url),
+    localize('a conexão caiu no meio da resposta', 'the connection dropped in the middle of the answer'),
+    'response',
+    code
+  );
 }
 
 const LIVE_THINKING_INTERVAL_MS = 100;
@@ -545,9 +846,17 @@ export class LLMCancelledError extends Error {
   }
 }
 
-/** Errors for which a retry is pointless (quota/key/credits, missing configuration or a cancel). */
+/**
+ * Errors for which a retry is pointless: quota/key/credits, missing configuration, a cancel, or a
+ * provider that could not be reached even after the client's own retries.
+ */
 export function isFatalLLMError(err: unknown): boolean {
-  return isProviderLimitError(err) || err instanceof LLMNotConfiguredError || err instanceof LLMCancelledError;
+  return (
+    isProviderLimitError(err) ||
+    err instanceof LLMNotConfiguredError ||
+    err instanceof LLMCancelledError ||
+    (err instanceof LLMNetworkError && err.phase === 'connect')
+  );
 }
 
 function throwProviderLimit(status: number, detail: string): never {
@@ -635,7 +944,13 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
     throw new Error(localize(`Erro do provedor de IA (HTTP ${res.status})${detail ? `: ${detail}` : ''}`, `AI provider error (HTTP ${res.status})${detail ? `: ${detail}` : ''}`));
   }
 
-  const first = await readResponseOrStream(res, shouldStreamLive, messages, config.model, guard);
+  const url = `${config.baseURL}/chat/completions`;
+  const read = (r: Response) =>
+    readResponseOrStream(r, shouldStreamLive, messages, config.model, guard).catch((err) => {
+      throw asDroppedConnection(err, url, guard);
+    });
+
+  const first = await read(res);
   let { content, nativeReasoning } = first;
   const truncated = first.truncated;
 
@@ -650,7 +965,7 @@ async function runCall(config: LLMConfig, options: CallLLMOptions, guard: CallGu
       guard
     );
     if (retryRes.ok) {
-      const retried = await readResponseOrStream(retryRes, shouldStreamLive, messages, config.model, guard);
+      const retried = await read(retryRes);
       // A second cut fragment is no better than the first: keep whichever is longer
       if (!retried.truncated || retried.content.length > content.length) content = retried.content;
       nativeReasoning = retried.nativeReasoning || nativeReasoning;
