@@ -91,5 +91,6 @@ export const getNotesInstructions = (): string => compose([VOICE, ACCURACY, FORM
 export const getPracticeInstructions = (): string =>
   compose([VOICE, ACCURACY, FORMATTING, 'practice/00-base.md', 'practice/10-doctrine.md']);
 
+// The checks follow the same question craft as the probe: without it they drift into recall
 export const getTeachInstructions = (): string =>
-  compose([VOICE, ACCURACY, FORMATTING, TEACHING, QUESTION_PRINCIPLES]);
+  compose([VOICE, ACCURACY, QUESTIONS, FORMATTING, TEACHING, QUESTION_PRINCIPLES]);

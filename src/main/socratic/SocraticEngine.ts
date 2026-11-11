@@ -7,13 +7,41 @@ import {
   MAX_LESSON_STEPS,
   MAX_STEP_RETRIES,
 } from '../../shared/types';
-import { buildLessonStepPrompt, buildSocraticTeachPrompt } from '../prompts/surgicalGeneratorPrompt';
+import { buildLessonStepPrompt, buildSocraticTeachPrompt, ProbeReference } from '../prompts/surgicalGeneratorPrompt';
 import { callLLM, isFatalLLMError, LLMCaller, localize, parseLLMJson } from '../services/llmClient';
 import { CurriculumGenerator, parseCorrectIndex } from '../services/CurriculumGenerator';
 
 /** Some models double-escape line breaks, leaving a literal "\\n" in the text the student reads. */
 export function unescapeBreaks(text: string): string {
   return text.replace(/(?:\\r)?\\n/g, '\n').replace(/\\t/g, '  ');
+}
+
+function quoteOption(text: string | undefined): string {
+  const clean = (text || '').trim().replace(/[.;:]+$/, '');
+  return clean.length > 90 ? `${clean.slice(0, 90)}…` : clean;
+}
+
+const OPTION_LETTER_PT = /(^|[^\p{L}\p{N}])(?:([Aa])\s+)?([Oo]p[çc][ãa]o|[Aa]lternativa|[Ll]etra)\s+\(?([A-H])\)?(?![\p{L}\p{N}])/gu;
+const OPTION_LETTER_EN = /(^|[^\p{L}\p{N}])(?:([Tt]he)\s+)?([Oo]ption|[Cc]hoice|[Aa]lternative|[Aa]nswer)\s+\(?([A-H])\)?(?![\p{L}\p{N}])/gu;
+
+/**
+ * The model names options by the letter they had when it wrote them, but they are shuffled before
+ * the student sees them, with no letters on screen. Each such reference becomes the option itself.
+ * `options` and `correctIndex` are the order the model wrote.
+ */
+export function rewriteOptionReferences(text: string, options: string[], correctIndex: number): string {
+  const rewrite = (en: boolean) => (match: string, lead: string, article: string | undefined, noun: string, letter: string) => {
+    const index = letter.charCodeAt(0) - 65;
+    if (index >= options.length) return match;
+    const named =
+      index === correctIndex
+        ? en ? 'right option' : 'alternativa certa'
+        : en ? `option "${quoteOption(options[index])}"` : `alternativa "${quoteOption(options[index])}"`;
+    // A capitalized noun with no article opens a sentence: it gets one
+    const opening = article ? `${article} ` : /^[A-Z]/.test(noun) ? (en ? 'The ' : 'A ') : en ? 'the ' : '';
+    return `${lead}${opening}${named}`;
+  };
+  return text.replace(OPTION_LETTER_PT, rewrite(false)).replace(OPTION_LETTER_EN, rewrite(true));
 }
 
 interface WrittenStep {
@@ -93,10 +121,11 @@ export class SocraticEngine {
   /** Opens the lesson: the AI splits the concept into steps and writes the first one. */
   async submitPrediction(
     studentPrediction: string,
-    failures: LessonFailure[] = []
+    failures: LessonFailure[] = [],
+    reference: ProbeReference[] = []
   ): Promise<{ teachProse: string; checkQuestion: CheckQuestionData; progress: LessonProgress }> {
     const node = this.requireNode();
-    const written = await this.writeStep(node, buildSocraticTeachPrompt(node, studentPrediction, failures), true);
+    const written = await this.writeStep(node, buildSocraticTeachPrompt(node, studentPrediction, failures, reference), true);
     const whole = [node.unconditionalTruth || node.title];
     // Pruning: a guess that already states the concept gets one confirmation instead of the steps.
     // Never after a failed verification of this same concept: then the guess is not enough evidence.
@@ -143,7 +172,8 @@ export class SocraticEngine {
 
   /** Writes the step the lesson is on: a new one, or the same one again when `failure` is given. */
   async continueLesson(
-    failure?: LessonFailure
+    failure?: LessonFailure,
+    reference: ProbeReference[] = []
   ): Promise<{ teachProse: string; checkQuestion: CheckQuestionData; progress: LessonProgress; isRetry: boolean }> {
     const node = this.requireNode();
     const lesson = this.lesson;
@@ -151,7 +181,7 @@ export class SocraticEngine {
       throw new Error(localize('Não há aula em andamento para continuar.', 'There is no lesson in progress to continue.'));
     }
     const isRetry = lesson.retries > 0;
-    const written = await this.writeStep(node, buildLessonStepPrompt(node, lesson, isRetry ? failure : undefined));
+    const written = await this.writeStep(node, buildLessonStepPrompt(node, lesson, isRetry ? failure : undefined, reference));
     // Nothing changes before this point: a failed generation can simply be asked for again
     lesson.taught.push({ step: lesson.stepIndex, prose: written.teachProse });
     lesson.readingThoughts = undefined;
@@ -195,7 +225,8 @@ export class SocraticEngine {
             ? parseCorrectIndex(cq.correctOptionIndex, cq.options.length)
             : null;
         if (parsed.teachProse && correct !== null) {
-          const arranged = this.generator.arrangeOptions(cq.options.map((o: unknown) => String(o)), correct);
+          const written = cq.options.map((o: unknown) => String(o));
+          const arranged = this.generator.arrangeOptions(written, correct);
           const steps: string[] = Array.isArray(parsed.steps)
             ? parsed.steps
                 .filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
@@ -208,7 +239,7 @@ export class SocraticEngine {
               questionText: unescapeBreaks(String(cq.questionText)),
               options: arranged.options,
               correctOptionIndex: arranged.correctOptionIndex,
-              explanation: String(cq.explanation || node.unconditionalTruth),
+              explanation: rewriteOptionReferences(String(cq.explanation || node.unconditionalTruth), written, correct),
             },
             steps,
             alreadyHeld: parsed.alreadyHeld === true,

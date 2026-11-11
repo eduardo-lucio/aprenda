@@ -22,6 +22,7 @@ import { CognitiveJudgeService } from '../services/CognitiveJudgeService';
 import { CurriculumGenerator, sanitizeGraph, slugify } from '../services/CurriculumGenerator';
 import { AgentOrchestrator } from '../services/AgentOrchestrator';
 import { SocraticEngine } from '../socratic/SocraticEngine';
+import type { ProbeReference } from '../prompts/surgicalGeneratorPrompt';
 import { addGlobalTokenListener, localize } from '../services/llmClient';
 import { ProbeFrontier, ProbeTarget } from './probeFrontier';
 import { PracticeEngine } from '../practice/PracticeEngine';
@@ -621,6 +622,32 @@ export class SessionStateMachine {
 
   getLessonFailures(nodeId: string): LessonFailure[] {
     return [...(this.lessonFailures[nodeId] || [])];
+  }
+
+  /**
+   * Probe questions that set the bar for a lesson's checks: those about the concept itself first,
+   * then those about its line of the map (what it builds on and what builds on it), then any
+   * other. The latest come first within each group: the probe climbs as it goes.
+   */
+  getProbeReference(nodeId: string, max = 3): ProbeReference[] {
+    const attempts = this.session?.attempts || [];
+    if (attempts.length === 0) return [];
+    const below = new Set(this.store.getPrerequisites(nodeId).map((n) => n.id));
+    const above = new Set(
+      this.store
+        .getNodes()
+        .filter((n) => this.store.getPrerequisites(n.id).some((p) => p.id === nodeId))
+        .map((n) => n.id)
+    );
+    const rank = (id: string) => (id === nodeId ? 0 : below.has(id) || above.has(id) ? 1 : 2);
+    const seen = new Set<string>();
+    return attempts
+      .map((a, order) => ({ a, order }))
+      .filter(({ a }) => a.questionText && a.options.length >= 2 && a.options[a.correctOptionIndex] !== undefined)
+      .sort((x, y) => rank(x.a.nodeId) - rank(y.a.nodeId) || y.order - x.order)
+      .filter(({ a }) => !seen.has(a.questionText) && Boolean(seen.add(a.questionText)))
+      .slice(0, max)
+      .map(({ a }) => ({ questionText: a.questionText, options: [...a.options], correctAnswer: a.options[a.correctOptionIndex] }));
   }
 
   /**

@@ -15,18 +15,43 @@ const PROSE_RULES = `- Parágrafos curtos separados por linha em branco (use que
 
 const CHECK_RULES = `- Toda checagem existe para responder: a ideia realmente foi compreendida, ou o aluno está apenas repetindo palavras?
    - Ela verifica SOMENTE o passo que acabou de ser explicado: tudo de que depende já está na explicação.
-   - Proibido perguntar para ele apenas repetir o texto recém-lido. Formule uma aplicação prática a um novo caso ou dedução lógica.
-   - Aplique o Option Craft: 4 alternativas homogêneas, mesmo tamanho, afirmações diretas sem justificação embutida, com distratores representando erros críveis.`;
+   - Mesma altura das perguntas da sondagem (as que ele respondeu nesta sessão vêm no pedido, quando houver): um cenário concreto e novo (números, um trecho de código, uma configuração, uma situação) em que a resposta só sai aplicando o mecanismo do passo: prever um resultado, achar o erro, separar dois casos parecidos. A dificuldade vem do raciocínio, nunca de cobrar o que ainda não foi ensinado.
+   - Proibido pedir para repetir o texto recém-lido ou perguntar a definição ("o que X faz?", "qual ação X realiza?"). Se dá para acertar pelo bom senso, ou eliminando absurdos, sem ter lido a explicação, está fácil demais: refaça.
+   - No último passo do plano (ou no único), a checagem cobra o próprio conceito, como uma pergunta da sondagem sobre ele cobraria.
+   - Num reparo, o caso pode ser menor e mais concreto, mas a pergunta continua exigindo aplicar o mecanismo.
+   - Aplique o Option Craft: 4 alternativas homogêneas, mesmo tamanho e mesma formatação (se uma usa \`código\` ou termo técnico, as outras também usam), afirmações diretas sem justificativa embutida. Cada distrator é a resposta de um modelo mental errado específico e crível, nunca um absurdo.
+   - "explanation": por que a certa vale neste caso e qual modelo errado leva às outras, citando as alternativas pelo conteúdo. Nunca por letra, número ou posição: a ordem é embaralhada antes de o aluno ver.`;
 
 const CHECK_JSON = `"checkQuestion": {
-    "questionText": "Problema ou aplicação prática para verificar se a ideia se fixou...",
-    "options": ["Alternativa A", "Alternativa B", "Alternativa C", "Alternativa D"],
-    "correctOptionIndex": 1,
-    "explanation": "Razão causal pela qual esta alternativa expressa o funcionamento correto"
+    "questionText": "Cenário concreto e novo que só se resolve aplicando o mecanismo do passo...",
+    "options": ["...", "...", "...", "..."],
+    "correctOptionIndex": 2,
+    "explanation": "Por que a certa vale neste caso e qual modelo errado leva às outras, sem citar letras ou posições"
   }`;
 
+/** A question the student answered in the probe of this session: the bar a lesson check must meet. */
+export interface ProbeReference {
+  questionText: string;
+  options: string[];
+  correctAnswer: string;
+}
+
+function describeProbeReference(reference: ProbeReference[]): string {
+  if (reference.length === 0) return '';
+  const items = reference.map(
+    (r, i) =>
+      `${i + 1}. ${clip(r.questionText, 600)}\n   Alternativas: ${r.options.map((o) => clip(o, 160)).join(' | ')}\n   Certa: ${clip(r.correctAnswer, 160)}`
+  );
+  return `\n\nPERGUNTAS DA SONDAGEM DESTA SESSÃO (a altura que a checagem deve ter; não repita nem reaproveite estes cenários):\n${items.join('\n')}`;
+}
+
 /** Opens the lesson on a concept: splits it into reasoning steps and writes the first one. */
-export function buildSocraticTeachPrompt(node: ConceptNode, studentPrediction: string, failures: LessonFailure[] = []): {
+export function buildSocraticTeachPrompt(
+  node: ConceptNode,
+  studentPrediction: string,
+  failures: LessonFailure[] = [],
+  reference: ProbeReference[] = []
+): {
   systemPrompt: string;
   prompt: string;
 } {
@@ -75,7 +100,7 @@ Verdade Incondicional: ${node.unconditionalTruth}
 Resumo: ${node.summary}
 
 PREDIÇÃO SUBMETIDA PELO ESTUDANTE:
-"${studentPrediction}"
+"${studentPrediction}"${describeProbeReference(reference)}
 
 Gere o plano de passos, a explicação do passo 1 e a questão de checagem dele em JSON:`;
 
@@ -89,7 +114,8 @@ Gere o plano de passos, a explicação do passo 1 e a questão de checagem dele 
 export function buildLessonStepPrompt(
   node: ConceptNode,
   progress: LessonProgress,
-  failure?: LessonFailure
+  failure?: LessonFailure,
+  reference: ProbeReference[] = []
 ): { systemPrompt: string; prompt: string } {
   const total = progress.steps.length;
   const current = progress.stepIndex + 1;
@@ -157,7 +183,7 @@ PALPITE INICIAL DO ALUNO: "${clip(progress.prediction, 400)}"
 O QUE JÁ FOI EXPLICADO NESTA AULA:
 ${taughtLines || '(nada ainda)'}${failureBlock}${
     reading ? `\n\nO QUE ELE PENSAVA ENQUANTO LIA A EXPLICAÇÃO ANTERIOR: "${clip(reading, 600)}"` : ''
-  }
+  }${describeProbeReference(reference)}
 
 Gere a explicação do passo ${current} e a questão de checagem dele em JSON:`;
 

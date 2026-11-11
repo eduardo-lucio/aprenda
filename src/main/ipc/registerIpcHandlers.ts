@@ -283,9 +283,10 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     if (!currentSocraticNode) {
       throw new Error(localize('Nenhum conceito ativo no ciclo socrático.', 'There is no active lesson.'));
     }
-    const failures = fsm.getLessonFailures(currentSocraticNode.id);
+    const node = currentSocraticNode;
+    const failures = fsm.getLessonFailures(node.id);
     return foreground(async () => {
-      const teachResult = await socratic.submitPrediction(text, failures);
+      const teachResult = await socratic.submitPrediction(text, failures, fsm.getProbeReference(node.id));
       currentCheckData = teachResult.checkQuestion;
       return teachResult;
     });
@@ -299,7 +300,7 @@ export function registerIpcHandlers(ipcMain: IpcMain, deps: IpcDependencies): vo
     // A repair is written from the verification that failed; a new step starts clean
     const lastFailure = fsm.getLessonFailures(node.id).slice(-1)[0];
     return foreground(async () => {
-      const step = await socratic.continueLesson(lastFailure);
+      const step = await socratic.continueLesson(lastFailure, fsm.getProbeReference(node.id));
       currentCheckData = step.checkQuestion;
       return step;
     });
